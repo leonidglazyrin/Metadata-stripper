@@ -13,7 +13,7 @@ EXIF orientation is applied to the pixels before stripping so images stay uprigh
 - all global, per-stream and chapter metadata is removed (title, artist, location, creation time, device make/model/software, handler names…)
 - unknown boxes such as C2PA `uuid` manifests are not carried over
 - H.264/HEVC SEI user-data units (encoder strings) are filtered from the bitstream
-- by default streams are copied losslessly; tick **Re-encode video** to fully re-encode (x264 CRF 18 / VP9)
+- streams are always copied losslessly — nothing is re-encoded; if a codec can't go back into its original container the output is MKV
 
 Each result shows a before/after report of what was detected and removed.
 

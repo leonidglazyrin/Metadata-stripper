@@ -157,14 +157,16 @@ async function stripImage(input, ext, quality) {
   return { output, outExt };
 }
 
-async function stripVideo(input, ext, reencode) {
-  const outExt = ['.avi', '.wmv', '.flv', '.mts', '.m2ts', '.ts', '.3gp'].includes(ext) ? '.mp4' : ext;
+async function stripVideo(input, ext, forceMkv = false) {
+  // Lossless remux only — streams are copied, never re-encoded.
+  const outExt = forceMkv ? '.mkv'
+    : ['.avi', '.wmv', '.flv', '.mts', '.m2ts', '.ts', '.3gp'].includes(ext) ? '.mp4' : ext;
   const output = `${input}.out${outExt}`;
   const args = [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-i', input,
     // Keep only real audio/video/subtitle streams — drops data tracks
-    // (GPS/telemetry, timecode, camera metadata tracks) and attachments.
+    // (GPS/telemetry, timecode, camera metadata tracks), attachments and cover art.
     '-map', '0:V?', '-map', '0:a?', '-map', '0:s?',
     '-dn',
     // Drop all global, per-stream and chapter metadata.
@@ -174,41 +176,22 @@ async function stripVideo(input, ext, reencode) {
     // Don't let ffmpeg write its own "encoder"/handler tags.
     '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact',
     '-metadata', 'creation_time=', '-metadata:s', 'handler_name=', '-metadata:s', 'vendor_id=',
+    '-c', 'copy',
   ];
-  if (reencode) {
-    if (outExt === '.webm') {
-      args.push('-c:v', 'libvpx-vp9', '-crf', '30', '-b:v', '0', '-c:a', 'libopus');
-    } else {
-      args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k');
-    }
-    if (outExt === '.mp4' || outExt === '.mov' || outExt === '.m4v') args.push('-c:s', 'mov_text');
-  } else {
-    args.push('-c', 'copy');
-    // Strip SEI NAL units (encoder settings strings, user-data) from the
-    // bitstream itself without re-encoding.
-    const codecs = await probeCodecs(input);
-    if (codecs.length === 1 && codecs[0] === 'h264') args.push('-bsf:v', 'filter_units=remove_types=6');
-    if (codecs.length === 1 && codecs[0] === 'hevc') args.push('-bsf:v', 'filter_units=remove_types=39|40');
-    if (outExt === '.mp4' && ext !== '.mp4') args.push('-c:s', 'mov_text');
-  }
+  // Strip SEI NAL units (encoder settings strings, user-data) from the bitstream.
+  const codecs = await probeCodecs(input);
+  if (codecs.length === 1 && codecs[0] === 'h264') args.push('-bsf:v', 'filter_units=remove_types=6');
+  if (codecs.length === 1 && codecs[0] === 'hevc') args.push('-bsf:v', 'filter_units=remove_types=39|40');
+  if (outExt === '.mp4' && ext !== '.mp4') args.push('-c:s', 'mov_text');
   if (['.mp4', '.mov', '.m4v'].includes(outExt)) args.push('-movflags', '+faststart');
   args.push(output);
   try {
     await run('ffmpeg', args);
   } catch (e) {
     await fs.rm(output, { force: true });
-    if (!reencode) return stripVideo(input, ext, true); // codec not copyable into container
+    // Codec can't be copied into the original container — MKV accepts almost anything.
+    if (!forceMkv) return stripVideo(input, ext, true);
     throw new Error((e.stderr || e.message).trim().split('\n').slice(-3).join(' '));
-  }
-  if (reencode) {
-    // The encoder always stamps its own tags/SEI; run a lossless strip pass
-    // over the fresh encode to remove them.
-    try {
-      const second = await stripVideo(output, outExt, false);
-      await fs.rename(second.output, output);
-    } finally {
-      await fs.rm(`${output}.out${outExt}`, { force: true });
-    }
   }
   return { output, outExt };
 }
@@ -237,7 +220,6 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
     let ext = path.extname(f.originalname).toLowerCase();
     if (!ext) ext = kind === 'image' ? '.jpg' : '.mp4';
     const quality = Math.min(100, Math.max(50, Number(req.body.quality) || 95));
-    const reencode = req.body.reencode === 'true';
 
     let before, after, result;
     if (kind === 'image') {
@@ -247,7 +229,7 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
       after = { found: await inspectImage(result.output) };
     } else {
       before = await inspectVideo(f.path);
-      result = await stripVideo(f.path, ext, reencode);
+      result = await stripVideo(f.path, ext);
       cleanup.push(result.output);
       after = await inspectVideo(result.output);
     }

@@ -62,7 +62,6 @@
 
   <div class="opts">
     <label>Image quality <input id="quality" type="range" min="70" max="100" value="95"> <span id="qv">95</span></label>
-    <label><input id="reencode" type="checkbox"> Re-encode video (slower; default copies streams losslessly)</label>
   </div>
 
   <div id="list"></div>
@@ -71,7 +70,7 @@
     <h2>How it works</h2>
     <ul>
       <li><b>Images</b> are decoded to raw pixels and written out as a brand-new file, so no metadata segment of any kind (EXIF, XMP, IPTC, ICC, C2PA/JUMBF, comments, maker notes, thumbnails) survives. Orientation is baked into the pixels first. HEIC is output as JPEG.</li>
-      <li><b>Videos</b> are remuxed with only the audio/video/subtitle streams kept; global, per-stream and chapter metadata, data/telemetry/GPS tracks, cover art and C2PA boxes are dropped.</li>
+      <li><b>Videos</b> are remuxed losslessly (never re-encoded) with only the audio/video/subtitle streams kept; global, per-stream and chapter metadata, data/telemetry/GPS tracks, cover art and C2PA boxes are dropped.</li>
       <li>Files are processed on the server in a temp folder and deleted immediately after the response.</li>
       <li>Invisible pixel-level watermarks (e.g. SynthID) aren't metadata — they're woven into the image/audio content itself — and this tool does not attempt to remove them.</li>
     </ul>
@@ -84,7 +83,6 @@ const input = document.getElementById('input');
 const list = document.getElementById('list');
 const quality = document.getElementById('quality');
 const qv = document.getElementById('qv');
-const reencode = document.getElementById('reencode');
 quality.oninput = () => (qv.textContent = quality.value);
 
 ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
@@ -116,7 +114,6 @@ function process(c) {
   return new Promise(resolve => {
     const fd = new FormData();
     fd.append('quality', quality.value);
-    fd.append('reencode', reencode.checked);
     fd.append('file', c.file);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/strip');
