@@ -127,7 +127,7 @@ async function inspectVideo(file) {
 // Stripping
 // ---------------------------------------------------------------------------
 
-async function stripImage(input, ext, quality) {
+async function stripImage(input, ext, quality, synthid = false) {
   // Decode to raw pixels and re-encode a brand-new file. sharp writes no
   // EXIF / XMP / IPTC / ICC / C2PA / comments unless explicitly asked to.
   // .rotate() bakes the EXIF orientation into the pixels so the image still
@@ -136,6 +136,23 @@ async function stripImage(input, ext, quality) {
   let img = sharp(input, { animated, failOn: 'none' }).rotate();
   // Convert to sRGB so dropping the ICC profile doesn't shift colors.
   img = img.toColorspace('srgb');
+
+  if (synthid) {
+    // Disrupt invisible pixel-level watermarks (SynthID, etc.) by running a
+    // resize-down→resize-up cycle that forces bilinear resampling of every
+    // pixel, then a subtle blur+sharpen pass to break high-frequency patterns.
+    const meta = await sharp(input, { animated, failOn: 'none' }).metadata();
+    const w = meta.width;
+    const h = meta.height;
+    if (w && h) {
+      const shrunkW = Math.max(1, Math.round(w * 0.98));
+      const shrunkH = Math.max(1, Math.round(h * 0.98));
+      img = img
+        .resize(shrunkW, shrunkH, { kernel: 'lanczos3' })
+        .resize(w, h, { kernel: 'lanczos3' });
+    }
+    img = img.blur(0.5).sharpen({ sigma: 1.0, m1: 0.5, m2: 0.3 });
+  }
 
   let outExt = ext;
   switch (ext) {
@@ -157,31 +174,38 @@ async function stripImage(input, ext, quality) {
   return { output, outExt };
 }
 
-async function stripVideo(input, ext, forceMkv = false) {
-  // Lossless remux only — streams are copied, never re-encoded.
+async function stripVideo(input, ext, { forceMkv = false, synthid = false } = {}) {
   const outExt = forceMkv ? '.mkv'
     : ['.avi', '.wmv', '.flv', '.mts', '.m2ts', '.ts', '.3gp'].includes(ext) ? '.mp4' : ext;
   const output = `${input}.out${outExt}`;
   const args = [
     '-hide_banner', '-loglevel', 'error', '-y',
     '-i', input,
-    // Keep only real audio/video/subtitle streams — drops data tracks
-    // (GPS/telemetry, timecode, camera metadata tracks), attachments and cover art.
     '-map', '0:V?', '-map', '0:a?', '-map', '0:s?',
     '-dn',
-    // Drop all global, per-stream and chapter metadata.
     '-map_metadata', '-1',
     '-map_metadata:s:v', '-1', '-map_metadata:s:a', '-1', '-map_metadata:s:s', '-1',
     '-map_chapters', '-1',
-    // Don't let ffmpeg write its own "encoder"/handler tags.
     '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact',
     '-metadata', 'creation_time=', '-metadata:s', 'handler_name=', '-metadata:s', 'vendor_id=',
-    '-c', 'copy',
   ];
-  // Strip SEI NAL units (encoder settings strings, user-data) from the bitstream.
-  const codecs = await probeCodecs(input);
-  if (codecs.length === 1 && codecs[0] === 'h264') args.push('-bsf:v', 'filter_units=remove_types=6');
-  if (codecs.length === 1 && codecs[0] === 'hevc') args.push('-bsf:v', 'filter_units=remove_types=39|40');
+
+  if (synthid) {
+    // Re-encode video with subtle noise + blur/sharpen to disrupt pixel-level
+    // watermarks, and re-encode audio with slight filtering to break audio watermarks.
+    args.push(
+      '-vf', 'gblur=sigma=0.5,noise=c0s=3:c0f=t,unsharp=5:5:0.5:5:5:0',
+      '-c:v', 'libx264', '-crf', '18', '-preset', 'medium',
+      '-c:a', 'aac', '-b:a', '192k', '-af', 'aresample=async=1,lowpass=f=18000',
+    );
+  } else {
+    // Lossless remux — streams are copied, never re-encoded.
+    args.push('-c', 'copy');
+    const codecs = await probeCodecs(input);
+    if (codecs.length === 1 && codecs[0] === 'h264') args.push('-bsf:v', 'filter_units=remove_types=6');
+    if (codecs.length === 1 && codecs[0] === 'hevc') args.push('-bsf:v', 'filter_units=remove_types=39|40');
+  }
+
   if (outExt === '.mp4' && ext !== '.mp4') args.push('-c:s', 'mov_text');
   if (['.mp4', '.mov', '.m4v'].includes(outExt)) args.push('-movflags', '+faststart');
   args.push(output);
@@ -189,8 +213,7 @@ async function stripVideo(input, ext, forceMkv = false) {
     await run('ffmpeg', args);
   } catch (e) {
     await fs.rm(output, { force: true });
-    // Codec can't be copied into the original container — MKV accepts almost anything.
-    if (!forceMkv) return stripVideo(input, ext, true);
+    if (!forceMkv) return stripVideo(input, ext, { forceMkv: true, synthid });
     throw new Error((e.stderr || e.message).trim().split('\n').slice(-3).join(' '));
   }
   return { output, outExt };
@@ -220,16 +243,17 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
     let ext = path.extname(f.originalname).toLowerCase();
     if (!ext) ext = kind === 'image' ? '.jpg' : '.mp4';
     const quality = Math.min(100, Math.max(50, Number(req.body.quality) || 95));
+    const synthid = req.body.synthid === 'true' || req.body.synthid === '1';
 
     let before, after, result;
     if (kind === 'image') {
       before = { found: await inspectImage(f.path) };
-      result = await stripImage(f.path, ext, quality);
+      result = await stripImage(f.path, ext, quality, synthid);
       cleanup.push(result.output);
       after = { found: await inspectImage(result.output) };
     } else {
       before = await inspectVideo(f.path);
-      result = await stripVideo(f.path, ext);
+      result = await stripVideo(f.path, ext, { synthid });
       cleanup.push(result.output);
       after = await inspectVideo(result.output);
     }

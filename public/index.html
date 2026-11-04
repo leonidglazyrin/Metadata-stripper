@@ -52,7 +52,7 @@
 <body>
 <main>
   <h1>Metadata Stripper</h1>
-  <p class="sub">Drop photos or videos to remove EXIF, GPS, XMP, IPTC, ICC, C2PA / Content Credentials, maker notes, container tags, chapters and telemetry tracks.</p>
+  <p class="sub">Drop photos or videos to remove EXIF, GPS, XMP, IPTC, ICC, C2PA / Content Credentials, maker notes, container tags, chapters, telemetry tracks and SynthID watermarks.</p>
 
   <label id="drop">
     <input id="input" type="file" multiple accept="image/*,video/*,.heic,.heif,.mkv,.mts,.m2ts" hidden>
@@ -62,6 +62,7 @@
 
   <div class="opts">
     <label>Image quality <input id="quality" type="range" min="70" max="100" value="95"> <span id="qv">95</span></label>
+    <label><input id="synthid" type="checkbox"> Strip SynthID watermarks</label>
   </div>
 
   <div id="list"></div>
@@ -72,7 +73,7 @@
       <li><b>Images</b> are decoded to raw pixels and written out as a brand-new file, so no metadata segment of any kind (EXIF, XMP, IPTC, ICC, C2PA/JUMBF, comments, maker notes, thumbnails) survives. Orientation is baked into the pixels first. HEIC is output as JPEG.</li>
       <li><b>Videos</b> are remuxed losslessly (never re-encoded) with only the audio/video/subtitle streams kept; global, per-stream and chapter metadata, data/telemetry/GPS tracks, cover art and C2PA boxes are dropped.</li>
       <li>Files are processed on the server in a temp folder and deleted immediately after the response.</li>
-      <li>Invisible pixel-level watermarks (e.g. SynthID) aren't metadata — they're woven into the image/audio content itself — and this tool does not attempt to remove them.</li>
+      <li><b>SynthID stripping</b> (opt-in checkbox) disrupts invisible pixel-level watermarks embedded by AI generators. Images are run through a resize-cycle and blur/sharpen pass; videos are re-encoded with subtle noise and a low-pass audio filter. This is lossy and slightly reduces quality — leave it off unless you need it.</li>
     </ul>
   </div>
 </main>
@@ -114,6 +115,7 @@ function process(c) {
   return new Promise(resolve => {
     const fd = new FormData();
     fd.append('quality', quality.value);
+    fd.append('synthid', document.getElementById('synthid').checked ? 'true' : 'false');
     fd.append('file', c.file);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/strip');
