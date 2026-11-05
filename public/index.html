@@ -122,14 +122,6 @@
   }
   .btn:hover { opacity: .85; }
 
-  .settings {
-    margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line);
-    font-size: 13px; color: var(--soft);
-  }
-  .settings label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--ink); font-weight: 500; }
-  .settings input[type=checkbox] { accent-color: var(--ink); }
-  .settings .hint { display: block; margin-top: 4px; margin-left: 22px; color: var(--faint); font-size: 12px; }
-
   .actions { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
   .all {
     display: none; padding: 10px 18px; border-radius: 999px;
@@ -180,6 +172,10 @@
     <span>Multiple TikTok links<small>After you enter a link, an empty field appears for the next one.</small></span>
     <input id="opt-multi" class="switch" type="checkbox" role="switch">
   </label>
+  <label class="setting">
+    <span>Strip SynthID watermarks<small>Disrupts invisible AI watermarks. Slightly lossy.</small></span>
+    <input id="synthid" class="switch" type="checkbox" role="switch" checked>
+  </label>
 </div>
 
 <main>
@@ -221,10 +217,6 @@
   </div>
   </section>
 
-  <div class="settings">
-    <label><input id="synthid" type="checkbox" checked> Strip SynthID watermarks</label>
-    <span class="hint">Disrupts invisible AI watermarks. Slightly lossy — videos are re-encoded.</span>
-  </div>
 </main>
 
 <footer>Files are processed and deleted immediately. Nothing is stored.<br>Only download TikToks you have the right to save.</footer>
@@ -325,7 +317,7 @@ function row(file) {
 function send(r) {
   return new Promise((resolve) => {
     const fd = new FormData();
-    fd.append('synthid', $('#synthid').checked ? 'true' : 'false');
+    fd.append('synthid', synthid.checked ? 'true' : 'false');
     fd.append('file', r.file);
     const xhr = r.xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/strip'); xhr.responseType = 'blob';
@@ -401,6 +393,11 @@ const looksLikeLink = (v) => /tiktok\.com|^https?:\/\/\S+\.\S+/i.test(v.trim());
 let multi = store.get('multiLinks', true);
 const gear = $('#gear'), settings = $('#settings'), optMulti = $('#opt-multi');
 optMulti.checked = multi;
+
+// SynthID stripping (on by default)
+const synthid = $('#synthid');
+synthid.checked = store.get('synthid', true);
+synthid.addEventListener('change', () => store.set('synthid', synthid.checked));
 const toggleSettings = (open = settings.hidden) => { settings.hidden = !open; gear.setAttribute('aria-expanded', open); };
 gear.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
 document.addEventListener('click', (e) => { if (!settings.hidden && !settings.contains(e.target)) toggleSettings(false); });
