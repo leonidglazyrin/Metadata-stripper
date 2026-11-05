@@ -19,7 +19,7 @@ Each result shows a before/after report of what was detected and removed.
 
 ## TikTok downloads
 
-The **TikTok** tab takes TikTok links in single-line fields — with *Multiple TikTok links* on (settings ⚙, top right), a new field appears after each link so you can queue several; pasting text with several links splits them into fields —, downloads each video with [yt-dlp](https://github.com/yt-dlp/yt-dlp) and hands it back as-is (no stripping). Only `tiktok.com` links (including `vm.`/`vt.` short links) are accepted.
+The **TikTok** tab downloads videos from TikTok links with [yt-dlp](https://github.com/yt-dlp/yt-dlp) and hands them back as-is (no stripping). Links go in single-line fields; with *Multiple TikTok links* on (settings ⚙, top right) a new field appears after each link so you can queue several, and pasting text with several links splits them into fields. Only `tiktok.com` links (including `vm.`/`vt.` short links) are accepted.
 
 **Not covered:** invisible watermarks embedded in the pixel/audio content itself (e.g. SynthID) are not metadata, and this tool does not try to remove them.
 
