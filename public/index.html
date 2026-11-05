@@ -45,20 +45,30 @@
   [role=tabpanel][hidden] { display: none; }
 
   .paste {
-    padding: 16px; border-radius: 20px;
+    display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: 18px;
     background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
   }
-  .paste textarea {
-    width: 100%; min-height: 110px; resize: vertical; display: block;
-    border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
-    background: var(--bg); color: var(--ink); font: inherit; font-size: 14px;
+  #fields { flex: 1; min-width: 0; display: grid; gap: 6px; }
+  .field { position: relative; animation: in .2s ease both; }
+  .field input {
+    width: 100%; height: 42px; padding: 0 38px 0 14px; display: block;
+    border: 1px solid transparent; border-radius: 12px;
+    background: var(--bg); color: var(--ink); font: inherit; font-size: 15px;
+    text-overflow: ellipsis;
   }
-  .paste textarea::placeholder { color: var(--faint); }
-  .paste textarea:focus { outline: none; border-color: var(--ink); }
-  .paste .row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-  .paste .row small { color: var(--faint); font-size: 13px; flex: 1; }
+  .field input::placeholder { color: var(--faint); }
+  .field input:focus { outline: none; border-color: var(--ink); }
+  .field.proposed input:not(:focus) { background: transparent; border: 1px dashed var(--line); }
+  .field .rm {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 28px; height: 28px; border: 0; border-radius: 8px; cursor: pointer;
+    background: none; color: var(--faint); display: grid; place-items: center;
+  }
+  .field .rm:hover { color: var(--ink); background: var(--hover); }
+  .field.proposed .rm, .field:only-child .rm { display: none; }
   .go {
-    border: 0; cursor: pointer; padding: 10px 18px; border-radius: 999px;
+    flex: none; height: 42px; white-space: nowrap;
+    border: 0; cursor: pointer; padding: 0 18px; border-radius: 12px;
     background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 14px; font-weight: 550;
   }
   .go:hover { opacity: .85; }
@@ -120,12 +130,40 @@
   .settings input[type=checkbox] { accent-color: var(--ink); }
   .settings .hint { display: block; margin-top: 4px; margin-left: 22px; color: var(--faint); font-size: 12px; }
 
+  .actions { display: flex; justify-content: center; gap: 8px; margin-top: 16px; }
   .all {
-    display: none; margin: 16px auto 0; padding: 10px 18px; border-radius: 999px;
+    display: none; padding: 10px 18px; border-radius: 999px;
     border: 1px solid var(--line); background: var(--card); color: var(--ink);
     font: inherit; font-size: 14px; font-weight: 550; cursor: pointer;
   }
   .all:hover { background: var(--hover); }
+  .all.clear { color: var(--soft); }
+
+  .gear {
+    position: fixed; top: 16px; right: 16px; z-index: 10;
+    width: 38px; height: 38px; border-radius: 50%; cursor: pointer;
+    border: 1px solid var(--line); background: var(--card); color: var(--soft);
+    display: grid; place-items: center; transition: color .15s, background .15s;
+  }
+  .gear:hover, .gear[aria-expanded=true] { color: var(--ink); background: var(--hover); }
+  .gear:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #settings {
+    position: fixed; top: 62px; right: 16px; z-index: 10; width: min(300px, calc(100vw - 32px));
+    padding: 14px 16px; border-radius: 16px;
+    background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
+    animation: in .15s ease both;
+  }
+  #settings h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin-bottom: 10px; }
+  .setting { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+  .setting span { flex: 1; font-size: 14px; font-weight: 550; }
+  .setting small { display: block; font-weight: 400; font-size: 12.5px; color: var(--soft); margin-top: 2px; }
+  .switch { appearance: none; flex: none; width: 36px; height: 22px; margin-top: 1px; border-radius: 999px;
+    background: var(--line); position: relative; cursor: pointer; transition: background .15s; }
+  .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s; }
+  .switch:checked { background: var(--accent); }
+  .switch:checked::after { transform: translateX(14px); background: var(--accent-ink); }
+  .switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
   footer { margin-top: auto; padding-top: 56px; color: var(--faint); font-size: 12.5px; text-align: center; max-width: 420px; }
 
@@ -133,6 +171,17 @@
 </style>
 </head>
 <body>
+<button id="gear" class="gear" type="button" aria-label="Settings" aria-expanded="false" aria-controls="settings">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+</button>
+<div id="settings" role="dialog" aria-label="Settings" hidden>
+  <h2>Settings</h2>
+  <label class="setting">
+    <span>Multiple TikTok links<small>After you enter a link, an empty field appears for the next one.</small></span>
+    <input id="opt-multi" class="switch" type="checkbox" role="switch">
+  </label>
+</div>
+
 <main>
   <header>
     <h1>Strip</h1>
@@ -153,20 +202,23 @@
   </label>
 
   <ul id="list" class="list"></ul>
-  <button id="all" class="all" type="button">Download all</button>
+  <div class="actions">
+    <button id="all" class="all" type="button">Download all</button>
+    <button id="clear" class="all clear" type="button">Clear all</button>
+  </div>
   </section>
 
   <section id="panel-tiktok" role="tabpanel" aria-labelledby="tab-tiktok" hidden>
-  <div class="paste">
-    <textarea id="links" placeholder="Paste TikTok links — one per line" spellcheck="false" aria-label="TikTok links"></textarea>
-    <div class="row">
-      <small>Ctrl/⌘ + Enter to start</small>
-      <button id="fetch" class="go" type="button">Download</button>
-    </div>
-  </div>
+  <form class="paste" id="tt-form" autocomplete="off">
+    <div id="fields"></div>
+    <button id="fetch" class="go" type="submit">Download</button>
+  </form>
 
   <ul id="tt-list" class="list"></ul>
-  <button id="tt-all" class="all" type="button">Download all</button>
+  <div class="actions">
+    <button id="tt-all" class="all" type="button">Download all</button>
+    <button id="tt-clear" class="all clear" type="button">Clear all</button>
+  </div>
   </section>
 
   <div class="settings">
@@ -181,6 +233,33 @@
 const $ = (s) => document.querySelector(s);
 const drop = $('#drop'), input = $('#input'), list = $('#list'), allBtn = $('#all');
 const done = [];
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+// Per-panel results: download-all / clear-all buttons and in-flight requests.
+function makePanel(listEl, allEl, clearEl, doneArr, queueArr) {
+  const p = { list: listEl, done: doneArr, queue: queueArr, active: new Set() };
+  p.refresh = () => {
+    allEl.style.display = p.done.length > 1 ? 'block' : 'none';
+    clearEl.style.display = p.list.children.length ? 'block' : 'none';
+  };
+  p.clear = () => {
+    p.queue.length = 0;
+    for (const r of p.active) if (r.xhr) r.xhr.abort();
+    p.active.clear();
+    p.list.querySelectorAll('a[href^="blob:"], img[src^="blob:"], video[src^="blob:"]').forEach((el) => {
+      URL.revokeObjectURL((el.href || el.src).split('#')[0]);
+    });
+    p.done.length = 0;
+    p.list.replaceChildren();
+    p.refresh();
+  };
+  allEl.addEventListener('click', () => p.done.forEach((a, i) => setTimeout(() => a.click(), i * 250)));
+  clearEl.addEventListener('click', p.clear);
+  return p;
+}
 
 // Tabs
 const tabs = [...document.querySelectorAll('[role=tab]')];
@@ -210,11 +289,15 @@ drop.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' '
 ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => add(e.dataTransfer.files));
 input.addEventListener('change', () => { add(input.files); input.value = ''; });
-allBtn.addEventListener('click', () => done.forEach((a, i) => setTimeout(() => a.click(), i * 250)));
-
 const queue = []; let running = 0;
-function add(files) { for (const f of files) queue.push(row(f)); next(); }
-function next() { while (running < 2 && queue.length) { running++; send(queue.shift()).finally(() => { running--; next(); }); } }
+const stripPanel = makePanel(list, allBtn, $('#clear'), done, queue);
+function add(files) { for (const f of files) queue.push(row(f)); stripPanel.refresh(); next(); }
+function next() {
+  while (running < 2 && queue.length) {
+    const r = queue.shift(); running++; stripPanel.active.add(r);
+    send(r).finally(() => { running--; stripPanel.active.delete(r); next(); });
+  }
+}
 
 const size = (n) => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(0) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
 const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -236,7 +319,7 @@ function row(file) {
   meta.append(name, sub, track);
   li.append(thumb, meta);
   list.prepend(li);
-  return { file, li, sub, track, bar: track.firstChild, done, allBtn };
+  return { file, li, sub, track, bar: track.firstChild, panel: stripPanel };
 }
 
 function send(r) {
@@ -244,8 +327,9 @@ function send(r) {
     const fd = new FormData();
     fd.append('synthid', $('#synthid').checked ? 'true' : 'false');
     fd.append('file', r.file);
-    const xhr = new XMLHttpRequest();
+    const xhr = r.xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/strip'); xhr.responseType = 'blob';
+    xhr.onabort = () => resolve();
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       const p = e.loaded / e.total;
@@ -261,6 +345,7 @@ function send(r) {
 }
 
 async function finish(r, xhr, fallbackName, fail) {
+  if (!r.li.isConnected) return;
   if (xhr.status !== 200) {
     let msg = '';
     let text = '';
@@ -297,28 +382,128 @@ async function finish(r, xhr, fallbackName, fail) {
   const a = h('a', 'btn', ICON_DL);
   a.href = blobUrl; a.download = fname; a.title = 'Download ' + fname;
   r.li.append(a);
-  r.done.push(a);
-  r.allBtn.style.display = r.done.length > 1 ? 'block' : 'none';
+  r.panel.done.push(a);
+  r.panel.refresh();
 }
 
 // TikTok tab
-const links = $('#links'), fetchBtn = $('#fetch'), ttList = $('#tt-list'), ttAll = $('#tt-all');
+const form = $('#tt-form'), fieldsEl = $('#fields'), fetchBtn = $('#fetch'), ttList = $('#tt-list');
 const ttDone = [];
 const ttQueue = []; let ttRunning = 0;
-ttAll.addEventListener('click', () => ttDone.forEach((a, i) => setTimeout(() => a.click(), i * 250)));
-fetchBtn.addEventListener('click', startTikTok);
-links.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); startTikTok(); } });
+const ttPanel = makePanel(ttList, $('#tt-all'), $('#tt-clear'), ttDone, ttQueue);
 const ICON_PLAY = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M8 5v14l11-7z"/></svg>';
+const ICON_X = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+
+const extractUrls = (text) => (text.match(/https?:\/\/[^\s"'<>]+/gi) || []).map((u) => u.replace(/[),.;]+$/, ''));
+const looksLikeLink = (v) => /tiktok\.com|^https?:\/\/\S+\.\S+/i.test(v.trim());
+
+// Settings: multiple link fields (on by default)
+let multi = store.get('multiLinks', true);
+const gear = $('#gear'), settings = $('#settings'), optMulti = $('#opt-multi');
+optMulti.checked = multi;
+const toggleSettings = (open = settings.hidden) => { settings.hidden = !open; gear.setAttribute('aria-expanded', open); };
+gear.addEventListener('click', (e) => { e.stopPropagation(); toggleSettings(); });
+document.addEventListener('click', (e) => { if (!settings.hidden && !settings.contains(e.target)) toggleSettings(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !settings.hidden) { toggleSettings(false); gear.focus(); } });
+optMulti.addEventListener('change', () => {
+  multi = optMulti.checked; store.set('multiLinks', multi);
+  if (!multi) {
+    // Collapse to a single field, keeping whatever was typed.
+    const vals = fieldInputs().map((i) => i.value.trim()).filter(Boolean);
+    fieldsEl.replaceChildren(); addField(vals.join(' '));
+  }
+  syncFields();
+});
+
+const fieldInputs = () => [...fieldsEl.querySelectorAll('input')];
+
+function addField(value = '', focus = false) {
+  const wrap = h('div', 'field');
+  const inp = document.createElement('input');
+  inp.type = 'url'; inp.inputMode = 'url'; inp.spellcheck = false; inp.value = value;
+  inp.setAttribute('aria-label', 'TikTok link');
+  const rm = h('button', 'rm', ICON_X); rm.type = 'button'; rm.tabIndex = -1; rm.setAttribute('aria-label', 'Remove link');
+  rm.addEventListener('click', () => { removeField(wrap); });
+  inp.addEventListener('input', syncFields);
+  inp.addEventListener('paste', (e) => {
+    const urls = extractUrls(e.clipboardData.getData('text'));
+    if (urls.length < 2) return;
+    e.preventDefault();
+    if (!multi) { inp.value = urls.join(' '); syncFields(); return; }
+    inp.value = urls[0];
+    let after = wrap;
+    for (const u of urls.slice(1)) { const w = addField(u); after.after(w); after = w; }
+    syncFields();
+  });
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Backspace' && !inp.value && fieldInputs().length > 1) {
+      e.preventDefault();
+      const prev = wrap.previousElementSibling || wrap.nextElementSibling;
+      removeField(wrap);
+      prev && prev.querySelector('input').focus();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const sib = e.key === 'ArrowDown' ? wrap.nextElementSibling : wrap.previousElementSibling;
+      if (sib) { e.preventDefault(); sib.querySelector('input').focus(); }
+    }
+  });
+  inp.addEventListener('blur', () => setTimeout(() => {
+    // Drop emptied fields that aren't the trailing proposal.
+    if (!inp.value.trim() && wrap.nextElementSibling && !wrap.contains(document.activeElement)) removeField(wrap);
+  }, 120));
+  wrap.append(inp, rm);
+  fieldsEl.append(wrap);
+  if (focus) inp.focus();
+  return wrap;
+}
+
+function removeField(wrap) {
+  if (fieldInputs().length > 1) wrap.remove(); else wrap.querySelector('input').value = '';
+  syncFields();
+}
+
+function syncFields() {
+  if (!fieldsEl.children.length) addField();
+  if (multi) {
+    // Always offer one empty field after the last filled one.
+    const last = fieldsEl.lastElementChild.querySelector('input');
+    if (looksLikeLink(last.value)) addField();
+    // Never keep two empty fields at the end.
+    while (fieldsEl.children.length > 1) {
+      const [a, b] = [...fieldsEl.children].slice(-2).map((w) => w.querySelector('input'));
+      if (a.value.trim() || b.value.trim()) break;
+      (document.activeElement === b ? a : b).closest('.field').remove();
+    }
+  }
+  const inputs = fieldInputs();
+  inputs.forEach((inp, i) => {
+    const proposed = multi && i > 0 && i === inputs.length - 1 && !inp.value.trim();
+    inp.closest('.field').classList.toggle('proposed', proposed);
+    inp.placeholder = i === 0 ? 'Paste a TikTok link' : 'Add another link';
+  });
+  const n = new Set(extractUrls(inputs.map((i) => i.value).join(' '))).size;
+  fetchBtn.textContent = n > 1 ? `Download ${n}` : 'Download';
+}
+
+form.addEventListener('submit', (e) => { e.preventDefault(); startTikTok(); });
+form.noValidate = true;
 
 function startTikTok() {
-  const found = links.value.match(/https?:\/\/[^\s"'<>]+/gi) || [];
-  const urls = [...new Set(found.map((u) => u.replace(/[),.;]+$/, '')))];
-  if (!urls.length) { links.focus(); return; }
+  const inputs = fieldInputs();
+  const urls = [...new Set(extractUrls(inputs.map((i) => i.value).join(' ')))];
+  if (!urls.length) { inputs[0].focus(); return; }
   for (const url of urls) ttQueue.push(ttRow(url));
-  links.value = '';
+  ttPanel.refresh();
+  fieldsEl.replaceChildren(); addField('', true); syncFields();
   ttNext();
 }
-function ttNext() { while (ttRunning < 2 && ttQueue.length) { ttRunning++; ttSend(ttQueue.shift()).finally(() => { ttRunning--; ttNext(); }); } }
+syncFields();
+
+function ttNext() {
+  while (ttRunning < 2 && ttQueue.length) {
+    const r = ttQueue.shift(); ttRunning++; ttPanel.active.add(r);
+    ttSend(r).finally(() => { ttRunning--; ttPanel.active.delete(r); ttNext(); });
+  }
+}
 
 function ttRow(url) {
   const li = h('li', 'item');
@@ -330,14 +515,15 @@ function ttRow(url) {
   meta.append(name, sub, track);
   li.append(thumb, meta);
   ttList.prepend(li);
-  return { url, li, thumb, name, sub, track, done: ttDone, allBtn: ttAll };
+  return { url, li, thumb, name, sub, track, panel: ttPanel };
 }
 
 function ttSend(r) {
   return new Promise((resolve) => {
     r.sub.textContent = 'Downloading…'; r.track.classList.add('busy');
-    const xhr = new XMLHttpRequest();
+    const xhr = r.xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/tiktok'); xhr.responseType = 'blob';
+    xhr.onabort = () => resolve();
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.onprogress = (e) => {
       if (!e.lengthComputable) return;
