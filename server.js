@@ -292,6 +292,26 @@ function parseTikTokUrl(raw) {
   return u.toString();
 }
 
+// yt-dlp may be a binary on PATH (brew), a path given via YTDLP_PATH, or only
+// importable as a Python module (pip install into a dir that isn't on PATH).
+async function runYtDlp(args) {
+  if (process.env.YTDLP_PATH) return run(process.env.YTDLP_PATH, args);
+  try {
+    return await run('yt-dlp', args);
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  for (const py of ['python3', 'python']) {
+    try {
+      return await run(py, ['-m', 'yt_dlp', ...args]);
+    } catch (e) {
+      if (e.code === 'ENOENT' || /No module named/.test(e.stderr || '')) continue;
+      throw e;
+    }
+  }
+  const err = new Error('yt-dlp not found'); err.code = 'ENOENT'; throw err;
+}
+
 async function downloadTikTok(url, dir) {
   const args = [
     '--no-playlist', '--no-progress', '--no-warnings', '--quiet',
@@ -303,9 +323,9 @@ async function downloadTikTok(url, dir) {
     '--', url,
   ];
   try {
-    await run('yt-dlp', args);
+    await runYtDlp(args);
   } catch (e) {
-    if (e.code === 'ENOENT') throw new Error('yt-dlp is not installed on the server');
+    if (e.code === 'ENOENT') throw new Error('yt-dlp is not installed on the server (brew install yt-dlp, or pip install yt-dlp)');
     const msg = (e.stderr || e.message).trim().split('\n').filter(Boolean).pop() || 'Download failed';
     throw new Error(msg.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s+)?/, ''));
   }

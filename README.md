@@ -25,7 +25,7 @@ The **TikTok** tab takes one or more pasted TikTok links (one per line, or any t
 
 ## Running
 
-Requires Node.js 18+ and `ffmpeg`/`ffprobe` on `PATH`. The TikTok tab also needs `yt-dlp` on `PATH` (`pip install yt-dlp`); keep it updated, as TikTok changes often break older versions.
+Requires Node.js 18+ and `ffmpeg`/`ffprobe` on `PATH`. The TikTok tab also needs `yt-dlp` (`brew install yt-dlp` or `pip install yt-dlp`; if it isn't on `PATH`, the server falls back to `python3 -m yt_dlp`, or set `YTDLP_PATH`); keep it updated, as TikTok changes often break older versions.
 
 ```bash
 npm install
