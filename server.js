@@ -317,43 +317,16 @@ async function downloadTikTok(url, dir) {
 app.post('/api/tiktok', express.json({ limit: '4kb' }), async (req, res) => {
   const url = parseTikTokUrl(req.body && req.body.url);
   if (!url) return res.status(400).json({ error: 'Not a TikTok link' });
-  const strip = req.body.strip !== false;
-  const synthid = req.body.synthid === true;
   const dir = path.join(workDir, crypto.randomUUID());
   try {
     await fs.mkdir(dir, { recursive: true });
     const file = await downloadTikTok(url, dir);
     const name = path.basename(file);
-    let ext = path.extname(name).toLowerCase() || '.mp4';
-    let outFile = file;
-    let outExt = ext;
-    let report = null;
-    const originalSize = (await fs.stat(file)).size;
-
-    if (strip) {
-      const kind = kindOf(name, '');
-      let before, after, result;
-      if (kind === 'image') {
-        before = { found: await inspectImage(file) };
-        result = await stripImage(file, ext, 95, synthid);
-        after = { found: await inspectImage(result.output) };
-      } else {
-        before = await inspectVideo(file);
-        result = await stripVideo(file, ext, { synthid });
-        after = await inspectVideo(result.output);
-      }
-      outFile = result.output;
-      outExt = result.outExt;
-      report = { kind: kind || 'video', before, after, originalSize };
-    }
-
-    const data = await fs.readFile(outFile);
-    if (report) report.strippedSize = data.length;
-    const base = safeBase(name);
+    const ext = path.extname(name).toLowerCase() || '.mp4';
+    const data = await fs.readFile(file);
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${base}${strip ? '_clean' : ''}${outExt}"`);
-    if (report) res.setHeader('X-Strip-Report', Buffer.from(JSON.stringify(report)).toString('base64'));
-    res.setHeader('Access-Control-Expose-Headers', 'X-Strip-Report, Content-Disposition');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeBase(name)}${ext}"`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.send(data);
   } catch (e) {
     console.error(e);

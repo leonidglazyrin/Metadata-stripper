@@ -168,11 +168,6 @@
     </div>
   </div>
 
-  <div class="opts">
-    <label><input id="tt-strip" type="checkbox" checked> Strip metadata</label>
-    <label><input id="tt-synthid" type="checkbox"> Strip SynthID</label>
-  </div>
-
   <ul id="tt-list" class="list"></ul>
   <button id="tt-all" class="all" type="button">Download all</button>
   </section>
@@ -309,14 +304,13 @@ function startTikTok() {
   const found = links.value.match(/https?:\/\/[^\s"'<>]+/gi) || [];
   const urls = [...new Set(found.map((u) => u.replace(/[),.;]+$/, '')))];
   if (!urls.length) { links.focus(); return; }
-  const opts = { strip: $('#tt-strip').checked, synthid: $('#tt-synthid').checked };
-  for (const url of urls) ttQueue.push(ttRow(url, opts));
+  for (const url of urls) ttQueue.push(ttRow(url));
   links.value = '';
   ttNext();
 }
 function ttNext() { while (ttRunning < 2 && ttQueue.length) { ttRunning++; ttSend(ttQueue.shift()).finally(() => { ttRunning--; ttNext(); }); } }
 
-function ttRow(url, opts) {
+function ttRow(url) {
   const li = h('li', 'item');
   const thumb = h('div', 'thumb', ICON_PLAY);
   const meta = h('div', 'meta');
@@ -326,7 +320,7 @@ function ttRow(url, opts) {
   meta.append(name, sub, track);
   li.append(thumb, meta);
   ttList.prepend(li);
-  return { url, opts, li, thumb, name, sub, track, done: ttDone, allBtn: ttAll };
+  return { url, li, thumb, name, sub, track, done: ttDone, allBtn: ttAll };
 }
 
 function ttSend(r) {
@@ -344,7 +338,7 @@ function ttSend(r) {
     const fail = (msg) => { r.track.remove(); r.sub.textContent = msg; r.sub.title = msg; r.sub.classList.add('err'); resolve(); };
     xhr.onerror = () => fail('Network error');
     xhr.onload = () => finish(r, xhr, 'tiktok.mp4', fail).then(resolve);
-    xhr.send(JSON.stringify({ url: r.url, ...r.opts }));
+    xhr.send(JSON.stringify({ url: r.url }));
   });
 }
 </script>
