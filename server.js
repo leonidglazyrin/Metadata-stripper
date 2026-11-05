@@ -322,8 +322,11 @@ async function downloadTikTok(url, dir) {
     '--socket-timeout', '30', '--retries', '3',
     // Prefer H.264 for playback compatibility; fall back to whatever is best.
     '-f', "b[vcodec^=h264]/b[vcodec^=avc]/b",
-    '--restrict-filenames', '--trim-filenames', '100',
-    '-o', path.join(dir, '%(uploader,id)s_%(id)s.%(ext)s'),
+    // Directory via -P and a length-capped name via -o. (--trim-filenames
+    // would trim the *whole path*, which breaks on long temp dirs like macOS's.)
+    '--restrict-filenames',
+    '-P', dir,
+    '-o', '%(uploader,id).50s_%(id)s.%(ext)s',
     '--', url,
   ];
   let out = '';
