@@ -314,7 +314,11 @@ async function runYtDlp(args) {
 
 async function downloadTikTok(url, dir) {
   const args = [
-    '--no-playlist', '--no-progress', '--no-warnings', '--quiet',
+    // Ignore the user's yt-dlp config: options like --download-archive or
+    // --simulate there make it exit successfully without saving anything.
+    '--ignore-config', '--no-download-archive', '--no-simulate', '--force-overwrites',
+    '--no-playlist', '--no-progress',
+    '--print', 'after_move:filepath',
     '--socket-timeout', '30', '--retries', '3',
     // Prefer H.264 for playback compatibility; fall back to whatever is best.
     '-f', "b[vcodec^=h264]/b[vcodec^=avc]/b",
@@ -322,16 +326,22 @@ async function downloadTikTok(url, dir) {
     '-o', path.join(dir, '%(uploader,id)s_%(id)s.%(ext)s'),
     '--', url,
   ];
+  let out = '';
   try {
-    await runYtDlp(args);
+    out = await runYtDlp(args);
   } catch (e) {
     if (e.code === 'ENOENT') throw new Error('yt-dlp is not installed on the server (brew install yt-dlp, or pip install yt-dlp)');
     const msg = (e.stderr || e.message).trim().split('\n').filter(Boolean).pop() || 'Download failed';
     throw new Error(msg.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s+)?/, ''));
   }
-  const files = (await fs.readdir(dir)).filter((n) => !n.endsWith('.part'));
-  if (!files.length) throw new Error('Nothing was downloaded');
-  return path.join(dir, files[0]);
+  const printed = out.trim().split('\n').map((l) => l.trim()).filter(Boolean).pop();
+  if (printed && printed.startsWith(dir)) {
+    try { await fs.access(printed); return printed; } catch (_) { /* fall through */ }
+  }
+  const files = (await fs.readdir(dir)).filter((n) => !n.endsWith('.part') && !n.endsWith('.ytdl'));
+  if (files.length) return path.join(dir, files[0]);
+  const last = out.trim().split('\n').filter(Boolean).pop();
+  throw new Error(`Nothing was downloaded${last ? ` (yt-dlp: ${last.slice(0, 200)})` : ''}`);
 }
 
 app.post('/api/tiktok', express.json({ limit: '4kb' }), async (req, res) => {
