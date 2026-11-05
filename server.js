@@ -279,6 +279,96 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// TikTok downloads (via yt-dlp)
+// ---------------------------------------------------------------------------
+
+const TIKTOK_HOSTS = /(^|\.)tiktok\.com$/i;
+
+function parseTikTokUrl(raw) {
+  let u;
+  try { u = new URL(String(raw || '').trim()); } catch (_) { return null; }
+  if (!['http:', 'https:'].includes(u.protocol) || !TIKTOK_HOSTS.test(u.hostname)) return null;
+  return u.toString();
+}
+
+// yt-dlp may be a binary on PATH (brew), a path given via YTDLP_PATH, or only
+// importable as a Python module (pip install into a dir that isn't on PATH).
+async function runYtDlp(args) {
+  if (process.env.YTDLP_PATH) return run(process.env.YTDLP_PATH, args);
+  try {
+    return await run('yt-dlp', args);
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  for (const py of ['python3', 'python']) {
+    try {
+      return await run(py, ['-m', 'yt_dlp', ...args]);
+    } catch (e) {
+      if (e.code === 'ENOENT' || /No module named/.test(e.stderr || '')) continue;
+      throw e;
+    }
+  }
+  const err = new Error('yt-dlp not found'); err.code = 'ENOENT'; throw err;
+}
+
+async function downloadTikTok(url, dir) {
+  const args = [
+    // Ignore the user's yt-dlp config: options like --download-archive or
+    // --simulate there make it exit successfully without saving anything.
+    '--ignore-config', '--no-download-archive', '--no-simulate', '--force-overwrites',
+    '--no-playlist', '--no-progress',
+    '--print', 'after_move:filepath',
+    '--socket-timeout', '30', '--retries', '3',
+    // Prefer H.264 for playback compatibility; fall back to whatever is best.
+    '-f', "b[vcodec^=h264]/b[vcodec^=avc]/b",
+    // Directory via -P and a length-capped name via -o. (--trim-filenames
+    // would trim the *whole path*, which breaks on long temp dirs like macOS's.)
+    '--restrict-filenames',
+    '-P', dir,
+    '-o', '%(uploader,id).50s_%(id)s.%(ext)s',
+    '--', url,
+  ];
+  let out = '';
+  try {
+    out = await runYtDlp(args);
+  } catch (e) {
+    if (e.code === 'ENOENT') throw new Error('yt-dlp is not installed on the server (brew install yt-dlp, or pip install yt-dlp)');
+    const msg = (e.stderr || e.message).trim().split('\n').filter(Boolean).pop() || 'Download failed';
+    throw new Error(msg.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s+)?/, ''));
+  }
+  const printed = out.trim().split('\n').map((l) => l.trim()).filter(Boolean).pop();
+  if (printed && printed.startsWith(dir)) {
+    try { await fs.access(printed); return printed; } catch (_) { /* fall through */ }
+  }
+  const files = (await fs.readdir(dir)).filter((n) => !n.endsWith('.part') && !n.endsWith('.ytdl'));
+  if (files.length) return path.join(dir, files[0]);
+  const last = out.trim().split('\n').filter(Boolean).pop();
+  throw new Error(`Nothing was downloaded${last ? ` (yt-dlp: ${last.slice(0, 200)})` : ''}`);
+}
+
+app.post('/api/tiktok', express.json({ limit: '4kb' }), async (req, res) => {
+  const url = parseTikTokUrl(req.body && req.body.url);
+  if (!url) return res.status(400).json({ error: 'Not a TikTok link' });
+  const dir = path.join(workDir, crypto.randomUUID());
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    const file = await downloadTikTok(url, dir);
+    const name = path.basename(file);
+    const ext = path.extname(name).toLowerCase() || '.mp4';
+    const data = await fs.readFile(file);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeBase(name)}${ext}"`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.send(data);
+  } catch (e) {
+    console.error(e);
+    res.status(502).json({ error: e.message || 'Download failed' });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 app.use((err, _req, res, _next) => {
   res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 500).json({ error: err.message });
 });

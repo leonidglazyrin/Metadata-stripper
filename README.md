@@ -17,11 +17,15 @@ EXIF orientation is applied to the pixels before stripping so images stay uprigh
 
 Each result shows a before/after report of what was detected and removed.
 
+## TikTok downloads
+
+The **TikTok** tab takes one or more pasted TikTok links (one per line, or any text containing them), downloads each video with [yt-dlp](https://github.com/yt-dlp/yt-dlp) and hands it back as-is (no stripping). Only `tiktok.com` links (including `vm.`/`vt.` short links) are accepted.
+
 **Not covered:** invisible watermarks embedded in the pixel/audio content itself (e.g. SynthID) are not metadata, and this tool does not try to remove them.
 
 ## Running
 
-Requires Node.js 18+ and `ffmpeg`/`ffprobe` on `PATH`.
+Requires Node.js 18+ and `ffmpeg`/`ffprobe` on `PATH`. The TikTok tab also needs `yt-dlp` (`brew install yt-dlp` or `pip install yt-dlp`; if it isn't on `PATH`, the server falls back to `python3 -m yt_dlp`, or set `YTDLP_PATH`); keep it updated, as TikTok changes often break older versions.
 
 ```bash
 npm install
