@@ -260,8 +260,16 @@ function send(r) {
 
 async function finish(r, xhr, fallbackName, fail) {
   if (xhr.status !== 200) {
-    let msg = 'Something went wrong';
-    try { msg = JSON.parse(await xhr.response.text()).error || msg; } catch {}
+    let msg = '';
+    let text = '';
+    try { text = await xhr.response.text(); msg = JSON.parse(text).error || ''; } catch {}
+    if (!msg) {
+      const pre = (text.match(/<pre>([\s\S]*?)<\/pre>/i) || [])[1];
+      msg = xhr.status === 404 ? 'Server is missing this feature — restart it with the latest code'
+        : xhr.status === 413 ? 'File too large'
+        : xhr.status === 502 || xhr.status === 504 ? `Server timed out or unreachable (HTTP ${xhr.status})`
+        : `Server error (HTTP ${xhr.status})${pre ? ': ' + pre.trim() : ''}`;
+    }
     return fail(msg);
   }
   r.track.remove();
