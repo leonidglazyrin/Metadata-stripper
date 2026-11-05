@@ -83,7 +83,6 @@
     margin-top: 18px; font-size: 13px; color: var(--soft);
   }
   .opts label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  .opts input[type=range] { width: 100px; }
   .opts input[type=checkbox] { accent-color: var(--ink); }
 
   #all {
@@ -113,7 +112,6 @@
   </label>
 
   <div class="opts">
-    <label>Quality <input id="quality" type="range" min="70" max="100" value="95"> <span id="qv">95</span></label>
     <label><input id="synthid" type="checkbox"> Strip SynthID</label>
   </div>
 
@@ -126,8 +124,6 @@
 <script>
 const $ = (s) => document.querySelector(s);
 const drop = $('#drop'), input = $('#input'), list = $('#list'), allBtn = $('#all');
-const quality = $('#quality'), qv = $('#qv');
-quality.oninput = () => (qv.textContent = quality.value);
 const done = [];
 
 const ICON_DL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14"/></svg>';
@@ -170,7 +166,6 @@ function row(file) {
 function send(r) {
   return new Promise((resolve) => {
     const fd = new FormData();
-    fd.append('quality', quality.value);
     fd.append('synthid', $('#synthid').checked ? 'true' : 'false');
     fd.append('file', r.file);
     const xhr = new XMLHttpRequest();
