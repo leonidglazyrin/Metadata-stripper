@@ -279,6 +279,90 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// TikTok downloads (via yt-dlp)
+// ---------------------------------------------------------------------------
+
+const TIKTOK_HOSTS = /(^|\.)tiktok\.com$/i;
+
+function parseTikTokUrl(raw) {
+  let u;
+  try { u = new URL(String(raw || '').trim()); } catch (_) { return null; }
+  if (!['http:', 'https:'].includes(u.protocol) || !TIKTOK_HOSTS.test(u.hostname)) return null;
+  return u.toString();
+}
+
+async function downloadTikTok(url, dir) {
+  const args = [
+    '--no-playlist', '--no-progress', '--no-warnings', '--quiet',
+    '--socket-timeout', '30', '--retries', '3',
+    // Prefer H.264 for playback compatibility; fall back to whatever is best.
+    '-f', "b[vcodec^=h264]/b[vcodec^=avc]/b",
+    '--restrict-filenames', '--trim-filenames', '100',
+    '-o', path.join(dir, '%(uploader,id)s_%(id)s.%(ext)s'),
+    '--', url,
+  ];
+  try {
+    await run('yt-dlp', args);
+  } catch (e) {
+    if (e.code === 'ENOENT') throw new Error('yt-dlp is not installed on the server');
+    const msg = (e.stderr || e.message).trim().split('\n').filter(Boolean).pop() || 'Download failed';
+    throw new Error(msg.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s+)?/, ''));
+  }
+  const files = (await fs.readdir(dir)).filter((n) => !n.endsWith('.part'));
+  if (!files.length) throw new Error('Nothing was downloaded');
+  return path.join(dir, files[0]);
+}
+
+app.post('/api/tiktok', express.json({ limit: '4kb' }), async (req, res) => {
+  const url = parseTikTokUrl(req.body && req.body.url);
+  if (!url) return res.status(400).json({ error: 'Not a TikTok link' });
+  const strip = req.body.strip !== false;
+  const synthid = req.body.synthid === true;
+  const dir = path.join(workDir, crypto.randomUUID());
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    const file = await downloadTikTok(url, dir);
+    const name = path.basename(file);
+    let ext = path.extname(name).toLowerCase() || '.mp4';
+    let outFile = file;
+    let outExt = ext;
+    let report = null;
+    const originalSize = (await fs.stat(file)).size;
+
+    if (strip) {
+      const kind = kindOf(name, '');
+      let before, after, result;
+      if (kind === 'image') {
+        before = { found: await inspectImage(file) };
+        result = await stripImage(file, ext, 95, synthid);
+        after = { found: await inspectImage(result.output) };
+      } else {
+        before = await inspectVideo(file);
+        result = await stripVideo(file, ext, { synthid });
+        after = await inspectVideo(result.output);
+      }
+      outFile = result.output;
+      outExt = result.outExt;
+      report = { kind: kind || 'video', before, after, originalSize };
+    }
+
+    const data = await fs.readFile(outFile);
+    if (report) report.strippedSize = data.length;
+    const base = safeBase(name);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${base}${strip ? '_clean' : ''}${outExt}"`);
+    if (report) res.setHeader('X-Strip-Report', Buffer.from(JSON.stringify(report)).toString('base64'));
+    res.setHeader('Access-Control-Expose-Headers', 'X-Strip-Report, Content-Disposition');
+    res.send(data);
+  } catch (e) {
+    console.error(e);
+    res.status(502).json({ error: e.message || 'Download failed' });
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 app.use((err, _req, res, _next) => {
   res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 500).json({ error: err.message });
 });
