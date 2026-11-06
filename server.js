@@ -138,20 +138,23 @@ async function stripImage(input, ext, quality, synthid = false) {
   img = img.toColorspace('srgb');
 
   if (synthid) {
-    // Disrupt invisible pixel-level watermarks (SynthID, etc.) by running a
-    // resize-down→resize-up cycle that forces bilinear resampling of every
-    // pixel, then a subtle blur+sharpen pass to break high-frequency patterns.
+    // Disrupt invisible pixel-level watermarks (SynthID, etc.) with the lightest
+    // touch that still resamples every pixel: a near-unity resize-down→resize-up
+    // cycle (lanczos3, high-fidelity) that shifts the pixel grid just enough to
+    // break the watermark lattice, followed by a gentle sharpen that restores
+    // any softness the resample introduced. No standalone blur pass, so fine
+    // detail is preserved and the result stays visually indistinguishable.
     const meta = await sharp(input, { animated, failOn: 'none' }).metadata();
     const w = meta.width;
     const h = meta.height;
     if (w && h) {
-      const shrunkW = Math.max(1, Math.round(w * 0.98));
-      const shrunkH = Math.max(1, Math.round(h * 0.98));
+      const shrunkW = Math.max(1, Math.round(w * 0.995));
+      const shrunkH = Math.max(1, Math.round(h * 0.995));
       img = img
         .resize(shrunkW, shrunkH, { kernel: 'lanczos3' })
         .resize(w, h, { kernel: 'lanczos3' });
     }
-    img = img.blur(0.5).sharpen({ sigma: 1.0, m1: 0.5, m2: 0.3 });
+    img = img.sharpen({ sigma: 0.5, m1: 0.3, m2: 0.2 });
   }
 
   let outExt = ext;
@@ -191,12 +194,16 @@ async function stripVideo(input, ext, { forceMkv = false, synthid = false } = {}
   ];
 
   if (synthid) {
-    // Re-encode video with subtle noise + blur/sharpen to disrupt pixel-level
-    // watermarks, and re-encode audio with slight filtering to break audio watermarks.
+    // Re-encode video with a light touch that perturbs pixel-level watermarks
+    // (SynthID, etc.) while keeping as much of the original as possible: a faint
+    // blur that a matching sharpen restores, plus a trace of temporal noise to
+    // break the watermark lattice. Near-lossless CRF and a transparent audio
+    // bitrate preserve quality; the audio is only resampled to disrupt any
+    // audio watermark without an aggressive low-pass that would dull it.
     args.push(
-      '-vf', 'gblur=sigma=0.5,noise=c0s=3:c0f=t,unsharp=5:5:0.5:5:5:0',
-      '-c:v', 'libx264', '-crf', '18', '-preset', 'medium',
-      '-c:a', 'aac', '-b:a', '192k', '-af', 'aresample=async=1,lowpass=f=18000',
+      '-vf', 'gblur=sigma=0.3,noise=c0s=2:c0f=t,unsharp=3:3:0.4:3:3:0',
+      '-c:v', 'libx264', '-crf', '14', '-preset', 'medium',
+      '-c:a', 'aac', '-b:a', '256k', '-af', 'aresample=async=1',
     );
   } else {
     // Lossless remux — streams are copied, never re-encoded.
@@ -242,7 +249,7 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
     if (!kind) return res.status(415).json({ error: 'Unsupported file type' });
     let ext = path.extname(f.originalname).toLowerCase();
     if (!ext) ext = kind === 'image' ? '.jpg' : '.mp4';
-    const quality = Math.min(100, Math.max(50, Number(req.body.quality) || 95));
+    const quality = Math.min(100, Math.max(50, Number(req.body.quality) || 100));
     const synthid = req.body.synthid === 'true' || req.body.synthid === '1';
 
     let before, after, result;
