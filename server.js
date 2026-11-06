@@ -197,12 +197,12 @@ async function stripVideo(input, ext, { forceMkv = false, synthid = false } = {}
     // Re-encode video with a light touch that perturbs pixel-level watermarks
     // (SynthID, etc.) while keeping as much of the original as possible: a faint
     // blur that a matching sharpen restores, plus a trace of temporal noise to
-    // break the watermark lattice. Near-lossless CRF and a transparent audio
+    // break the watermark lattice. A visually transparent CRF and a high audio
     // bitrate preserve quality; the audio is only resampled to disrupt any
     // audio watermark without an aggressive low-pass that would dull it.
     args.push(
       '-vf', 'gblur=sigma=0.3,noise=c0s=2:c0f=t,unsharp=3:3:0.4:3:3:0',
-      '-c:v', 'libx264', '-crf', '14', '-preset', 'medium',
+      '-c:v', 'libx264', '-crf', '18', '-preset', 'medium',
       '-c:a', 'aac', '-b:a', '256k', '-af', 'aresample=async=1',
     );
   } else {
