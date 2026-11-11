@@ -21,7 +21,7 @@ let accounts;
 try {
   accounts = createAccounts();
 } catch (e) {
-  // Missing Supabase settings: fail fast with a readable message.
+  // Missing D1 settings: fail fast with a readable message.
   log.fail('account', e.message);
   process.exit(1);
 }

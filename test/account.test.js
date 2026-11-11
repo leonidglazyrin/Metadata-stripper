@@ -1,24 +1,25 @@
 'use strict';
 
 // node --test: accounts, quota, Google sign-in and Stripe billing, with
-// Google, Stripe and Supabase mocked out.
+// Google and Stripe mocked out, and D1 replaced by a local SQLite database
+// running the real migrations.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const express = require('express');
 const { createAccounts, loadConfig, verifyStripeSignature, safeNext, withQuery } = require('../server/account');
-const { createSupabaseStore } = require('../server/store');
-const { fakeSupabase } = require('./fake-supabase');
+const { createStore, d1Http } = require('../server/store');
+const { fakeD1 } = require('./fake-d1');
 
 function config(over = {}) {
   return { ...loadConfig({ NODE_ENV: 'test' }), sessionSecret: 'test-secret', siteUrl: 'http://app.test', ...over };
 }
 
-const storeFor = (db) => createSupabaseStore({ url: db.url, key: db.key, fetchImpl: db.fetch });
+const storeFor = (db) => createStore({ query: d1Http({ accountId: db.accountId, databaseId: db.databaseId, apiToken: db.apiToken, fetchImpl: db.fetch }) });
 
 /** A tiny app: the account routes plus two gated endpoints standing in for strip/download. */
-async function start({ db = fakeSupabase(), ...opts } = {}) {
+async function start({ db = fakeD1(), ...opts } = {}) {
   const accounts = createAccounts({ store: storeFor(db), ...opts });
   const app = express();
   app.use('/api', accounts.router);
@@ -137,7 +138,7 @@ test('parallel requests cannot both take the last free use', async (t) => {
 });
 
 test('tampered or expired session cookies are ignored', async () => {
-  const accounts = createAccounts({ config: config(), store: storeFor(fakeSupabase()) });
+  const accounts = createAccounts({ config: config(), store: storeFor(fakeD1()) });
   const tok = accounts.sessionToken('7');
   assert.equal(accounts.readSession(tok), '7');
   const [body, mac] = tok.split('.');
@@ -385,8 +386,8 @@ test('two plans: Basic unlocks on-device stripping, switching to Pro goes throug
   assert.equal((await s.call('POST', '/api/strip')).status, 402);
   assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
 
-  // The Supabase row carries the tier and price.
-  const row = s.db.subs.get('sub_b');
+  // The D1 row carries the tier and price.
+  const row = s.db.db.prepare("SELECT tier, price_id FROM subscriptions WHERE id = 'sub_b'").get();
   assert.equal(row.tier, 'basic');
   assert.equal(row.price_id, 'price_10');
 });
@@ -419,29 +420,66 @@ test('dev billing: switching between Basic and Pro', async (t) => {
   assert.equal((await s.call('GET', '/api/me')).data.plan, 'free');
 });
 
-test('Supabase store: sends the service key, and the free allowance follows the app_settings table', async (t) => {
+test('D1 store: sends the API token, and the free allowance follows the app_settings table', async (t) => {
   const s = await start({ config: config() });
   t.after(s.close);
   await s.call('GET', '/api/auth/dev');
-  const c = s.db.calls.find((x) => x.fn === 'upsert_google_user');
-  assert.equal(c.headers.apikey, 'sb_secret_test');
-  assert.equal(c.headers.Authorization, undefined);
-  assert.deepEqual(c.args, { p_sub: 'dev:dev@localhost', p_email: 'dev@localhost', p_name: 'Dev user', p_picture: null });
+  assert.equal(s.db.db.prepare('SELECT email FROM profiles').get().email, 'dev@localhost');
 
   assert.equal((await s.call('POST', '/api/download')).status, 202);
   assert.equal((await s.call('POST', '/api/download')).status, 402);
-  const consume = s.db.calls.find((x) => x.fn === 'consume_usage');
-  assert.equal(consume.args.p_kind, 'download');
-  assert.equal(consume.args.p_free_limit, 1);
+  const consume = s.db.calls.find((x) => /INSERT INTO usage_counters/.test(x.sql));
+  assert.deepEqual(consume.params.slice(1), ['download', 1]);
 
   // Raising the allowance in the table takes effect without a restart (after the 1-minute cache).
-  s.db.settings.free_downloads = 3;
+  s.db.db.exec("UPDATE app_settings SET value = '3' WHERE key = 'free_downloads'");
   const settings = await s.accounts.store.settings(Date.now() + 61_000);
   assert.equal(settings.free_downloads, 3);
   const me = await s.call('GET', '/api/me');
   assert.deepEqual(me.data.usage.download, { used: 1, limit: 3 });
   assert.equal((await s.call('POST', '/api/download')).status, 202);
-  assert.deepEqual(s.db.events.map((e) => e.delta), [1, 1]);
+  // Triggers log every use.
+  const events = s.db.db.prepare('SELECT kind, delta, tier FROM usage_events ORDER BY id').all().map((r) => ({ ...r }));
+  assert.deepEqual(events, [{ kind: 'download', delta: 1, tier: null }, { kind: 'download', delta: 1, tier: null }]);
+});
+
+test('D1 store: refunds are logged and never go below zero', async () => {
+  const db = fakeD1();
+  const store = storeFor(db);
+  const u = await store.upsertGoogleUser({ sub: 'g-1', email: 'a@b.c' });
+  assert.equal(await store.consume(u.id, 'server_strip', 1), true);
+  await store.refund(u.id, 'server_strip');
+  await store.refund(u.id, 'server_strip');
+  assert.equal((await store.getUser(u.id)).server_strips_used, 0);
+  assert.deepEqual(db.db.prepare('SELECT delta FROM usage_events ORDER BY id').all().map((r) => r.delta), [1, -1]);
+});
+
+test('D1 store: plans decide what is unlimited, and expiry ends them', async () => {
+  const db = fakeD1();
+  const store = storeFor(db);
+  const u = await store.upsertGoogleUser({ sub: 'g-2', email: 'b@b.c' });
+  const future = Math.floor(Date.now() / 1000) + 86400 * 30;
+  await store.setSubscription(u.id, { id: 'sub_basic', status: 'active', periodEnd: future, tier: 'basic', priceId: 'price_10' });
+  await store.setSubscription(u.id, { id: 'sub_old', status: 'canceled', periodEnd: null });
+  let row = await store.getUser(u.id);
+  assert.equal(row.subscription_id, 'sub_basic');
+  assert.equal(row.subscription_tier, 'basic');
+  assert.equal(row.subscription_price_id, 'price_10');
+  // Basic: on-device strips are unlimited, server strips are not.
+  for (let i = 0; i < 3; i++) assert.equal(await store.consume(u.id, 'strip', 0), true);
+  assert.equal(await store.consume(u.id, 'server_strip', 0), false);
+  assert.equal(db.db.prepare("SELECT tier FROM usage_events WHERE kind = 'strip' LIMIT 1").get().tier, 'basic');
+  // A Pro subscription wins over Basic.
+  await store.setSubscription(u.id, { id: 'sub_pro', status: 'active', periodEnd: future, tier: 'pro' });
+  row = await store.getUser(u.id);
+  assert.equal(row.subscription_tier, 'pro');
+  assert.equal(await store.consume(u.id, 'server_strip', 0), true);
+  // Both expired more than a day ago: back to the free limit.
+  const past = Math.floor(Date.now() / 1000) - 3 * 86400;
+  await store.setSubscription(u.id, { id: 'sub_pro', status: 'active', periodEnd: past, tier: 'pro' });
+  await store.setSubscription(u.id, { id: 'sub_basic', status: 'active', periodEnd: past, tier: 'basic' });
+  assert.equal(await store.consume(u.id, 'download', 0), false);
+  assert.equal(await store.consume('no-such-user', 'strip', 5), false);
 });
 
 test('FREE_* env override the table', async (t) => {
@@ -456,7 +494,7 @@ test('FREE_* env override the table', async (t) => {
   const dl = await s.call('POST', '/api/download');
   assert.equal(dl.status, 402);
   assert.match(dl.data.error, /Upgrade to Pro/);
-  assert.ok(!s.db.calls.some((x) => x.fn === 'get_settings'));
+  assert.ok(!s.db.calls.some((x) => /app_settings/.test(x.sql)));
 });
 
 function loadConfigOverrides(env) {
@@ -464,7 +502,7 @@ function loadConfigOverrides(env) {
   return { freeStrips: c.freeStrips, freeServerStrips: c.freeServerStrips, freeDownloads: c.freeDownloads };
 }
 
-test('a Supabase outage answers 503 instead of letting work through', async (t) => {
+test('a D1 outage answers 503 instead of letting work through', async (t) => {
   const s = await start({ config: config() });
   t.after(s.close);
   await s.call('GET', '/api/auth/dev');
@@ -477,24 +515,17 @@ test('a Supabase outage answers 503 instead of letting work through', async (t) 
   assert.equal((await s.call('POST', '/api/strip')).status, 200);
 });
 
-test('with the paywall on, Supabase settings are required', () => {
-  assert.throws(() => createAccounts({ config: config() }), /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
+test('with the paywall on, D1 settings are required', () => {
+  assert.throws(() => createAccounts({ config: config() }), /CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID and CLOUDFLARE_API_TOKEN/);
   // PAYWALL=off needs no database at all.
   assert.doesNotThrow(() => createAccounts({ config: config({ paywall: false }) }));
-  const c = loadConfig({ SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SECRET_KEY: 'sb_secret_1' });
-  assert.equal(c.supabaseKey, 'sb_secret_1');
+  const c = loadConfig({ CLOUDFLARE_ACCOUNT_ID: 'a', CLOUDFLARE_D1_DATABASE_ID: 'd', CLOUDFLARE_API_TOKEN: 't' });
+  assert.deepEqual([c.cfAccountId, c.d1DatabaseId, c.cfApiToken], ['a', 'd', 't']);
   assert.equal(c.freeStrips, null);
 });
 
-test('legacy JWT service_role keys also go in the Authorization header', async () => {
-  let seen;
-  const store = createSupabaseStore({
-    url: 'https://x.supabase.co/', key: 'eyJhbGciOi.x.y',
-    fetchImpl: async (u, init) => { seen = { u, init }; return Response.json([]); },
-  });
-  assert.equal(await store.getUser('not-a-uuid'), null);
-  assert.equal(seen, undefined);
-  assert.equal(await store.getUser('00000000-0000-4000-8000-000000000000'), null);
-  assert.equal(seen.u, 'https://x.supabase.co/rest/v1/rpc/get_account');
-  assert.equal(seen.init.headers.Authorization, 'Bearer eyJhbGciOi.x.y');
+test('D1 API errors are reported, not swallowed', async () => {
+  const db = fakeD1();
+  const store = createStore({ query: d1Http({ accountId: db.accountId, databaseId: db.databaseId, apiToken: 'wrong', fetchImpl: db.fetch }) });
+  await assert.rejects(store.getUser('x'), /D1: Authentication error/);
 });

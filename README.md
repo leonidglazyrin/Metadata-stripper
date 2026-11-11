@@ -27,10 +27,10 @@ server/     Node + Express API                      → serves /api/* and dist/
   index.js        /api/strip (sharp + ffmpeg)
   downloaders.js  /api/download/:platform (yt-dlp)
   account.js      Google sign-in, quota, Stripe Checkout / Portal / webhook
-  store.js        Supabase (Postgres): users, usage, subscriptions
+  store.js        Cloudflare D1: users, usage, subscriptions
 ```
 
-Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). Accounts and billing live in the same server and store their data in Supabase (Postgres), so the container is stateless and needs no disk.
+Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). Accounts and billing live in the same server and store their data in Cloudflare D1 (schema in `migrations/`), so the container is stateless and needs no disk.
 
 ## Server or on-device stripping
 
@@ -115,12 +115,12 @@ docker run -p 3000:3000 --env-file .env sharona
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
 | `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately (must be the same site, e.g. `api.example.com` for `example.com`, so the session cookie is sent) |
 | `SESSION_SECRET` | random per start | **Required in production.** Signs the session cookie |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | (required unless `PAYWALL=off`) | Supabase project for accounts, subscriptions and usage. See `docs/accounts-and-billing.md` |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` | (required unless `PAYWALL=off`) | D1 database for accounts, subscriptions and usage. See `docs/accounts-and-billing.md` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | | Stripe API key and webhook signing secret |
 | `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO` | | The $10 Basic and $20 Pro monthly prices. The webhook maps each price to its plan. `STRIPE_PRICE_ID` is the old name of the Pro one |
 | `PAYWALL` | on | `off` disables sign-in and limits |
-| `FREE_STRIPS`, `FREE_SERVER_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1, 1) | Free on-device strips, server strips and downloads per account. Leave unset to manage them in Supabase without a deploy |
+| `FREE_STRIPS`, `FREE_SERVER_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1, 1) | Free on-device strips, server strips and downloads per account. Leave unset to manage them in D1 without a deploy |
 | `PRICE_LABEL_BASIC`, `PRICE_LABEL_PRO` | `$10`, `$20` | Prices shown in the upgrade dialog (the charge itself comes from the Stripe prices) |
 | `TRUST_PROXY` | private ranges | Express `trust proxy`, so `https` is detected behind a load balancer |
 

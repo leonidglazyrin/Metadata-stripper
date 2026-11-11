@@ -18,18 +18,18 @@
 //   POST /api/billing/portal         → { url } of the Stripe Customer Portal
 //   POST /api/billing/webhook        Stripe events: turn the license on / off
 //
-// Accounts, subscriptions and usage live in Supabase (see server/store.js and
-// supabase/migrations/). Sessions are signed cookies, so the server keeps
+// Accounts, subscriptions and usage live in Cloudflare D1 (see server/store.js
+// and migrations/). Sessions are signed cookies, so the server keeps
 // nothing on disk and can run in throwaway containers.
 //
 // Without GOOGLE_* / STRIPE_* set and NODE_ENV not "production", sign-in and
 // billing run in dev mode: "Sign in" logs into a test account and "Upgrade"
-// turns the plan on at once, so the whole flow can be tried locally. Supabase is
-// still required whenever the paywall is on.
+// turns the plan on at once, so the whole flow can be tried locally. D1 is still
+// required whenever the paywall is on.
 
 const express = require('express');
 const crypto = require('crypto');
-const { createSupabaseStore, planOf, isUnlimited } = require('./store');
+const { createStore, d1Http, planOf, isUnlimited } = require('./store');
 const log = require('./log');
 
 const COOKIE = 'sh_sess';
@@ -49,10 +49,11 @@ function loadConfig(env = process.env) {
     stripePriceBasic: env.STRIPE_PRICE_ID_BASIC || '',
     stripePricePro: env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || '',
     sessionSecret: env.SESSION_SECRET || '',
-    supabaseUrl: env.SUPABASE_URL || '',
-    supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '',
+    cfAccountId: env.CLOUDFLARE_ACCOUNT_ID || '',
+    d1DatabaseId: env.CLOUDFLARE_D1_DATABASE_ID || '',
+    cfApiToken: env.CLOUDFLARE_API_TOKEN || '',
     paywall: !/^(0|off|false|no)$/i.test(env.PAYWALL || ''),
-    // Free allowances come from the app_settings table in Supabase (default
+    // Free allowances come from the app_settings table in D1 (default
     // 1 each). Setting these env vars overrides the table.
     freeStrips: limitFromEnv(env.FREE_STRIPS),
     freeServerStrips: limitFromEnv(env.FREE_SERVER_STRIPS),
@@ -140,7 +141,9 @@ function safeNext(next) {
 
 function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}) {
   if (!store && config.paywall) {
-    store = createSupabaseStore({ url: config.supabaseUrl, key: config.supabaseKey, fetchImpl });
+    store = createStore({
+      query: d1Http({ accountId: config.cfAccountId, databaseId: config.d1DatabaseId, apiToken: config.cfApiToken, fetchImpl }),
+    });
   }
   const google = Boolean(config.googleId && config.googleSecret);
   const priceOf = { basic: config.stripePriceBasic, pro: config.stripePricePro };
@@ -157,7 +160,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   if (config.paywall) {
     log.info(`Accounts: sign-in ${google ? 'Google' : devAuth ? 'DEV (local test account, no Google)' : 'NOT CONFIGURED'}, `
       + `billing ${stripe ? 'Stripe' : devBilling ? 'DEV (upgrade is free and instant)' : 'NOT CONFIGURED'}, `
-      + `accounts in Supabase (${config.supabaseUrl || 'custom store'}), free tier from `
+      + `accounts in D1 (${config.d1DatabaseId || 'custom store'}), free tier from `
       + `${KINDS.some((k) => config[ENV[k]] !== null) ? 'FREE_* env' : 'the app_settings table'}`
       + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}` : ''}`);
     if (stripe && PLANS.some((p) => !priceOf[p])) {
@@ -224,7 +227,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     return 'pro';
   }
 
-  /** Wrap an async route so a Supabase outage answers 503 instead of hanging. */
+  /** Wrap an async route so a database outage answers 503 instead of hanging. */
   const safe = (fn) => async (req, res, next) => {
     try {
       await fn(req, res, next);
