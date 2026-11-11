@@ -26,6 +26,17 @@ server/     Node + Express API                      → serves /api/* and dist/
 
 Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). If you later add accounts, billing or a database, a Workers/Hono layer can sit in front for that, while the media work stays in this container.
 
+## Server or on-device stripping
+
+The stripper has a **Server / This device** switch.
+
+- **Server** uploads the file, cleans it with sharp/ffmpeg and deletes it right after. It handles every format.
+- **This device** never uploads anything:
+  - **JPEG, PNG, WebP, GIF** are cleaned losslessly: metadata blocks (EXIF, XMP, IPTC, comments, text chunks, MPF trailers, non-essential app extensions) are cut out and the compressed image data is copied byte for byte. Rotated photos and non-sRGB color profiles are re-encoded through a canvas so they still look right.
+  - **HEIC/HEIF** is decoded with libheif (wasm, loaded on demand) and saved as JPEG; **AVIF** and other formats the browser can decode are saved as PNG.
+  - **Videos** are remuxed with ffmpeg.wasm using the same options as the server (`-map_metadata -1`, data tracks dropped, SEI filtered, `-c copy`). The ~30 MB engine is self-hosted and downloaded once; files up to ~1.8 GB.
+  - **SynthID mode for videos** applies the server's filter chain (`gblur=sigma=0.3`, temporal luma noise, luma `unsharp`) to every frame and re-encodes. It uses WebCodecs through [Mediabunny](https://mediabunny.dev) in a worker, so decoding and encoding run on the GPU's media engine where the device has one, and the filter runs directly on the decoded YUV planes (no RGB round trip). Output is MP4 (H.264, or HEVC/VP9/AV1 if H.264 encoding isn't available) or WebM for WebM input, with AAC or Opus audio at 256 kb/s. Browsers without WebCodecs, and containers Mediabunny can't read (AVI, WMV, FLV…), fall back to ffmpeg.wasm with the server's exact arguments, which is several times slower. The fast path holds the output in memory, so it's capped at 1.5 GB input.
+
 ## What gets removed
 
 **Images** (JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF) are decoded to raw pixels and re-encoded into a fresh file, so nothing from the original container survives: EXIF (camera, serial numbers, timestamps, GPS), XMP, IPTC / Photoshop IRB, ICC profiles (converted to sRGB first), C2PA / Content Credentials (JUMBF), MPF, maker notes, embedded thumbnails, PNG/GIF text comments. EXIF orientation is applied to the pixels first so images stay upright. HEIC is output as JPEG.

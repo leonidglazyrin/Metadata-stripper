@@ -49,9 +49,14 @@ function prerenderLanding(): Plugin {
 export default defineConfig({
   root: 'web',
   plugins: [react(), prerenderLanding()],
+  // ffmpeg.wasm spawns its own worker; let Vite bundle it as-is.
+  optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'] },
+  worker: { format: 'es' },
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    // heic-to (libheif) is a ~3 MB lazy chunk, loaded only for HEIC on-device.
+    chunkSizeWarningLimit: 4000,
     rollupOptions: {
       input: {
         landing: fileURLToPath(new URL('./web/index.html', import.meta.url)),
