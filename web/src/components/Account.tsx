@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  buyStripPack,
   closePaywall,
   openBillingPortal,
   openPaywall,
@@ -8,6 +9,7 @@ import {
   signIn,
   signOut,
   startCheckout,
+  stripCredits,
   useAccountState,
   type Account,
   type Kind,
@@ -50,9 +52,15 @@ const left = (a: Account, k: Kind) => {
   return n == null ? null : `${n} ${SHORT[k]} left`;
 };
 
+/** "12 pack strips", or null with none left. */
+const packLeft = (a: Account) => {
+  const c = stripCredits(a);
+  return c ? `${c} pack strip${c === 1 ? '' : 's'}` : null;
+};
+
 function usageLine(a: Account) {
   if (a.plan === 'pro') return 'Pro · unlimited';
-  const parts = (['strip', 'server_strip', 'download'] as const).map((k) => left(a, k)).filter(Boolean);
+  const parts = [...(['strip', 'server_strip', 'download'] as const).map((k) => left(a, k)), a.plan === 'free' ? packLeft(a) : null].filter(Boolean);
   return a.plan === 'basic' ? ['Basic · unlimited on-device', ...parts].join(' · ') : parts.join(' · ');
 }
 
@@ -81,6 +89,7 @@ export function AccountBar() {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const portal = useAction();
+  const pack = useAction();
 
   useEffect(() => {
     if (!open) return;
@@ -127,6 +136,11 @@ export function AccountBar() {
             {a.user?.email && <small>{a.user.email}</small>}
           </div>
           <div className="acct-usage">{usageLine(a)}</div>
+          {a.plan !== 'free' && stripCredits(a) > 0 && (
+            <small className="acct-renew">
+              {stripCredits(a)} pack strip{stripCredits(a) === 1 ? '' : 's'} saved for after your plan
+            </small>
+          )}
           {a.plan !== 'free' && a.subscription?.renewsAt && (
             <small className="acct-renew">
               {a.subscription.cancelAtPeriodEnd ? 'Ends' : 'Renews'} {new Date(a.subscription.renewsAt).toLocaleDateString()}
@@ -137,6 +151,12 @@ export function AccountBar() {
               {a.plan === 'free' ? 'See plans' : `Upgrade to Pro · ${planOf(a, 'pro').label}/month`}
             </button>
           )}
+          {a.plan === 'free' && a.pack?.available && (
+            <button type="button" role="menuitem" disabled={pack.busy} onClick={() => pack.run(buyStripPack)}>
+              {pack.busy ? 'Opening…' : `Buy ${a.pack.strips} on-device strips · ${a.pack.label}`}
+            </button>
+          )}
+          {pack.error && <small className="acct-error">{pack.error}</small>}
           {a.plan !== 'free' && a.subscription?.manageable && (
             <button type="button" role="menuitem" disabled={portal.busy} onClick={() => portal.run(openBillingPortal)}>
               {portal.busy ? 'Opening…' : a.dev.billing ? 'Cancel plan (dev)' : 'Manage subscription'}
@@ -168,7 +188,7 @@ export function PaywallDialog() {
   const { account: a, paywall } = useAccountState();
   const ref = useRef<HTMLDialogElement>(null);
   const checkout = useAction();
-  const [picked, setPicked] = useState<PlanId | null>(null);
+  const [picked, setPicked] = useState<PlanId | 'pack' | null>(null);
 
   useEffect(() => {
     const d = ref.current;
@@ -184,7 +204,9 @@ export function PaywallDialog() {
   const free = a?.free;
   // Highlight the plan that lifts the limit just hit (Pro by default).
   const best: PlanId = paywall?.plan === 'basic' && current === 'free' ? 'basic' : 'pro';
-  const hit = paywall?.kind
+  const hit = paywall?.kind === 'strip' && (a?.credits?.packs ?? 0) > 0
+    ? 'You’ve used your free and pack on-device strips. '
+    : paywall?.kind
     ? `You’ve used your free ${paywall.kind === 'strip' ? 'on-device strip' : paywall.kind === 'server_strip' ? 'server strip' : 'download'}. `
     : '';
 
@@ -192,6 +214,15 @@ export function PaywallDialog() {
     setPicked(id);
     void checkout.run(() => startCheckout(id));
   };
+  const buyPack = () => {
+    setPicked('pack');
+    void checkout.run(buyStripPack);
+  };
+  // The pack only adds on-device strips, so offer it for that limit (or when
+  // the dialog was opened from the account bar) and only without a plan.
+  const pk = a?.pack;
+  const showPack = Boolean(pk) && current === 'free' && (!paywall?.kind || paywall.kind === 'strip');
+  const credits = stripCredits(a);
 
   return (
     <dialog ref={ref} className="paywall" onClose={closePaywall} onClick={(e) => e.target === ref.current && closePaywall()}>
@@ -251,8 +282,29 @@ export function PaywallDialog() {
                   );
                 })}
               </div>
+              {showPack && pk && (
+                <div className="pack">
+                  <div className="pack-text">
+                    <b>Just a few files? Strip pack</b>
+                    <span>
+                      {pk.strips} more on-device strips for <b>{pk.label}</b>, paid once. Buy as many as you like, they add up.
+                      {credits > 0 && ` You have ${credits} left.`}
+                    </span>
+                  </div>
+                  <button type="button" className="paywall-cta alt" disabled={!pk.available || checkout.busy} onClick={buyPack}>
+                    {checkout.busy && picked === 'pack'
+                      ? 'Opening…'
+                      : a?.dev.billing
+                        ? `Get ${pk.strips} strips (dev, free)`
+                        : `Buy ${pk.strips} strips · ${pk.label}`}
+                  </button>
+                  {!pk.available && <small className="plan-off">Not available yet</small>}
+                </div>
+              )}
               {checkout.error && <p className="paywall-error">{checkout.error}</p>}
-              <p className="paywall-fine">Billed monthly. Cancel or change plan anytime.</p>
+              <p className="paywall-fine">
+                Plans are billed monthly. Cancel or change plan anytime.{showPack ? ' Strip packs are a one-time payment.' : ''}
+              </p>
               <StripeBadge />
             </>
           )}

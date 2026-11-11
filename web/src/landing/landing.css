@@ -119,6 +119,10 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .price-badge { padding: 3px 10px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; }
 .price .price-list { margin-bottom: 22px; }
 .price .cta { margin-top: auto; }
+.price-pack { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px 24px; margin-top: 16px; padding: 22px 26px; border-radius: 22px; border: 1px dashed var(--line-strong, var(--line)); background: #f8fafc; }
+.price-pack .price-tag { margin: 0; white-space: nowrap; }
+.price-pack .price-tag b { font-size: 36px; }
+.price-pack-text { color: var(--soft); font-size: 15px; margin-top: 6px; max-width: 52ch; }
 .price-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; color: var(--faint); font-size: 13.5px; }
 .price-tag { color: var(--soft); font-size: 17px; font-weight: 650; margin-top: 6px; }
 .price-tag b { color: var(--ink); font-size: 48px; font-weight: 800; letter-spacing: -0.04em; margin-right: 4px; }
@@ -163,7 +167,8 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
   .grid3, .steps { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-  .split, .dl-grid, .price-plans { grid-template-columns: minmax(0, 1fr); }
+  .split, .dl-grid, .price-plans, .price-pack { grid-template-columns: minmax(0, 1fr); }
+  .price-pack { justify-items: start; }
   /* Header: wordmark, "Open tools" and a burger on one row; the section
      links drop down from the burger. */
   .hero .card-head { position: relative; gap: 10px; }

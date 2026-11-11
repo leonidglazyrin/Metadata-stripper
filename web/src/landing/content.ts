@@ -5,7 +5,7 @@
 export const SITE_NAME = 'Sharona';
 
 /** Monthly prices of the two plans, shown in the pricing section of every language. */
-export const PRICES = { basic: '$10', pro: '$20' } as const;
+export const PRICES = { basic: '$10', pro: '$20', pack: '$2' } as const;
 
 /** The top plan's price ({price} in the dictionaries). */
 export const PRICE = PRICES.pro;

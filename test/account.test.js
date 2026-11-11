@@ -28,6 +28,11 @@ async function start({ db = fakeD1(), ...opts } = {}) {
     if (req.query.fail) return res.status(500).json({ error: 'boom' });
     res.send('clean');
   });
+  // A server route gated on on-device strips, to test pack credit refunds.
+  app.post('/api/device', accounts.gate('strip'), (req, res) => {
+    if (req.query.fail) { req.quota.refund(); return res.status(500).json({ credit: req.quota.credit }); }
+    res.json({ credit: req.quota.credit });
+  });
   app.post('/api/download', accounts.gate('download'), (req, res) => {
     if (req.query.fail) req.quota.refund();
     res.status(202).json({ ok: true });
@@ -528,4 +533,203 @@ test('D1 API errors are reported, not swallowed', async () => {
   const db = fakeD1();
   const store = createStore({ query: d1Http({ accountId: db.accountId, databaseId: db.databaseId, apiToken: 'wrong', fetchImpl: db.fetch }) });
   await assert.rejects(store.getUser('x'), /D1: Authentication error/);
+});
+
+// --- strip packs -----------------------------------------------------------
+
+test('dev billing: a strip pack adds 10 on-device strips after the free one, and can be bought again', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev?email=pack@example.com');
+  let me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.credits, { strip: 0, packs: 0 });
+  assert.deepEqual(me.data.pack, { label: '$2', strips: 10, available: true });
+
+  // The free one first, without touching credits.
+  let r = await s.call('POST', '/api/usage/strip');
+  assert.equal(r.status, 200);
+  assert.equal(r.data.credit, null);
+  r = await s.call('POST', '/api/usage/strip');
+  assert.equal(r.status, 402);
+  assert.equal(r.data.pack, true);
+  assert.match(r.data.error, /get 10 more for \$2/);
+
+  const buy = await s.call('POST', '/api/billing/pack', { body: { next: '/app/#strip' } });
+  assert.equal(buy.data.url, 'http://app.test/app/?pack=1#strip');
+  me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.credits, { strip: 10, packs: 1 });
+
+  // Bought again: the strips add up.
+  const again = await s.call('POST', '/api/billing/pack', { body: { next: '/app/' } });
+  assert.equal(again.data.url, 'http://app.test/app/?pack=2');
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 20);
+
+  for (let i = 0; i < 20; i++) {
+    r = await s.call('POST', '/api/usage/strip');
+    assert.equal(r.status, 200);
+    assert.match(r.data.credit, /^[0-9a-f-]{36}$/);
+    assert.equal(r.data.credits.strip, 19 - i);
+  }
+  assert.equal((await s.call('POST', '/api/usage/strip')).status, 402);
+  // Free usage stayed at the one free strip.
+  assert.equal((await s.call('GET', '/api/me')).data.usage.strip.used, 1);
+});
+
+test('strip pack credits: a failed strip gives its credit back once, only to its owner', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev?email=a@example.com');
+  await s.call('POST', '/api/usage/strip');
+  await s.call('POST', '/api/billing/pack', { body: {} });
+
+  // Server-side refund (the gate's refund()).
+  const failed = await s.call('POST', '/api/device?fail=1');
+  assert.equal(failed.status, 500);
+  assert.ok(failed.data.credit);
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 10);
+
+  // The page's refund after an on-device strip failed.
+  const use = await s.call('POST', '/api/usage/strip');
+  assert.equal(use.data.credits.strip, 9);
+  let back = await s.call('POST', '/api/usage/strip/refund', { body: { credit: use.data.credit } });
+  assert.equal(back.data.refunded, true);
+  assert.equal(back.data.credits.strip, 10);
+  // Twice does nothing.
+  back = await s.call('POST', '/api/usage/strip/refund', { body: { credit: use.data.credit } });
+  assert.equal(back.data.refunded, false);
+  assert.equal(back.data.credits.strip, 10);
+  // Junk ids do nothing.
+  assert.equal((await s.call('POST', '/api/usage/strip/refund', { body: { credit: "x' OR 1=1" } })).data.refunded, false);
+
+  // Someone else can't refund it.
+  const mine = await s.call('POST', '/api/usage/strip');
+  await s.call('GET', '/api/auth/dev?email=b@example.com');
+  assert.equal((await s.call('POST', '/api/usage/strip/refund', { body: { credit: mine.data.credit } })).data.refunded, false);
+  // An old use can't be refunded.
+  s.db.db.prepare('UPDATE strip_credit_uses SET created_at = created_at - 7200').run();
+  await s.call('GET', '/api/auth/dev?email=a@example.com');
+  assert.equal((await s.call('POST', '/api/usage/strip/refund', { body: { credit: mine.data.credit } })).data.refunded, false);
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 9);
+});
+
+test('strip pack credits are never spent while a plan covers on-device stripping', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  await s.call('POST', '/api/billing/pack', { body: {} });
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic' } });
+  for (let i = 0; i < 3; i++) assert.equal((await s.call('POST', '/api/usage/strip')).data.credit, null);
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 10);
+  // Server strips aren't covered by Basic or by a pack.
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  const r = await s.call('POST', '/api/strip');
+  assert.equal(r.status, 402);
+  assert.equal(r.data.pack, false);
+  // Plan cancelled: the free strip is used up, so credits kick in.
+  await s.call('POST', '/api/billing/portal', { body: {} });
+  assert.ok((await s.call('POST', '/api/usage/strip')).data.credit);
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 9);
+});
+
+test('parallel requests cannot both take the last strip pack credit', async (t) => {
+  const s = await start({ config: config({ packStrips: 2 }) });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  await s.call('POST', '/api/usage/strip');
+  await s.call('POST', '/api/billing/pack', { body: {} });
+  const results = await Promise.all(Array.from({ length: 8 }, () => s.call('POST', '/api/usage/strip')));
+  assert.equal(results.filter((r) => r.status === 200).length, 2);
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 0);
+});
+
+test('Stripe: a strip pack is a one-time Checkout, the webhook adds it once per session', async (t) => {
+  const checkouts = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (url === 'https://api.stripe.com/v1/checkout/sessions') {
+      checkouts.push(new URLSearchParams(init.body));
+      return Response.json({ id: `cs_${checkouts.length}`, url: `https://checkout.stripe.com/c/cs_${checkouts.length}` });
+    }
+    throw new Error(`unexpected ${url}`);
+  };
+  const s = await start({
+    config: config({ stripeKey: 'sk_test_x', stripePricePro: 'price_20', stripePricePack: 'price_2', stripeWebhookSecret: 'whsec_t' }),
+    fetchImpl,
+  });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev?email=buyer@example.com');
+  assert.equal((await s.call('GET', '/api/me')).data.pack.available, true);
+
+  const co = await s.call('POST', '/api/billing/pack', { body: { next: '/app/#strip' } });
+  assert.equal(co.data.url, 'https://checkout.stripe.com/c/cs_1');
+  const p = checkouts[0];
+  assert.equal(p.get('mode'), 'payment');
+  assert.equal(p.get('line_items[0][price]'), 'price_2');
+  assert.equal(p.get('line_items[0][quantity]'), '1');
+  assert.equal(p.get('customer_email'), 'buyer@example.com');
+  assert.equal(p.get('customer_creation'), 'always');
+  assert.equal(p.get('metadata[product]'), 'strip_pack');
+  assert.equal(p.get('metadata[strips]'), '10');
+  assert.equal(p.get('success_url'), 'http://app.test/app/?pack=1#strip');
+  const userId = p.get('client_reference_id');
+
+  const hook = (event) => {
+    const body = JSON.stringify(event);
+    return s.call('POST', '/api/billing/webhook', { raw: body, headers: { 'content-type': 'application/json', 'stripe-signature': signed('whsec_t', body) } });
+  };
+  const session = (id, extra = {}) => ({
+    id, mode: 'payment', payment_status: 'paid', client_reference_id: userId, customer: 'cus_9',
+    amount_total: 200, currency: 'usd', metadata: { product: 'strip_pack', user_id: userId, strips: '10' }, ...extra,
+  });
+
+  // Not paid yet (a delayed payment method): nothing added until it succeeds.
+  await hook({ id: 'evt_0', type: 'checkout.session.completed', data: { object: session('cs_1', { payment_status: 'unpaid' }) } });
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 0);
+  assert.equal((await hook({ id: 'evt_1', type: 'checkout.session.async_payment_succeeded', data: { object: session('cs_1') } })).status, 200);
+  let me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.credits, { strip: 10, packs: 1 });
+  assert.equal(me.data.plan, 'free');
+
+  // Stripe delivers the same event again: still 10.
+  await hook({ id: 'evt_1', type: 'checkout.session.async_payment_succeeded', data: { object: session('cs_1') } });
+  await hook({ id: 'evt_1b', type: 'checkout.session.completed', data: { object: session('cs_1') } });
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 10);
+  const row = s.db.db.prepare('SELECT strips, amount_cents, currency FROM strip_pack_purchases').get();
+  assert.deepEqual({ ...row }, { strips: 10, amount_cents: 200, currency: 'usd' });
+
+  // A second purchase stacks, and reuses the Stripe customer saved from the first.
+  await s.call('POST', '/api/billing/pack', { body: { next: '/app/' } });
+  assert.equal(checkouts[1].get('customer'), 'cus_9');
+  assert.equal(checkouts[1].get('customer_email'), null);
+  assert.equal(checkouts[1].get('success_url'), 'http://app.test/app/?pack=2');
+  await hook({ id: 'evt_2', type: 'checkout.session.completed', data: { object: session('cs_2') } });
+  assert.deepEqual((await s.call('GET', '/api/me')).data.credits, { strip: 20, packs: 2 });
+
+  // Other one-time payments and unknown users are ignored without an error.
+  assert.equal((await hook({ id: 'evt_3', type: 'checkout.session.completed', data: { object: session('cs_3', { metadata: {} }) } })).status, 200);
+  assert.equal((await hook({ id: 'evt_4', type: 'checkout.session.completed', data: { object: session('cs_4', { client_reference_id: 'nobody', metadata: { product: 'strip_pack' } }) } })).status, 200);
+  assert.equal((await s.call('GET', '/api/me')).data.credits.strip, 20);
+});
+
+test('Stripe without a pack price: the pack is unavailable and the 402 does not offer it', async (t) => {
+  const s = await start({
+    config: config({ stripeKey: 'sk_test_x', stripePricePro: 'price_20', stripeWebhookSecret: 'whsec_t' }),
+    fetchImpl: async (url) => { throw new Error(`unexpected ${url}`); },
+  });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  assert.equal((await s.call('GET', '/api/me')).data.pack.available, false);
+  assert.equal((await s.call('POST', '/api/billing/pack', { body: {} })).status, 503);
+  await s.call('POST', '/api/usage/strip');
+  const r = await s.call('POST', '/api/usage/strip');
+  assert.equal(r.data.pack, false);
+  assert.doesNotMatch(r.data.error, /more for/);
+});
+
+test('loadConfig reads the pack settings', () => {
+  const c = loadConfig({ STRIPE_PRICE_ID_PACK: 'price_2', PACK_STRIPS: '25', PRICE_LABEL_PACK: '€2' });
+  assert.equal(c.stripePricePack, 'price_2');
+  assert.equal(c.packStrips, 25);
+  assert.equal(c.priceLabels.pack, '€2');
+  assert.equal(loadConfig({}).packStrips, 10);
+  assert.equal(loadConfig({ PACK_STRIPS: '0' }).packStrips, 10);
 });
