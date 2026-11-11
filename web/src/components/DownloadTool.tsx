@@ -11,6 +11,8 @@ type Mode = 'video' | 'audio';
 interface Input {
   url: string;
   mode: Mode;
+  /** Server job id of a finished video of the same post: the audio is taken from it */
+  from?: string;
 }
 
 // Links pasted or typed with or without the scheme: "youtube.com/watch?v=…",
@@ -27,6 +29,8 @@ interface JobStatus {
   title: string | null;
   thumbnail: boolean;
   error: string | null;
+  /** 'extract' while audio is being pulled from a video already on the server */
+  step?: 'extract' | null;
   filename?: string | null;
   size?: number | null;
   /** When the server deletes the job (ms since epoch) */
@@ -41,6 +45,7 @@ interface SavedRow {
   name: string;
   /** The server's job id, once it has one */
   serverId?: string;
+  from?: string;
   status?: 'error';
   message?: string;
 }
@@ -181,7 +186,8 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         throw new Error(s.error || 'Download failed');
       }
       if (s.state === 'ready') break;
-      if (s.state === 'processing') update({ message: 'Processing on the server', progress: null });
+      if (s.step === 'extract') update({ message: 'Extracting the audio on the server', progress: s.progress });
+      else if (s.state === 'processing') update({ message: 'Processing on the server', progress: null });
       else if (s.progress != null) update({ message: 'Downloading on the server', progress: s.progress });
       else update({ message: 'Fetching on the server…', progress: null });
       first = false;
@@ -240,6 +246,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       id: j.id,
       url: j.input.url,
       mode: j.input.mode,
+      ...(j.input.from ? { from: j.input.from } : {}),
       name: j.name,
       serverId: serverIds.current.get(j.id),
       ...(j.status === 'error' ? { status: 'error' as const, message: j.message } : {}),
@@ -259,7 +266,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       add(
         [...saved].reverse().map((r) => ({
           id: r.id,
-          input: { url: r.url, mode: r.mode },
+          input: { url: r.url, mode: r.mode, ...(r.from ? { from: r.from } : {}) },
           name: r.name,
           // Server job: poll it now. Failed row: just show it. Never started: queue it.
           immediate: Boolean(r.serverId),
@@ -305,6 +312,27 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
   const onRetry = (id: string) => {
     expiry.current.delete(id);
     retry(id);
+  };
+
+  // A finished row in the other format than the switch: offer that format of
+  // the same post. Audio from a video comes out of the file the server
+  // already has; anything else is a fresh download.
+  const canSwitch = (j: (typeof jobs)[number]) =>
+    j.status === 'done' &&
+    j.input.mode !== mode &&
+    !jobs.some((k) => k.input.url === j.input.url && k.input.mode === mode && k.status !== 'error');
+  const onSwitch = (id: string) => {
+    const j = jobsRef.current.find((k) => k.id === id);
+    if (!j) return;
+    const from = mode === 'audio' && j.input.mode === 'video' ? serverIds.current.get(j.id) : undefined;
+    add([
+      {
+        input: { url: j.input.url, mode, ...(from ? { from } : {}) },
+        name: j.name,
+        // Blob previews belong to their row and are revoked with it.
+        preview: j.preview && !j.preview.startsWith('blob:') ? j.preview : undefined,
+      },
+    ]);
   };
 
   const submit = () => {
@@ -368,7 +396,16 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         </div>
       </div>
 
-      <JobList jobs={jobs} icon={<ToolIcon tool={platform} size={26} />} onRemove={onRemove} onRetry={onRetry} onClear={onClear} />
+      <JobList
+        jobs={jobs}
+        icon={<ToolIcon tool={platform} size={26} />}
+        onRemove={onRemove}
+        onRetry={onRetry}
+        onClear={onClear}
+        switchLabel={mode === 'audio' ? 'Get audio' : 'Get video'}
+        canSwitch={(j) => canSwitch(j as (typeof jobs)[number])}
+        onSwitch={onSwitch}
+      />
     </>
   );
 }
