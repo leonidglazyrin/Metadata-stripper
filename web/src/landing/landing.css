@@ -408,3 +408,131 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
   .flow-file { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 12px 12px 30px; }
   .flow-thumb { height: 120px; }
 }
+
+/* ---------- "Stop the AI label" before/after screenshots ---------- */
+.shots { margin-top: 24px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.shot { position: relative; margin: 0; padding: 14px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
+.shot img { display: block; width: 100%; height: auto; border-radius: 13px; border: 1px solid var(--line); background: #fff; }
+.shot-tag {
+  position: absolute;
+  z-index: 1;
+  top: 24px;
+  right: 24px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  background: var(--card);
+}
+.shot-tag.bad { color: var(--red); box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, 0.45); }
+.shot-tag.good { color: var(--green-ink); box-shadow: inset 0 0 0 1.5px var(--green); }
+.shot figcaption { margin-top: 13px; font-size: 14px; line-height: 1.5; color: var(--soft); }
+.shot figcaption b { color: var(--ink); }
+.detection-note { margin-top: 18px; max-width: 80ch; }
+
+/* ---------- SynthID re-encode animation ----------
+   A 7 s loop: an even watermark lattice is swept by a re-encode pass and
+   resampled into noise. Base styles are the finished (broken) state, so with
+   reduced motion the lattice is already gone. */
+.reenc { --rt: 7s; margin-top: 24px; display: grid; gap: 14px; justify-items: center; }
+.reenc-frame {
+  position: relative;
+  width: min(100%, 460px);
+  aspect-ratio: 16 / 7;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, #7c3aed, #1a6dff 52%, #22d3ee);
+  box-shadow: var(--shadow);
+}
+.reenc-grid, .reenc-noise { position: absolute; inset: 0; }
+/* The watermark: an even dot lattice. */
+.reenc-grid {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.95) 1.3px, transparent 1.7px);
+  background-size: 13px 13px;
+  opacity: 0;
+  animation: reenc-grid var(--rt) ease-in-out infinite;
+}
+/* After the sweep: finer, irregular speckle — the resampled pixels. */
+.reenc-noise {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.5) 0.6px, transparent 1px),
+    radial-gradient(circle, rgba(0, 0, 0, 0.18) 0.6px, transparent 1px);
+  background-size: 5px 5px, 7px 6px;
+  background-position: 0 0, 2px 3px;
+  opacity: 0.5;
+  animation: reenc-noise var(--rt) ease-in-out infinite;
+}
+.reenc-sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42px;
+  opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent);
+  mix-blend-mode: screen;
+  animation: reenc-sweep var(--rt) ease-in-out infinite;
+}
+/* A row of pixel blocks that jitter as the frame is resampled. */
+.reenc-pixels { position: absolute; left: 14px; bottom: 14px; display: flex; gap: 4px; }
+.reenc-pixels i {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  animation: reenc-px var(--rt) ease-in-out infinite;
+}
+.reenc-pixels i:nth-child(2) { animation-delay: 0.06s; }
+.reenc-pixels i:nth-child(3) { animation-delay: 0.12s; }
+.reenc-pixels i:nth-child(4) { animation-delay: 0.18s; }
+.reenc-pixels i:nth-child(5) { animation-delay: 0.24s; }
+.reenc-pixels i:nth-child(6) { animation-delay: 0.3s; }
+.reenc-chip {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 750;
+  font-family: var(--mono);
+  box-shadow: 0 2px 8px rgba(14, 26, 43, 0.25);
+}
+.reenc-chip::before { content: ''; width: 7px; height: 7px; border-radius: 50%; }
+.reenc-chip.bad { background: #fff; color: var(--red); opacity: 0; animation: reenc-a var(--rt) infinite; }
+.reenc-chip.bad::before { background: var(--red); }
+.reenc-chip.good { background: #fff; color: var(--green-ink); animation: reenc-b var(--rt) infinite; }
+.reenc-chip.good::before { background: var(--green); }
+.reenc-cap { max-width: 52ch; text-align: center; font-size: 14px; line-height: 1.55; color: var(--soft); }
+
+@keyframes reenc-grid {
+  0%, 30% { opacity: 0.85; }
+  58%, 100% { opacity: 0; }
+}
+@keyframes reenc-noise {
+  0%, 34% { opacity: 0; }
+  60%, 100% { opacity: 0.5; }
+}
+@keyframes reenc-sweep {
+  0%, 30% { opacity: 0; left: -42px; }
+  34% { opacity: 1; }
+  58% { opacity: 1; left: 100%; }
+  62%, 100% { opacity: 0; left: 100%; }
+}
+@keyframes reenc-px {
+  0%, 30% { transform: translateY(0); background: rgba(255, 255, 255, 0.85); }
+  44% { transform: translateY(-3px); }
+  58% { transform: translateY(2px); background: rgba(255, 255, 255, 0.55); }
+  70%, 100% { transform: translateY(0); background: rgba(255, 255, 255, 0.7); }
+}
+@keyframes reenc-a { 0%, 56% { opacity: 1; } 60%, 100% { opacity: 0; } }
+@keyframes reenc-b { 0%, 56% { opacity: 0; } 60%, 100% { opacity: 1; } }
+
+@media (max-width: 640px) {
+  .shots { grid-template-columns: minmax(0, 1fr); }
+}

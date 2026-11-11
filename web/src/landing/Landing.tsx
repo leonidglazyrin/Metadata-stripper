@@ -78,11 +78,36 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
               {AI_SOURCES.map((s) => <li key={s}>{s}</li>)}
             </ul>
           </div>
+          <Reencode r={t.synthid.reencode} />
           <div className="grid3">
             <Feature title={t.synthid.photos.title}>{fill(t.synthid.photos.text)}</Feature>
             <Feature title={t.synthid.videos.title}>{fill(t.synthid.videos.text)}</Feature>
             <Feature title={t.synthid.caveat.title}>{fill(t.synthid.caveat.text)}</Feature>
           </div>
+          <div className="card-cta">
+            <a className="cta" href={`${APP}#strip`}>{t.synthid.cta}</a>
+          </div>
+        </section>
+
+        <section id="detection" className="card" aria-labelledby="detection-h">
+          <SectionHead icon={<Tile from="#f59e0b" to="#b45309" size={56}><RobotGlyph /></Tile>} id="detection-h" title={t.detection.title}>
+            {fill(t.detection.lede)}
+          </SectionHead>
+          <div className="shots">
+            <figure className="shot">
+              <span className="shot-tag bad">{t.detection.detectedTag}</span>
+              <img src="/tiktok-ai-label-detected.jpg" width={1072} height={299} loading="lazy" decoding="async"
+                   alt={fill(t.detection.shotDetectedAlt)} />
+              <figcaption><b>{fill(t.detection.beforeTitle)}</b> {fill(t.detection.beforeText)}</figcaption>
+            </figure>
+            <figure className="shot">
+              <span className="shot-tag good">{t.detection.cleanTag}</span>
+              <img src="/tiktok-ai-label-optional.jpg" width={1073} height={280} loading="lazy" decoding="async"
+                   alt={fill(t.detection.shotOptionalAlt)} />
+              <figcaption><b>{fill(t.detection.afterTitle)}</b> {fill(t.detection.afterText)}</figcaption>
+            </figure>
+          </div>
+          <p className="doc-note detection-note">{fill(t.detection.note)}</p>
           <div className="card-cta">
             <a className="cta" href={`${APP}#strip`}>{t.synthid.cta}</a>
           </div>
@@ -206,6 +231,7 @@ function NavLinks({ t }: { t: Dict }) {
   return (
     <>
       <a href="#synthid">{t.nav.synthid}</a>
+      <a href="#detection">{t.nav.detection}</a>
       <a href="#metadata">{t.nav.metadata}</a>
       <a href="#downloaders">{t.nav.downloaders}</a>
       <a href="#pricing">{t.nav.pricing}</a>
@@ -369,6 +395,38 @@ function ProcessAnimation({ f }: { f: Dict['how']['flow'] }) {
     </div>
   );
 }
+
+// A looping, CSS-only picture of the SynthID re-encode: a frame carries an
+// even watermark lattice; a re-encode sweep passes across it, and in its wake
+// the lattice is resampled into noise. The base styles are the finished state,
+// so with reduced motion it shows the broken watermark.
+function Reencode({ r }: { r: Dict['synthid']['reencode'] }) {
+  return (
+    <div className="reenc" aria-hidden="true">
+      <div className="reenc-frame">
+        <span className="reenc-grid" />
+        <span className="reenc-noise" />
+        <span className="reenc-sweep" />
+        <span className="reenc-pixels"><i /><i /><i /><i /><i /><i /></span>
+        <span className="reenc-chip bad">{r.before}</span>
+        <span className="reenc-chip good">{r.after}</span>
+      </div>
+      <p className="reenc-cap">{fill(r.caption)}</p>
+    </div>
+  );
+}
+
+// TikTok-style robot head, matching the platform's "AI-generated content" icon.
+const RobotGlyph = () => (
+  <g fill="none" stroke="#fff" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M32 11v6" />
+    <circle cx="32" cy="9.5" r="2.6" fill="#fff" stroke="none" />
+    <rect x="15" y="19" width="34" height="27" rx="8" fill="#fff" fillOpacity="0.16" />
+    <circle cx="25" cy="32.5" r="3.2" fill="#fff" stroke="none" />
+    <circle cx="39" cy="32.5" r="3.2" fill="#fff" stroke="none" />
+    <path d="M11 30v7M53 30v7" />
+  </g>
+);
 
 // A small, quiet "Stripe" mark (16px) next to the billing line: a trust cue.
 const StripeBadge = ({ label }: { label: string }) => (

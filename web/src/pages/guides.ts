@@ -16,7 +16,7 @@ export type Section = { h: string; blocks: Block[] };
 
 export type Guide = {
   slug: string;
-  kind: 'download' | 'privacy';
+  kind: 'download' | 'privacy' | 'synthid';
   /** The page's <h1>. */
   title: string;
   /** <title>, kept under ~60 characters. */
@@ -50,6 +50,185 @@ const LEGAL_DL: Section = {
 };
 
 export const GUIDES: Guide[] = [
+  // ------------------------------------------------------- SynthID (per generator)
+  {
+    slug: 'remove-synthid-from-google-veo',
+    kind: 'synthid',
+    title: 'How to remove SynthID from Google Veo videos',
+    metaTitle: 'Remove SynthID from Google Veo Videos',
+    description:
+      'Every Google Veo video carries an invisible SynthID watermark and C2PA Content Credentials. How to weaken SynthID and clear the metadata so platforms stop flagging it.',
+    short: 'Remove SynthID from Veo videos',
+    tool: 'strip',
+    cta: 'Clean a Veo video now',
+    intro: [
+      'Google Veo writes an invisible SynthID watermark into the pixels of every video it makes, and adds C2PA Content Credentials to the file’s metadata. The Content Credentials are what platforms like TikTok read to switch on an “AI-generated” label automatically; the SynthID watermark is what Google’s own detector looks for.',
+      '{site} removes the metadata, including the C2PA manifest, and re-encodes the video to disrupt the SynthID watermark, while keeping the picture and sound looking the same. No tool can promise a detector will miss a watermark built to survive edits, so results are not guaranteed.',
+    ],
+    steps: [
+      { name: 'Open the SynthID stripper', text: 'Go to the Strip tab in {site}.' },
+      { name: 'Add your Veo video', text: 'Drop in the MP4. Metadata and SynthID are always removed, so there is nothing to switch on.' },
+      { name: 'Pick Server for speed', text: 'Server re-encodes large videos about 4x faster and deletes them straight after. This device keeps the file in your browser but is slower.' },
+      { name: 'Download the clean copy', text: 'Each file lists what was removed. Share the clean copy instead of the original.' },
+    ],
+    sections: [
+      {
+        h: 'What Veo puts in the file',
+        blocks: [
+          {
+            ul: [
+              'SynthID: an invisible, pixel-level watermark across the whole video, designed to survive resizing, cropping and re-compression.',
+              'C2PA Content Credentials: a signed manifest in the file’s metadata that records it was made with Google’s AI.',
+              'Container and encoder tags, creation time, and other standard metadata.',
+            ],
+          },
+          { p: 'See [what C2PA Content Credentials are](/guides/remove-c2pa-content-credentials/) for more on the manifest, and [removing video metadata](/guides/remove-metadata-from-videos/) for the rest.' },
+        ],
+      },
+      {
+        h: 'How {site} weakens the watermark',
+        blocks: [
+          {
+            p: 'The video is re-encoded at a visually transparent quality (CRF 18) with a faint blur, a matching sharpen and a trace of noise that changes between frames. That resamples every pixel and shifts the watermark lattice, while the metadata — C2PA included — is dropped entirely. The audio is lightly resampled to disrupt any audio watermark.',
+          },
+        ],
+      },
+      {
+        h: 'What it can and can’t do',
+        blocks: [
+          {
+            note: 'SynthID is built to survive edits. {site} weakens it, but cannot guarantee Google’s detector or a platform classifier will miss it. The C2PA metadata, however, is fully removed.',
+          },
+          { p: 'Removing these signals does not remove any legal or platform duty to label AI content. Follow each platform’s disclosure rules.' },
+        ],
+      },
+    ],
+    faq: [
+      { q: 'Does Veo always add SynthID?', a: 'Yes. Google applies SynthID to the images and videos its models generate, including Veo. The watermark is invisible and is not shown in the picture.' },
+      { q: 'Will the Veo video lose quality?', a: 'SynthID stripping re-encodes the video, so it is not byte-for-byte identical, but it is saved at high quality and looks the same in normal viewing.' },
+      { q: 'Will TikTok still label my Veo video as AI?', a: 'It might. {site} removes the C2PA Content Credentials that platforms read, but platforms also run their own classifiers and watermark detectors. We do not guarantee a file goes unlabelled.' },
+    ],
+    related: ['remove-synthid-from-gemini-images', 'remove-c2pa-content-credentials', 'remove-metadata-from-videos'],
+    updated: UPDATED,
+  },
+  {
+    slug: 'remove-synthid-from-gemini-images',
+    kind: 'synthid',
+    title: 'How to remove SynthID from Gemini (Nano Banana) images',
+    metaTitle: 'Remove SynthID from Gemini AI Images',
+    description:
+      'Images from Gemini and the Nano Banana image model carry an invisible SynthID watermark and metadata. How to disrupt SynthID and strip the metadata in one step.',
+    short: 'Remove SynthID from Gemini images',
+    tool: 'strip',
+    cta: 'Clean a Gemini image now',
+    intro: [
+      'Images made with Gemini — including the Nano Banana image model — carry Google’s invisible SynthID watermark in the pixels, and usually an IPTC “Digital Source Type” tag and other metadata that mark them as AI-generated.',
+      '{site} resamples and re-encodes the image to disrupt the SynthID watermark, and strips the metadata that labels it. The picture looks the same. Because SynthID for images is built to survive resizing and re-saving, a detector may still find it, so results are not guaranteed.',
+    ],
+    steps: [
+      { name: 'Open the SynthID stripper', text: 'Go to the Strip tab in {site}.' },
+      { name: 'Add your Gemini image', text: 'Drop in the JPEG, PNG or WebP. Metadata and SynthID are always removed.' },
+      { name: 'Pick This device or Server', text: 'This device cleans the image in your browser without uploading it. Server is faster for big batches.' },
+      { name: 'Download the clean copy', text: 'The file comes back without EXIF, XMP, IPTC or C2PA, and with the watermark weakened.' },
+    ],
+    sections: [
+      {
+        h: 'What a Gemini image carries',
+        blocks: [
+          {
+            ul: [
+              'SynthID: an invisible watermark spread across the pixels.',
+              'IPTC “Digital Source Type” and XMP tags that mark the image as AI-generated.',
+              'Sometimes C2PA Content Credentials, plus the usual EXIF and ICC data.',
+            ],
+          },
+        ],
+      },
+      {
+        h: 'How {site} disrupts it',
+        blocks: [
+          {
+            p: 'The image is resampled with a near-unity resize-down then resize-up, a gentle sharpen and a trace of additive noise, then saved again at high quality. That moves every pixel and scrambles the watermark lattice, while every metadata block — EXIF, XMP, IPTC and C2PA — is removed.',
+          },
+        ],
+      },
+      {
+        h: 'Why it may still be detected',
+        blocks: [
+          {
+            note: 'SynthID for images is designed to survive resizing and re-compression, so a hard case can still trip Google’s detector even after cleaning. {site} weakens the watermark as much as it can without visibly changing the picture; the metadata is removed either way.',
+          },
+        ],
+      },
+    ],
+    faq: [
+      { q: 'Is Nano Banana the same as Gemini for this?', a: 'Yes. Nano Banana is a Gemini image model, and its output carries SynthID the same way. The same steps apply.' },
+      { q: 'Does removing SynthID change how the image looks?', a: 'No visible change. The resample, noise and re-encode are near-lossless and the picture looks the same in normal viewing.' },
+      { q: 'What if the image is still flagged as AI?', a: 'That is the pixel watermark being stubborn, not the metadata. The EXIF, XMP, IPTC and C2PA tags are fully removed; the watermark is only weakened, with no guarantee.' },
+    ],
+    related: ['remove-synthid-from-imagen-images', 'remove-synthid-from-google-veo', 'remove-c2pa-content-credentials'],
+    updated: UPDATED,
+  },
+  {
+    slug: 'remove-synthid-from-imagen-images',
+    kind: 'synthid',
+    title: 'How to remove SynthID from Google Imagen images',
+    metaTitle: 'Remove SynthID from Google Imagen Images',
+    description:
+      'Google Imagen stamps every image with an invisible SynthID watermark and AI metadata. How to weaken the watermark and strip the metadata so your image isn’t flagged.',
+    short: 'Remove SynthID from Imagen images',
+    tool: 'strip',
+    cta: 'Clean an Imagen image now',
+    intro: [
+      'Imagen is Google’s text-to-image model, used in Gemini, ImageFX and across Google’s apps. Every image it makes carries an invisible SynthID watermark in the pixels, along with metadata — often an IPTC “Digital Source Type” tag and C2PA Content Credentials — that marks it as AI-generated.',
+      '{site} resamples and re-encodes the image to disrupt SynthID and removes all of the metadata. The result looks the same. SynthID is built to survive editing, so a detector may still find it; the metadata is removed for certain.',
+    ],
+    steps: [
+      { name: 'Open the SynthID stripper', text: 'Go to the Strip tab in {site}.' },
+      { name: 'Add your Imagen image', text: 'Drop in the file. Metadata and SynthID are always removed.' },
+      { name: 'Pick This device or Server', text: 'This device never uploads the file; Server is faster for batches and deletes files straight after.' },
+      { name: 'Download the clean copy', text: 'Share the clean copy, which lists what was removed, instead of the original.' },
+    ],
+    sections: [
+      {
+        h: 'What Imagen embeds',
+        blocks: [
+          {
+            ul: [
+              'SynthID: an invisible pixel-level watermark on every generated image.',
+              'IPTC / XMP tags, including a “Digital Source Type” field that names it as AI-generated.',
+              'C2PA Content Credentials on some surfaces, plus standard EXIF and ICC data.',
+            ],
+          },
+          { p: 'For a full list of what photo metadata can reveal, see [removing EXIF and metadata](/guides/remove-exif-data-from-photos/).' },
+        ],
+      },
+      {
+        h: 'How the strip works',
+        blocks: [
+          {
+            p: 'A near-unity resample moves every pixel, a gentle sharpen restores crispness, and a trace of noise scrambles the watermark lattice. The image is then re-encoded at high quality with no metadata at all — EXIF, XMP, IPTC and C2PA are gone.',
+          },
+        ],
+      },
+      {
+        h: 'Limits',
+        blocks: [
+          {
+            note: 'No tool can guarantee a SynthID detector will miss a watermark designed to survive edits. {site} weakens it; the metadata is removed with certainty. Disclosure rules for AI content still apply.',
+          },
+        ],
+      },
+    ],
+    faq: [
+      { q: 'Where is Imagen used?', a: 'Imagen powers image generation in Gemini, ImageFX and other Google tools. Images from any of them carry SynthID and can be cleaned the same way.' },
+      { q: 'Does this remove a visible watermark?', a: 'No. {site} disrupts the invisible SynthID watermark and removes metadata. It does not remove visible logos or watermarks drawn into the picture.' },
+      { q: 'Will the colours change?', a: 'No. Imagen output is sRGB, so dropping the colour profile does not shift the colours.' },
+    ],
+    related: ['remove-synthid-from-gemini-images', 'remove-synthid-from-google-veo', 'remove-exif-data-from-photos'],
+    updated: UPDATED,
+  },
+
   // ---------------------------------------------------------------- downloads
   {
     slug: 'download-youtube-videos',

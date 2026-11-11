@@ -8,21 +8,18 @@ import { useStored } from '../lib/storage';
 import { IconFile, IconPlus } from './Icons';
 import JobList from './JobList';
 import { isImageName, isVideoName, videoFrame } from '../lib/thumb';
-import Switch from './Switch';
 
 export default function StripTool() {
-  const [synthid, setSynthid] = useStored('synthid', true);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const [where, setWhere] = useStored<Where>('stripWhere', 'server');
-  const synthRef = useRef(synthid);
-  synthRef.current = synthid;
   const whereRef = useRef(where);
   whereRef.current = where;
 
   const stripOnServer = async (file: File, update: Update, signal: AbortSignal) => {
     const fd = new FormData();
-    fd.append('synthid', String(synthRef.current));
+    // Metadata and the SynthID watermark are always removed — no toggle.
+    fd.append('synthid', 'true');
     fd.append('file', file);
     update({ message: 'Uploading…', progress: 0 });
     const res = await postForBlob(
@@ -42,7 +39,7 @@ export default function StripTool() {
     update({ message: 'Checking your plan…', progress: null });
     await requestJson('POST', '/api/usage/strip');
     const { stripInBrowser } = await import('../lib/strip');
-    const r = await stripInBrowser(file, { synthid: synthRef.current }, (message, progress = null) =>
+    const r = await stripInBrowser(file, { synthid: true }, (message, progress = null) =>
       update({ message, progress }),
     );
     return { blob: r.blob, filename: r.filename };
@@ -130,13 +127,17 @@ export default function StripTool() {
       </label>
 
       <div className="options">
-        <Switch
-          className="synth-opt"
-          checked={synthid}
-          onChange={setSynthid}
-          label={<><span className="synth-badge">SynthID</span> Strip AI watermarks</>}
-          hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Breaks up the invisible watermark in AI photos and videos. Near-lossless.'}
-        />
+        <div className="strip-always">
+          <span className="synth-badge">SynthID</span>
+          <div>
+            <strong>Metadata &amp; the SynthID watermark are always removed.</strong>
+            <small>
+              EXIF, GPS, XMP and C2PA Content Credentials are stripped, and the invisible AI watermark is
+              broken up — on every file, near-lossless.
+              {where === 'device' && ' Videos are re-encoded on this device, so they take a while.'}
+            </small>
+          </div>
+        </div>
         <div className="where" role="radiogroup" aria-label="Where to clean files">
           {(['device', 'server'] as const).map((w) => (
             <button key={w} type="button" role="radio" aria-checked={where === w} onClick={() => setWhere(w)}>

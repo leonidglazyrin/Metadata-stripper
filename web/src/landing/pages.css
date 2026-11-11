@@ -2,7 +2,7 @@
 
 /* ---------- Site footer ---------- */
 .site-foot { padding: 28px clamp(20px, 4vw, 40px); border-radius: var(--radius); background: #e5eaf1; color: var(--soft); font-size: 13.5px; display: grid; gap: 20px; }
-.foot-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 24px; }
+.foot-cols { display: grid; grid-template-columns: minmax(0, 1.2fr) repeat(4, minmax(0, 1fr)); gap: 24px; }
 .foot-cols p + p { margin-top: 8px; }
 .foot-brand b { color: var(--ink); font-size: 15px; }
 .site-foot h2 { font-size: 12.5px; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink); margin-bottom: 10px; }
