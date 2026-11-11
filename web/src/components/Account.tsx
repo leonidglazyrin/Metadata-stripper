@@ -10,6 +10,9 @@ import {
   startCheckout,
   useAccountState,
   type Account,
+  type Kind,
+  type Plan,
+  type PlanId,
 } from '../lib/account';
 
 export function GoogleLogo({ size = 18 }: { size?: number }) {
@@ -23,12 +26,12 @@ export function GoogleLogo({ size = 18 }: { size?: number }) {
   );
 }
 
-/** "Payments by Stripe" badge: Stripe's mark (simple-icons, CC0) and name. */
+/** Small "Secure payments by Stripe" line: Stripe's mark (simple-icons, CC0) and name. */
 export function StripeBadge() {
   return (
     <span className="stripe-badge">
       <span>Secure payments by</span>
-      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" className="stripe-mark">
+      <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" className="stripe-mark">
         <rect width="24" height="24" rx="5" fill="#635BFF" />
         <path
           fill="#fff"
@@ -41,12 +44,20 @@ export function StripeBadge() {
   );
 }
 
-const left = (n: number | null, word: string) => (n == null ? null : `${n} ${word}${n === 1 ? '' : 's'} left`);
+const SHORT: Record<Kind, string> = { strip: 'on-device', server_strip: 'server', download: 'download' };
+const left = (a: Account, k: Kind) => {
+  const n = remaining(a, k);
+  return n == null ? null : `${n} ${SHORT[k]} left`;
+};
 
 function usageLine(a: Account) {
   if (a.plan === 'pro') return 'Pro · unlimited';
-  return [left(remaining(a, 'strip'), 'strip'), left(remaining(a, 'download'), 'download')].filter(Boolean).join(' · ');
+  const parts = (['strip', 'server_strip', 'download'] as const).map((k) => left(a, k)).filter(Boolean);
+  return a.plan === 'basic' ? ['Basic · unlimited on-device', ...parts].join(' · ') : parts.join(' · ');
 }
+
+const planOf = (a: Account | null, id: PlanId): Plan =>
+  a?.plans?.find((p) => p.id === id) ?? { id, name: id === 'pro' ? 'Pro' : 'Basic', label: id === 'pro' ? '$20' : '$10', interval: 'month', available: true };
 
 function useAction() {
   const [busy, setBusy] = useState(false);
@@ -101,10 +112,10 @@ export function AccountBar() {
       {a.plan === 'free' && <span className="acct-left">{usageLine(a)}</span>}
       {a.plan === 'free' ? (
         <button type="button" className="acct-upgrade" onClick={() => openPaywall({ reason: 'upgrade' })}>
-          Go Pro
+          Upgrade
         </button>
       ) : (
-        <span className="acct-pro">PRO</span>
+        <span className="acct-pro">{a.plan === 'pro' ? 'PRO' : 'BASIC'}</span>
       )}
       <button type="button" className="acct-avatar" aria-haspopup="menu" aria-expanded={open} aria-label="Account" onClick={() => setOpen(!open)}>
         {a.user?.picture ? <img src={a.user.picture} alt="" referrerPolicy="no-referrer" /> : initial}
@@ -116,21 +127,20 @@ export function AccountBar() {
             {a.user?.email && <small>{a.user.email}</small>}
           </div>
           <div className="acct-usage">{usageLine(a)}</div>
-          {a.plan === 'pro' && a.subscription?.renewsAt && (
+          {a.plan !== 'free' && a.subscription?.renewsAt && (
             <small className="acct-renew">
               {a.subscription.cancelAtPeriodEnd ? 'Ends' : 'Renews'} {new Date(a.subscription.renewsAt).toLocaleDateString()}
             </small>
           )}
-          {a.plan === 'free' ? (
-            <button type="button" role="menuitem" onClick={() => { setOpen(false); openPaywall({ reason: 'upgrade' }); }}>
-              Upgrade to Pro · {a.price.label}/{a.price.interval}
+          {a.plan !== 'pro' && (
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); openPaywall({ reason: 'upgrade', plan: 'pro' }); }}>
+              {a.plan === 'free' ? 'See plans' : `Upgrade to Pro · ${planOf(a, 'pro').label}/month`}
             </button>
-          ) : (
-            a.subscription?.manageable && (
-              <button type="button" role="menuitem" disabled={portal.busy} onClick={() => portal.run(openBillingPortal)}>
-                {portal.busy ? 'Opening…' : a.dev.billing ? 'Cancel Pro (dev)' : 'Manage subscription'}
-              </button>
-            )
+          )}
+          {a.plan !== 'free' && a.subscription?.manageable && (
+            <button type="button" role="menuitem" disabled={portal.busy} onClick={() => portal.run(openBillingPortal)}>
+              {portal.busy ? 'Opening…' : a.dev.billing ? 'Cancel plan (dev)' : 'Manage subscription'}
+            </button>
           )}
           {portal.error && <small className="acct-error">{portal.error}</small>}
           <button type="button" role="menuitem" onClick={() => { setOpen(false); void signOut(); }}>
@@ -142,22 +152,46 @@ export function AccountBar() {
   );
 }
 
+const PERKS: Record<PlanId, string[]> = {
+  basic: ['Unlimited on-device stripping', 'Files never leave your device', 'Metadata, C2PA and SynthID removed'],
+  pro: [
+    'Everything in Basic',
+    'Unlimited server stripping, about 4x faster',
+    'Unlimited video downloads from YouTube, X, TikTok and Instagram',
+  ],
+};
+
+const n = (v: number | undefined) => v ?? 1;
+
 /** The sign-in / upgrade dialog, opened by a tool that hit the quota. */
 export function PaywallDialog() {
   const { account: a, paywall } = useAccountState();
   const ref = useRef<HTMLDialogElement>(null);
   const checkout = useAction();
+  const [picked, setPicked] = useState<PlanId | null>(null);
 
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
     if (paywall && !d.open) d.showModal();
     if (!paywall && d.open) d.close();
+    if (!paywall) setPicked(null);
   }, [paywall]);
 
   // Signed in on another tab, or the quota changed: show the right step.
   const reason = paywall?.reason === 'auth' && a?.signedIn ? 'upgrade' : paywall?.reason;
-  const price = a?.price ?? { label: '$20', interval: 'month' };
+  const current = a?.plan ?? 'free';
+  const free = a?.free;
+  // Highlight the plan that lifts the limit just hit (Pro by default).
+  const best: PlanId = paywall?.plan === 'basic' && current === 'free' ? 'basic' : 'pro';
+  const hit = paywall?.kind
+    ? `You’ve used your free ${paywall.kind === 'strip' ? 'on-device strip' : paywall.kind === 'server_strip' ? 'server strip' : 'download'}. `
+    : '';
+
+  const buy = (id: PlanId) => {
+    setPicked(id);
+    void checkout.run(() => startCheckout(id));
+  };
 
   return (
     <dialog ref={ref} className="paywall" onClose={closePaywall} onClick={(e) => e.target === ref.current && closePaywall()}>
@@ -167,7 +201,10 @@ export function PaywallDialog() {
           {reason === 'auth' ? (
             <>
               <h2 className="display sm">Sign in to <span className="accent">start free</span></h2>
-              <p className="lede">Every account gets <b>1 free strip</b> and <b>1 free download</b>. No card needed.</p>
+              <p className="lede">
+                Every account gets <b>{n(free?.strip)} free on-device strip</b>, <b>{n(free?.server_strip)} free server strip</b> and{' '}
+                <b>{n(free?.download)} free video download</b>. No card needed.
+              </p>
               {paywall.message && <p className="paywall-error">{paywall.message}</p>}
               <button type="button" className="paywall-google" onClick={signIn} disabled={!a?.signIn}>
                 <GoogleLogo />
@@ -177,23 +214,45 @@ export function PaywallDialog() {
             </>
           ) : (
             <>
-              <h2 className="display sm">Go <span className="accent">Pro</span></h2>
-              <p className="lede">
-                {paywall.kind ? `You’ve used your free ${paywall.kind}. ` : ''}Keep going with no limits.
-              </p>
-              <div className="paywall-price">
-                <b>{price.label}</b>
-                <span>/ {price.interval}</span>
+              <h2 className="display sm">Pick a <span className="accent">plan</span></h2>
+              {hit && <p className="lede">{hit}</p>}
+              <div className="plans">
+                {(['basic', 'pro'] as const).map((id) => {
+                  const p = planOf(a, id);
+                  const isCurrent = current === id;
+                  const busy = checkout.busy && picked === id;
+                  return (
+                    <div key={id} className={`plan${id === best ? ' plan-best' : ''}`}>
+                      <div className="plan-head">
+                        <b>{p.name}</b>
+                        <span className="plan-price"><b>{p.label}</b> / {p.interval}</span>
+                      </div>
+                      <ul className="paywall-perks">
+                        {PERKS[id].map((perk) => <li key={perk}>{perk}</li>)}
+                      </ul>
+                      <button
+                        type="button"
+                        className={id === best ? 'paywall-cta' : 'paywall-cta alt'}
+                        disabled={isCurrent || !p.available || checkout.busy}
+                        onClick={() => buy(id)}
+                      >
+                        {isCurrent
+                          ? 'Your plan'
+                          : busy
+                            ? 'Opening…'
+                            : a?.dev.billing
+                              ? `Get ${p.name} (dev, free)`
+                              : current === 'free'
+                                ? `Get ${p.name}`
+                                : `Switch to ${p.name}`}
+                      </button>
+                      {!p.available && <small className="plan-off">Not available yet</small>}
+                    </div>
+                  );
+                })}
               </div>
-              <ul className="paywall-perks">
-                <li>Unlimited metadata and SynthID stripping, photos and videos</li>
-                <li>Unlimited downloads from YouTube, X, Instagram and TikTok</li>
-                <li>Cancel anytime from your account</li>
-              </ul>
-              <button type="button" className="paywall-cta" disabled={checkout.busy} onClick={() => checkout.run(startCheckout)}>
-                {checkout.busy ? 'Opening checkout…' : a?.dev.billing ? 'Upgrade (dev, free)' : `Upgrade for ${price.label}/${price.interval}`}
-              </button>
               {checkout.error && <p className="paywall-error">{checkout.error}</p>}
+              <p className="paywall-fine">Billed monthly. Cancel or change plan anytime.</p>
               <StripeBadge />
             </>
           )}

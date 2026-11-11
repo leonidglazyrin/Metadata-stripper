@@ -1,6 +1,11 @@
 'use strict';
 
-// Accounts (Google sign-in), the free quota, and the Stripe Pro license.
+// Accounts (Google sign-in), the free quota, and the two Stripe plans.
+//
+//   Free   1 on-device strip, 1 server strip, 1 download per account
+//          (configurable in the app_settings table)
+//   Basic  $10/month: unlimited on-device stripping
+//   Pro    $20/month: unlimited everything (server stripping, downloads)
 //
 //   GET  /api/me                     who is signed in, plan, usage
 //   GET  /api/auth/google            start Google sign-in (?next=/app/#youtube)
@@ -8,7 +13,8 @@
 //   GET  /api/auth/dev               dev only: sign in without Google
 //   POST /api/auth/logout
 //   POST /api/usage/strip            count one on-device strip before it runs
-//   POST /api/billing/checkout       → { url } of a Stripe Checkout page
+//   POST /api/billing/checkout       { plan } → { url } of Stripe Checkout, or
+//                                    of the Portal's confirm page to switch plan
 //   POST /api/billing/portal         → { url } of the Stripe Customer Portal
 //   POST /api/billing/webhook        Stripe events: turn the license on / off
 //
@@ -18,12 +24,12 @@
 //
 // Without GOOGLE_* / STRIPE_* set and NODE_ENV not "production", sign-in and
 // billing run in dev mode: "Sign in" logs into a test account and "Upgrade"
-// turns Pro on at once, so the whole flow can be tried locally. Supabase is
+// turns the plan on at once, so the whole flow can be tried locally. Supabase is
 // still required whenever the paywall is on.
 
 const express = require('express');
 const crypto = require('crypto');
-const { createSupabaseStore, isPro } = require('./store');
+const { createSupabaseStore, planOf, isUnlimited } = require('./store');
 const log = require('./log');
 
 const COOKIE = 'sh_sess';
@@ -39,7 +45,9 @@ function loadConfig(env = process.env) {
     googleSecret: env.GOOGLE_CLIENT_SECRET || '',
     stripeKey: env.STRIPE_SECRET_KEY || '',
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
-    stripePrice: env.STRIPE_PRICE_ID || '',
+    // STRIPE_PRICE_ID is the older name of the Pro price.
+    stripePriceBasic: env.STRIPE_PRICE_ID_BASIC || '',
+    stripePricePro: env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || '',
     sessionSecret: env.SESSION_SECRET || '',
     supabaseUrl: env.SUPABASE_URL || '',
     supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '',
@@ -47,8 +55,13 @@ function loadConfig(env = process.env) {
     // Free allowances come from the app_settings table in Supabase (default
     // 1 each). Setting these env vars overrides the table.
     freeStrips: limitFromEnv(env.FREE_STRIPS),
+    freeServerStrips: limitFromEnv(env.FREE_SERVER_STRIPS),
     freeDownloads: limitFromEnv(env.FREE_DOWNLOADS),
-    priceLabel: env.PRICE_LABEL || '$20',
+    // Shown on the page; the charge itself comes from the Stripe price.
+    priceLabels: {
+      basic: env.PRICE_LABEL_BASIC || '$10',
+      pro: env.PRICE_LABEL_PRO || env.PRICE_LABEL || '$20',
+    },
   };
 }
 
@@ -59,6 +72,17 @@ function limitFromEnv(v) {
 }
 
 const DEFAULT_FREE = 1;
+
+const KINDS = ['strip', 'server_strip', 'download'];
+const PLANS = ['basic', 'pro'];
+const PLAN_NAME = { free: 'Free', basic: 'Basic', pro: 'Pro' };
+/** Cheapest plan with no limit on each kind. */
+const NEEDS = { strip: 'basic', server_strip: 'pro', download: 'pro' };
+/** Columns of the accounts view. */
+const USED = { strip: 'strips_used', server_strip: 'server_strips_used', download: 'downloads_used' };
+/** app_settings keys and config fields. */
+const SETTING = { strip: 'free_strips', server_strip: 'free_server_strips', download: 'free_downloads' };
+const ENV = { strip: 'freeStrips', server_strip: 'freeServerStrips', download: 'freeDownloads' };
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -119,7 +143,8 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     store = createSupabaseStore({ url: config.supabaseUrl, key: config.supabaseKey, fetchImpl });
   }
   const google = Boolean(config.googleId && config.googleSecret);
-  const stripe = Boolean(config.stripeKey && config.stripePrice);
+  const priceOf = { basic: config.stripePriceBasic, pro: config.stripePricePro };
+  const stripe = Boolean(config.stripeKey && (priceOf.basic || priceOf.pro));
   const devAuth = !google && !config.production;
   const devBilling = !stripe && !config.production;
 
@@ -133,7 +158,11 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     log.info(`Accounts: sign-in ${google ? 'Google' : devAuth ? 'DEV (local test account, no Google)' : 'NOT CONFIGURED'}, `
       + `billing ${stripe ? 'Stripe' : devBilling ? 'DEV (upgrade is free and instant)' : 'NOT CONFIGURED'}, `
       + `accounts in Supabase (${config.supabaseUrl || 'custom store'}), free tier from `
-      + `${config.freeStrips !== null || config.freeDownloads !== null ? 'FREE_STRIPS / FREE_DOWNLOADS env' : 'the app_settings table'}`);
+      + `${KINDS.some((k) => config[ENV[k]] !== null) ? 'FREE_* env' : 'the app_settings table'}`
+      + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}` : ''}`);
+    if (stripe && PLANS.some((p) => !priceOf[p])) {
+      log.fail('billing', `STRIPE_PRICE_ID_${PLANS.find((p) => !priceOf[p]).toUpperCase()} is not set: that plan can't be bought`);
+    }
   } else {
     log.info('Accounts: PAYWALL=off, everything is free and no sign-in is needed');
   }
@@ -175,15 +204,24 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     return req._user;
   }
 
-  /** Free allowances: env override, else the app_settings table, else 1. */
+  /** Free allowances per kind: env override, else the app_settings table, else 1. */
   async function limits() {
-    const s = config.freeStrips !== null && config.freeDownloads !== null ? {} : await store.settings();
-    const pick = (env, v) => {
-      if (env !== null) return env;
-      const n = Number(v);
-      return Number.isInteger(n) && n >= 0 ? n : DEFAULT_FREE;
-    };
-    return { strip: pick(config.freeStrips, s.free_strips), download: pick(config.freeDownloads, s.free_downloads) };
+    const s = KINDS.every((k) => config[ENV[k]] !== null) ? {} : await store.settings();
+    const out = {};
+    for (const k of KINDS) {
+      const n = Number(s[SETTING[k]]);
+      out[k] = config[ENV[k]] ?? (s[SETTING[k]] !== undefined && Number.isInteger(n) && n >= 0 ? n : DEFAULT_FREE);
+    }
+    return out;
+  }
+
+  /** The plan a Stripe price pays for. */
+  function tierForPrice(priceId) {
+    if (priceId && priceId === priceOf.basic) return 'basic';
+    if (priceId && priceId === priceOf.pro) return 'pro';
+    // A price we don't know (e.g. an old one): keep the customer fully served.
+    if (priceId) log.fail('billing', `price ${priceId} is neither STRIPE_PRICE_ID_BASIC nor STRIPE_PRICE_ID_PRO; treating it as Pro`);
+    return 'pro';
   }
 
   /** Wrap an async route so a Supabase outage answers 503 instead of hanging. */
@@ -214,24 +252,34 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   // --- what the page shows --------------------------------------------------
 
   async function account(user) {
-    const pro = isPro(user);
-    const lim = user && !pro ? await limits() : null;
+    const plan = planOf(user);
+    const lim = config.paywall && store && plan !== 'pro' ? await limits() : null;
     return {
       paywall: config.paywall,
       signedIn: Boolean(user),
       user: user ? { email: user.email, name: user.name, picture: user.picture } : null,
-      plan: pro ? 'pro' : 'free',
-      usage: user ? {
-        strip: { used: user.strips_used, limit: pro ? null : lim.strip },
-        download: { used: user.downloads_used, limit: pro ? null : lim.download },
-      } : null,
+      plan,
+      usage: user ? Object.fromEntries(KINDS.map((k) => [k, {
+        used: Number(user[USED[k]] ?? 0),
+        limit: isUnlimited(plan, k) ? null : lim[k],
+      }])) : null,
       subscription: user && user.subscription_status ? {
         status: user.subscription_status,
         renewsAt: user.current_period_end ? user.current_period_end * 1000 : null,
         cancelAtPeriodEnd: Boolean(user.cancel_at_period_end),
         manageable: Boolean(user.stripe_customer_id) || devBilling,
       } : null,
-      price: { label: config.priceLabel, interval: 'month' },
+      // The free allowance every account starts with (for the sign-in step).
+      free: lim,
+      plans: PLANS.map((id) => ({
+        id,
+        name: PLAN_NAME[id],
+        label: config.priceLabels[id],
+        interval: 'month',
+        available: Boolean(priceOf[id]) || devBilling,
+      })),
+      // Older pages read this: the Pro price.
+      price: { label: config.priceLabels.pro, interval: 'month' },
       signIn: google ? 'google' : devAuth ? 'dev' : null,
       dev: { auth: devAuth, billing: devBilling },
     };
@@ -240,26 +288,32 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   // --- quota ----------------------------------------------------------------
 
   const NOOP = { refund() {}, refundUnlessSent() {} };
-  const word = { strip: 'strip', download: 'download' };
+  const word = { strip: 'on-device strip', server_strip: 'server strip', download: 'download' };
+  const verb = { strip: 'strip on your device', server_strip: 'strip on our server', download: 'download' };
 
   /**
-   * Middleware: count one strip/download for the signed-in user, or answer
-   * 401 (not signed in) / 402 (free use spent). Sets req.quota with
-   * refund() for when the work fails and nothing reaches the user.
+   * Middleware: count one use of `kind` for the signed-in user, or answer
+   * 401 (not signed in) / 402 (free use spent, with the plan that unlocks
+   * it). Sets req.quota with refund() for when the work fails and nothing
+   * reaches the user.
    */
   const gate = (kind) => safe(async (req, res, next) => {
     if (!config.paywall) { req.quota = NOOP; return next(); }
     const user = await currentUser(req);
     if (!user) {
-      return res.status(401).json({ error: `Sign in with Google to ${word[kind]} for free`, code: 'auth_required' });
+      return res.status(401).json({ error: `Sign in with Google to ${verb[kind]} for free`, code: 'auth_required', kind });
     }
     const n = (await limits())[kind];
     if (!(await store.consume(user.id, kind, n))) {
+      const needs = NEEDS[kind];
+      const upgrade = needs === 'basic' ? 'Basic or Pro' : 'Pro';
       return res.status(402).json({
         error: n === 0
-          ? `Upgrade to Pro to ${word[kind]}.`
-          : `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to Pro for unlimited.`,
+          ? `Upgrade to ${upgrade} to ${verb[kind]}.`
+          : `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to ${upgrade} for unlimited.`,
         code: 'upgrade_required',
+        kind,
+        plan: needs,
       });
     }
     let refunded = false;
@@ -310,12 +364,14 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     // Newer API versions keep the period on the subscription item.
     const item = sub.items?.data?.[0];
     const periodEnd = sub.current_period_end ?? item?.current_period_end ?? null;
+    const priceId = item?.price?.id ?? null;
     await store.setSubscription(user.id, {
       id: sub.id,
       status: sub.status,
       periodEnd,
       cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end || sub.cancel_at),
-      priceId: item?.price?.id ?? null,
+      priceId,
+      tier: tierForPrice(priceId),
     });
     return store.getUser(user.id);
   }
@@ -330,7 +386,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         if (obj.subscription) {
           const sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(obj.subscription)}`);
           const u = await applySubscription(sub, userId);
-          if (u) log.ok('billing', `user ${u.id} (${u.email}) subscribed: ${sub.status}`);
+          if (u) log.ok('billing', `user ${u.id} (${u.email}) subscribed to ${planOf(u)}: ${sub.status}`);
         }
         return;
       }
@@ -345,7 +401,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
           if (e.status !== 404) throw e;
         }
         const u = await applySubscription(sub);
-        if (u) log.note('billing', `user ${u.id} (${u.email}) subscription ${sub.status}${u.cancel_at_period_end ? ' (cancels at period end)' : ''}`);
+        if (u) log.note('billing', `user ${u.id} (${u.email}) subscription ${sub.status}, plan ${planOf(u)}${u.cancel_at_period_end ? ' (cancels at period end)' : ''}`);
         else log.note('billing', `${event.type} for unknown customer ${sub.customer}`);
         return;
       }
@@ -453,32 +509,71 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   router.post('/billing/checkout', json, safe(async (req, res) => {
     const user = await currentUser(req);
     if (!user) return res.status(401).json({ error: 'Sign in first', code: 'auth_required' });
+    const want = PLANS.includes(req.body?.plan) ? req.body.plan : 'pro';
     const back = safeNext(req.body?.next);
     const site = baseUrl(req);
-    if (isPro(user)) return res.json({ url: `${site}${back}` });
+    const done = `${site}${withQuery(back, `upgraded=${want}`)}`;
+    const current = planOf(user);
+    if (current === want) return res.json({ url: `${site}${back}` });
+
     if (!stripe) {
       if (!devBilling) return res.status(503).json({ error: 'Payments are not set up on this server yet' });
-      await store.setSubscription(user.id, { id: `dev_sub_${user.id}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + 30 * 86400 });
-      log.note('billing', `dev upgrade: user ${user.id} is Pro`);
-      return res.json({ url: `${site}${withQuery(back, 'upgraded=1')}` });
+      await store.setSubscription(user.id, {
+        id: `dev_sub_${user.id}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + 30 * 86400, tier: want,
+      });
+      log.note('billing', `dev ${current === 'free' ? 'upgrade' : 'plan change'}: user ${user.id} is on ${want}`);
+      return res.json({ url: done });
     }
+    if (!priceOf[want]) return res.status(503).json({ error: `The ${PLAN_NAME[want]} plan isn't set up on this server yet` });
+
     try {
+      // Already paying: switch the existing subscription (Stripe prorates)
+      // on the Customer Portal's confirm page instead of starting a second one.
+      if (current !== 'free' && user.stripe_customer_id) {
+        return res.json({ url: await switchPlanUrl(user, want, done, `${site}${back}`) });
+      }
       const session = await stripeApi('POST', 'checkout/sessions', {
         mode: 'subscription',
-        line_items: [{ price: config.stripePrice, quantity: 1 }],
+        line_items: [{ price: priceOf[want], quantity: 1 }],
         client_reference_id: String(user.id),
         ...(user.stripe_customer_id ? { customer: user.stripe_customer_id } : { customer_email: user.email || undefined }),
-        subscription_data: { metadata: { user_id: String(user.id) } },
+        subscription_data: { metadata: { user_id: String(user.id), plan: want } },
         allow_promotion_codes: 'true',
-        success_url: `${site}${withQuery(back, 'upgraded=1')}`,
+        success_url: done,
         cancel_url: `${site}${back}`,
       });
       res.json({ url: session.url });
     } catch (e) {
-      log.fail('billing', `checkout for user ${user.id}: ${e.message}`);
+      log.fail('billing', `checkout (${want}) for user ${user.id}: ${e.message}`);
       res.status(502).json({ error: 'Could not reach Stripe, please try again' });
     }
   }));
+
+  /** A Customer Portal link that goes straight to "confirm the new plan". */
+  async function switchPlanUrl(user, want, doneUrl, backUrl) {
+    try {
+      const sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(user.subscription_id)}`);
+      const item = sub.items?.data?.[0];
+      if (!item?.id) throw new Error('subscription has no items');
+      const session = await stripeApi('POST', 'billing_portal/sessions', {
+        customer: user.stripe_customer_id,
+        return_url: backUrl,
+        flow_data: {
+          type: 'subscription_update_confirm',
+          subscription_update_confirm: { subscription: sub.id, items: [{ id: item.id, price: priceOf[want], quantity: 1 }] },
+          after_completion: { type: 'redirect', redirect: { return_url: doneUrl } },
+        },
+      });
+      log.note('billing', `user ${user.id} is switching ${planOf(user)} → ${want}`);
+      return session.url;
+    } catch (e) {
+      // E.g. plan switching isn't turned on in the portal settings: open the
+      // portal's home page, where they can still manage the subscription.
+      log.fail('billing', `plan switch for user ${user.id}: ${e.message}; opening the plain portal`);
+      const session = await stripeApi('POST', 'billing_portal/sessions', { customer: user.stripe_customer_id, return_url: backUrl });
+      return session.url;
+    }
+  }
 
   router.post('/billing/portal', json, safe(async (req, res) => {
     const user = await currentUser(req);
@@ -522,7 +617,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     }
   });
 
-  return { router, gate, currentUser, account, limits, store, sessionToken, readSession, handleEvent };
+  return { router, gate, currentUser, account, limits, store, sessionToken, readSession, handleEvent, tierForPrice };
 }
 
 function withQuery(p, q) {

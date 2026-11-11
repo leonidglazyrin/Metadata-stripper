@@ -4,7 +4,7 @@ A web app for creators:
 
 - **Strip metadata** from photos and videos (EXIF, GPS, XMP, IPTC, ICC, C2PA, container tags), with optional SynthID watermark disruption.
 - **Download** videos (or just the audio) from **YouTube**, **X**, **Instagram** and **TikTok** links.
-- **Accounts and Pro**: Google sign-in, 1 free strip and 1 free download per account, then **$20/month** via Stripe. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
+- **Accounts and plans**: Google sign-in, 1 free on-device strip, 1 free server strip and 1 free download per account. Then **Basic at $10/month** (unlimited on-device stripping) or **Pro at $20/month** (everything, including faster server stripping and downloads) via Stripe. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
 
 ## Pages
 
@@ -114,10 +114,11 @@ docker run -p 3000:3000 --env-file .env sharona
 | `SESSION_SECRET` | random per start | **Required in production.** Signs the session cookie |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | (required unless `PAYWALL=off`) | Supabase project for accounts, subscriptions and usage. See `docs/accounts-and-billing.md` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in |
-| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` | | Stripe subscription ($20/month price) and its webhook |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | | Stripe API key and webhook signing secret |
+| `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO` | | The $10 Basic and $20 Pro monthly prices. The webhook maps each price to its plan. `STRIPE_PRICE_ID` is the old name of the Pro one |
 | `PAYWALL` | on | `off` disables sign-in and limits |
-| `FREE_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1) | Free uses per account. Leave unset to manage them in Supabase without a deploy |
-| `PRICE_LABEL` | `$20` | Price shown in the upgrade dialog (the charge itself comes from the Stripe price) |
+| `FREE_STRIPS`, `FREE_SERVER_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1, 1) | Free on-device strips, server strips and downloads per account. Leave unset to manage them in Supabase without a deploy |
+| `PRICE_LABEL_BASIC`, `PRICE_LABEL_PRO` | `$10`, `$20` | Prices shown in the upgrade dialog (the charge itself comes from the Stripe prices) |
 | `TRUST_PROXY` | private ranges | Express `trust proxy`, so `https` is detected behind a load balancer |
 
 Uploads are written to a temp directory and deleted as soon as the response is sent. Finished link downloads stay for `DOWNLOAD_TTL_MIN` minutes so a reloaded page can collect them again (removing the row deletes them sooner). The server purges the temp directory on startup and sweeps it every minute for expired, hung or orphaned files, and logs why each download failed (yt-dlp's exit code and its ERROR / WARNING lines).

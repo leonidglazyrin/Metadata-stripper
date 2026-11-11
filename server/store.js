@@ -1,6 +1,6 @@
 'use strict';
 
-// Accounts, Pro subscriptions and usage counts, stored in Supabase (Postgres).
+// Accounts, paid plans (Basic / Pro) and usage counts, stored in Supabase (Postgres).
 //
 // The server talks to Supabase's REST API (PostgREST) with the service role
 // key, so there is no extra dependency and nothing is kept on local disk.
@@ -93,12 +93,14 @@ function createSupabaseStore({ url, key, fetchImpl = fetch, timeoutMs = 10_000 }
         p_period_end: sub.periodEnd ?? null,
         p_cancel_at_period_end: Boolean(sub.cancelAtPeriodEnd),
         p_price_id: sub.priceId ?? null,
+        p_tier: sub.tier === 'basic' ? 'basic' : 'pro',
       });
     },
 
     /**
-     * Count one use of `kind` ('strip' | 'download'). Pro accounts are always
-     * allowed; free ones only while under `freeLimit`. Atomic in Postgres.
+     * Count one use of `kind` ('strip' = on-device, 'server_strip' or
+     * 'download'). Always allowed when the account's plan includes it (see
+     * PLAN_UNLIMITED), otherwise only while under `freeLimit`. Atomic in Postgres.
      */
     async consume(userId, kind, freeLimit) {
       if (!isUuid(userId)) return false;
@@ -125,10 +127,22 @@ function createSupabaseStore({ url, key, fetchImpl = fetch, timeoutMs = 10_000 }
   };
 }
 
-function isPro(user) {
-  if (!user || !ACTIVE.has(user.subscription_status)) return false;
+/** What each paid plan includes without limits. Mirrors tier_unlimited() in SQL. */
+const PLAN_UNLIMITED = {
+  free: [],
+  basic: ['strip'],
+  pro: ['strip', 'server_strip', 'download'],
+};
+
+/** The plan an account row is on now: 'free', 'basic' or 'pro'. */
+function planOf(user) {
+  if (!user || !ACTIVE.has(user.subscription_status)) return 'free';
   // A day of slack past the period end, in case a renewal webhook is late.
-  return !user.current_period_end || user.current_period_end * 1000 + 86400000 > Date.now();
+  if (user.current_period_end && user.current_period_end * 1000 + 86400000 <= Date.now()) return 'free';
+  return user.subscription_tier === 'basic' ? 'basic' : 'pro';
 }
 
-module.exports = { createSupabaseStore, isPro, StoreError };
+const isUnlimited = (plan, kind) => PLAN_UNLIMITED[plan]?.includes(kind) ?? false;
+const isPaid = (user) => planOf(user) !== 'free';
+
+module.exports = { createSupabaseStore, planOf, isPaid, isUnlimited, PLAN_UNLIMITED, StoreError };
