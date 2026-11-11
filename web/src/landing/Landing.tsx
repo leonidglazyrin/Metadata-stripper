@@ -18,13 +18,18 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
               sharona
             </a>
             <nav className="nav" aria-label="Main">
-              <a href="#synthid">SynthID</a>
-              <a href="#metadata">Metadata</a>
-              <a href="#downloaders">Downloaders</a>
-              <a href="#pricing">Pricing</a>
-              <a href="#faq">FAQ</a>
+              <NavLinks />
             </nav>
             <a className="pill-btn head-cta" href={APP}>Open tools</a>
+            {/* Mobile: the links fold into a burger menu. <details> needs no JS. */}
+            <details className="menu">
+              <summary aria-label="Menu">
+                <span className="burger" aria-hidden="true"><i /><i /><i /></span>
+              </summary>
+              <nav className="menu-panel" aria-label="Main (mobile)">
+                <NavLinks />
+              </nav>
+            </details>
           </header>
 
           <div className="hero-body">
@@ -195,7 +200,25 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
           </a>
         </aside>
       </div>
+      {/* Close the mobile menu once a link in it is tapped. */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: "document.querySelectorAll('.menu-panel a').forEach(function(a){a.addEventListener('click',function(){a.closest('details').open=false})})",
+        }}
+      />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(siteUrl) }} />
+    </>
+  );
+}
+
+function NavLinks() {
+  return (
+    <>
+      <a href="#synthid">SynthID</a>
+      <a href="#metadata">Metadata</a>
+      <a href="#downloaders">Downloaders</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
     </>
   );
 }
