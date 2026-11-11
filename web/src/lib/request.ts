@@ -17,15 +17,63 @@ export class RequestError extends Error {}
 /** Base URL for the API; empty means same origin (or the Vite dev proxy). */
 const API = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
+/** Absolute URL for an API path, e.g. for an <img src>. */
+export const apiUrl = (path: string) => API + path;
+
+/** JSON request; throws RequestError with the server's message on failure. */
+export async function requestJson<T>(method: string, path: string, body?: object, signal?: AbortSignal): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(API + path, {
+      method,
+      signal,
+      cache: 'no-store',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    throw new RequestError('Network error, is the server running?');
+  }
+  const text = await res.text();
+  let data: unknown = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok) {
+    const msg = (data as { error?: string } | null)?.error;
+    if (msg) throw new RequestError(msg);
+    if (res.status === 404 || res.status === 405) throw new RequestError('Server is missing this feature, restart it with the latest code');
+    throw new RequestError(`Server error (HTTP ${res.status})`);
+  }
+  return data as T;
+}
+
 export function postForBlob(
   path: string,
   body: FormData | object,
   progress: Progress,
   signal: AbortSignal,
 ): Promise<BlobResponse> {
+  return requestForBlob('POST', path, body, progress, signal);
+}
+
+export function getBlob(path: string, progress: Progress, signal: AbortSignal): Promise<BlobResponse> {
+  return requestForBlob('GET', path, null, progress, signal);
+}
+
+function requestForBlob(
+  method: string,
+  path: string,
+  body: FormData | object | null,
+  progress: Progress,
+  signal: AbortSignal,
+): Promise<BlobResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', API + path);
+    xhr.open(method, API + path);
     xhr.responseType = 'blob';
     signal.addEventListener('abort', () => xhr.abort());
     xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
@@ -48,7 +96,9 @@ export function postForBlob(
         header: (n) => xhr.getResponseHeader(n),
       });
     };
-    if (body instanceof FormData) {
+    if (body == null) {
+      xhr.send();
+    } else if (body instanceof FormData) {
       xhr.send(body);
     } else {
       xhr.setRequestHeader('Content-Type', 'application/json');

@@ -24,6 +24,8 @@ export type Runner<I> = (job: Job<I>, update: Update, signal: AbortSignal) => Pr
  */
 export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
   const [jobs, setJobs] = useState<Job<I>[]>([]);
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
   const queue = useRef<Job<I>[]>([]);
   const running = useRef(new Map<string, AbortController>());
   const runnerRef = useRef(runner);
@@ -89,6 +91,19 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
     });
   }, []);
 
+  /** Put a failed job back in the queue. */
+  const retry = useCallback(
+    (id: string) => {
+      const job = jobsRef.current.find((j) => j.id === id);
+      if (!job || job.status !== 'error' || queue.current.some((j) => j.id === id)) return;
+      const reset = { status: 'waiting', progress: null, message: 'Waiting…' } as const;
+      queue.current.push({ ...job, ...reset });
+      update(id, reset);
+      pump();
+    },
+    [pump, update],
+  );
+
   const clear = useCallback(() => {
     queue.current = [];
     for (const c of running.current.values()) c.abort();
@@ -105,5 +120,5 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
 
   const setPreview = useCallback((id: string, url: string) => update(id, { preview: url }), [update]);
 
-  return { jobs, add, remove, clear, setPreview };
+  return { jobs, add, remove, retry, clear, setPreview };
 }
