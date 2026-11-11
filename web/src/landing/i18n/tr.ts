@@ -99,9 +99,7 @@ export const tr: Translation = {
     cta: 'SynthID kaldırıcıyı aç',
   },
   pricing: {
-    title: ['Tek plan.', 'Aylık {price}.'],
     perMonth: '/ ay',
-    features: ['SynthID kaldırıcı ve meta veri temizleyici', 'YouTube, X, TikTok ve Instagram indiricileri', 'Tüm yaygın biçimlerde fotoğraf ve video'],
     billing: 'Stripe üzerinden aylık faturalandırılır. İstediğiniz zaman iptal edin.',
     stripeLabel: 'Stripe ile ödeme',
     cta: 'Araçları aç',

@@ -17,7 +17,14 @@ const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 2048);
 
 const app = express();
 app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
-const accounts = createAccounts();
+let accounts;
+try {
+  accounts = createAccounts();
+} catch (e) {
+  // Missing Supabase settings: fail fast with a readable message.
+  log.fail('account', e.message);
+  process.exit(1);
+}
 const workDir = path.join(os.tmpdir(), 'metadata-stripper');
 
 const upload = multer({
@@ -267,7 +274,7 @@ app.use('/api', accounts.router);
 
 // The quota is checked before the upload starts, so nobody uploads a big
 // file just to be told to upgrade. A failed strip gives the use back.
-const stripGate = [accounts.gate('strip'), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
+const stripGate = [accounts.gate('server_strip'), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
 
 app.post('/api/strip', stripGate, upload.single('file'), async (req, res) => {
   const f = req.file;

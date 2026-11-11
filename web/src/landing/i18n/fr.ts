@@ -99,9 +99,7 @@ export const fr: Translation = {
     cta: 'Ouvrir l’outil SynthID',
   },
   pricing: {
-    title: ['Une seule offre.', '{price} par mois.'],
     perMonth: '/ mois',
-    features: ['Retrait de SynthID et suppression des métadonnées', 'Téléchargeurs YouTube, X, TikTok et Instagram', 'Photos et vidéos dans tous les formats courants'],
     billing: 'Facturation mensuelle via Stripe. Résiliable à tout moment.',
     stripeLabel: 'Paiements par Stripe',
     cta: 'Ouvrir les outils',

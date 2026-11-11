@@ -4,15 +4,29 @@
 import { useSyncExternalStore } from 'react';
 import { apiUrl, RequestError, requestJson } from './request';
 
-export type Kind = 'strip' | 'download';
+/** strip = on-device strip, server_strip = strip on our server. */
+export type Kind = 'strip' | 'server_strip' | 'download';
+export type PlanId = 'basic' | 'pro';
+
+export interface Plan {
+  id: PlanId;
+  name: string;
+  label: string;
+  interval: string;
+  /** False when the server has no Stripe price for it. */
+  available: boolean;
+}
 
 export interface Account {
   paywall: boolean;
   signedIn: boolean;
   user: { email: string | null; name: string | null; picture: string | null } | null;
-  plan: 'free' | 'pro';
+  plan: 'free' | PlanId;
   usage: Record<Kind, { used: number; limit: number | null }> | null;
   subscription: { status: string; renewsAt: number | null; cancelAtPeriodEnd: boolean; manageable: boolean } | null;
+  /** Free uses every account starts with; null on Pro or with no paywall. */
+  free: Record<Kind, number> | null;
+  plans: Plan[];
   price: { label: string; interval: string };
   signIn: 'google' | 'dev' | null;
   dev: { auth: boolean; billing: boolean };
@@ -22,6 +36,8 @@ export interface Paywall {
   /** auth: sign in first. upgrade: the free use is spent. */
   reason: 'auth' | 'upgrade';
   kind?: Kind;
+  /** The cheapest plan that removes the limit that was hit. */
+  plan?: PlanId;
   message?: string;
 }
 
@@ -69,8 +85,9 @@ export async function signOut() {
   await refreshAccount();
 }
 
-export async function startCheckout() {
-  const { url } = await requestJson<{ url: string }>('POST', '/api/billing/checkout', { next: here() });
+/** Subscribe to a plan, or switch an existing subscription to it. */
+export async function startCheckout(plan: PlanId) {
+  const { url } = await requestJson<{ url: string }>('POST', '/api/billing/checkout', { plan, next: here() });
   location.href = url;
 }
 
@@ -79,6 +96,8 @@ export async function openBillingPortal() {
   location.href = url;
 }
 
+export const KIND_WORD: Record<Kind, string> = { strip: 'on-device strip', server_strip: 'server strip', download: 'download' };
+
 /**
  * Call with an error from a strip or download request. A sign-in or upgrade
  * answer opens the paywall and becomes a short message for the row; any
@@ -86,9 +105,13 @@ export async function openBillingPortal() {
  */
 export function gateError(e: unknown, kind: Kind): unknown {
   if (!(e instanceof RequestError) || (e.status !== 401 && e.status !== 402)) return e;
-  openPaywall({ reason: e.status === 401 ? 'auth' : 'upgrade', kind });
+  // The server says which quota was hit (on-device vs server strip).
+  const data = (e.data ?? {}) as { kind?: Kind; plan?: PlanId };
+  const k = data.kind && data.kind in KIND_WORD ? data.kind : kind;
+  const plan = data.plan ?? (k === 'strip' ? 'basic' : 'pro');
+  openPaywall({ reason: e.status === 401 ? 'auth' : 'upgrade', kind: k, plan });
   void refreshAccount();
-  return new Error(e.status === 401 ? 'Sign in to keep going' : `Free ${kind} used, upgrade to Pro`);
+  return new Error(e.status === 401 ? 'Sign in to keep going' : `Free ${KIND_WORD[k]} used, upgrade to ${plan === 'basic' ? 'Basic' : 'Pro'}`);
 }
 
 /** Free uses left, or null when unlimited (Pro, or no paywall). */
@@ -102,6 +125,7 @@ export function remaining(a: Account | null, kind: Kind): number | null {
 export async function initAccount() {
   const params = new URLSearchParams(location.search);
   const upgraded = params.has('upgraded');
+  const upgradedTo = params.get('upgraded');
   const failed = params.get('signin') === 'failed';
   if (upgraded || failed) {
     params.delete('upgraded');
@@ -113,10 +137,18 @@ export async function initAccount() {
   let a = await refreshAccount();
   if (upgraded) {
     // Stripe's webhook can land a moment after the redirect.
-    for (let i = 0; i < 10 && a && a.plan !== 'pro'; i++) {
+    // ?upgraded=basic|pro names the plan just bought (older links say 1).
+    const want = upgradedTo === 'basic' ? 'basic' : 'pro';
+    for (let i = 0; i < 10 && a && a.plan !== want; i++) {
       await new Promise((ok) => setTimeout(ok, 1500));
       a = await refreshAccount();
     }
-    setNotice(a?.plan === 'pro' ? 'You’re on Pro. Everything is unlimited now.' : 'Payment received. Pro turns on in a moment, refresh if it doesn’t.');
+    setNotice(
+      a?.plan === 'pro'
+        ? 'You’re on Pro. Everything is unlimited.'
+        : a?.plan === 'basic'
+          ? 'You’re on Basic. On-device stripping is unlimited.'
+          : 'Payment received. Your plan turns on in a moment, refresh if it doesn’t.',
+    );
   }
 }

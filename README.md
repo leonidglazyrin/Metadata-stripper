@@ -4,7 +4,7 @@ A web app for creators:
 
 - **Strip metadata** from photos and videos (EXIF, GPS, XMP, IPTC, ICC, C2PA, container tags), with optional SynthID watermark disruption.
 - **Download** videos (or just the audio) from **YouTube**, **X**, **Instagram** and **TikTok** links.
-- **Accounts and Pro**: Google sign-in, 1 free strip and 1 free download per account, then **$20/month** via Stripe. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
+- **Accounts and plans**: Google sign-in, 1 free on-device strip, 1 free server strip and 1 free download per account. Then **Basic at $10/month** (unlimited on-device stripping) or **Pro at $20/month** (everything, including faster server stripping and downloads) via Stripe. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
 
 ## Pages
 
@@ -27,10 +27,10 @@ server/     Node + Express API                      → serves /api/* and dist/
   index.js        /api/strip (sharp + ffmpeg)
   downloaders.js  /api/download/:platform (yt-dlp)
   account.js      Google sign-in, quota, Stripe Checkout / Portal / webhook
-  store.js        SQLite: users, usage, subscriptions
+  store.js        Supabase (Postgres): users, usage, subscriptions
 ```
 
-Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). Accounts and billing live in the same server, with a SQLite file on a persistent disk.
+Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). Accounts and billing live in the same server and store their data in Supabase (Postgres), so the container is stateless and needs no disk.
 
 ## Server or on-device stripping
 
@@ -95,7 +95,7 @@ Or with Docker (ffmpeg and yt-dlp included):
 
 ```bash
 docker build -t sharona .
-docker run -p 3000:3000 -v sharona-data:/data --env-file .env sharona
+docker run -p 3000:3000 --env-file .env sharona
 ```
 
 ### Environment variables
@@ -115,12 +115,13 @@ docker run -p 3000:3000 -v sharona-data:/data --env-file .env sharona
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
 | `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately (must be the same site, e.g. `api.example.com` for `example.com`, so the session cookie is sent) |
 | `SESSION_SECRET` | random per start | **Required in production.** Signs the session cookie |
-| `DATA_DIR` | `./data` (`/data` in Docker) | Where `sharona.db` (accounts, usage, subscriptions) lives. Use a persistent disk |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | (required unless `PAYWALL=off`) | Supabase project for accounts, subscriptions and usage. See `docs/accounts-and-billing.md` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in |
-| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` | | Stripe subscription ($20/month price) and its webhook |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | | Stripe API key and webhook signing secret |
+| `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO` | | The $10 Basic and $20 Pro monthly prices. The webhook maps each price to its plan. `STRIPE_PRICE_ID` is the old name of the Pro one |
 | `PAYWALL` | on | `off` disables sign-in and limits |
-| `FREE_STRIPS`, `FREE_DOWNLOADS` | `1`, `1` | Free uses per account |
-| `PRICE_LABEL` | `$20` | Price shown in the upgrade dialog (the charge itself comes from the Stripe price) |
+| `FREE_STRIPS`, `FREE_SERVER_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1, 1) | Free on-device strips, server strips and downloads per account. Leave unset to manage them in Supabase without a deploy |
+| `PRICE_LABEL_BASIC`, `PRICE_LABEL_PRO` | `$10`, `$20` | Prices shown in the upgrade dialog (the charge itself comes from the Stripe prices) |
 | `TRUST_PROXY` | private ranges | Express `trust proxy`, so `https` is detected behind a load balancer |
 
 Uploads are written to a temp directory and deleted as soon as the response is sent. Finished link downloads stay for `DOWNLOAD_TTL_MIN` minutes so a reloaded page can collect them again (removing the row deletes them sooner). The server purges the temp directory on startup and sweeps it every minute for expired, hung or orphaned files, and logs why each download failed (yt-dlp's exit code and its ERROR / WARNING lines).

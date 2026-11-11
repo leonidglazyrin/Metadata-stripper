@@ -99,9 +99,7 @@ export const ko: Translation = {
     cta: 'SynthID 제거 도구 열기',
   },
   pricing: {
-    title: ['요금제는 하나.', '월 {price}.'],
     perMonth: '/ 월',
-    features: ['SynthID 제거 및 메타데이터 제거', 'YouTube, X, TikTok, Instagram 다운로더', '모든 일반 형식의 사진과 동영상'],
     billing: 'Stripe로 매월 결제됩니다. 언제든 해지할 수 있습니다.',
     stripeLabel: 'Stripe 결제',
     cta: '도구 열기',
