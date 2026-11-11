@@ -4,6 +4,7 @@ A web app for creators:
 
 - **Strip metadata** from photos and videos (EXIF, GPS, XMP, IPTC, ICC, C2PA, container tags), with optional SynthID watermark disruption.
 - **Download** videos (or just the audio) from **YouTube**, **X**, **Instagram** and **TikTok** links.
+- **Accounts and Pro**: Google sign-in, 1 free strip and 1 free download per account, then **$20/month** via Stripe. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
 
 ## Pages
 
@@ -22,9 +23,11 @@ web/        React + Vite frontend (TypeScript)      → builds to dist/
 server/     Node + Express API                      → serves /api/* and dist/
   index.js        /api/strip (sharp + ffmpeg)
   downloaders.js  /api/download/:platform (yt-dlp)
+  account.js      Google sign-in, quota, Stripe Checkout / Portal / webhook
+  store.js        SQLite: users, usage, subscriptions
 ```
 
-Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). If you later add accounts, billing or a database, a Workers/Hono layer can sit in front for that, while the media work stays in this container.
+Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). Accounts and billing live in the same server, with a SQLite file on a persistent disk.
 
 ## Server or on-device stripping
 
@@ -65,7 +68,7 @@ Only download content you own or have permission to use. Downloading can break a
 
 ## Running
 
-Requires Node.js 20.19+ with `ffmpeg`/`ffprobe` and `yt-dlp` on `PATH` (`brew install ffmpeg yt-dlp`, or `pip install yt-dlp`; the server also tries `python3 -m yt_dlp`, or set `YTDLP_PATH`). Keep yt-dlp updated, since platforms change often.
+Requires Node.js 22.13+ with `ffmpeg`/`ffprobe` and `yt-dlp` on `PATH` (`brew install ffmpeg yt-dlp`, or `pip install yt-dlp`; the server also tries `python3 -m yt_dlp`, or set `YTDLP_PATH`). Keep yt-dlp updated, since platforms change often.
 
 ```bash
 npm install
@@ -73,7 +76,10 @@ npm run dev        # Vite on http://localhost:5173, API on :3000 (proxied)
 
 npm run build      # type-check + build the frontend into dist/
 npm start          # API + built frontend on http://localhost:3000
+npm test           # server tests (accounts, quota, Google and Stripe mocked)
 ```
+
+In dev, sign-in and upgrades are simulated until you set the Google and Stripe variables (see [docs/accounts-and-billing.md](docs/accounts-and-billing.md) and `.env.example`).
 
 The terminal running the server logs every download (platform, mode, link, file, size, time) and every strip (file name, mode, size before → after, time, what was removed), plus failures. Set `NO_COLOR=1` to turn off colors.
 
@@ -86,7 +92,7 @@ Or with Docker (ffmpeg and yt-dlp included):
 
 ```bash
 docker build -t sharona .
-docker run -p 3000:3000 sharona
+docker run -p 3000:3000 -v sharona-data:/data --env-file .env sharona
 ```
 
 ### Environment variables
@@ -103,6 +109,14 @@ docker run -p 3000:3000 sharona
 | `YTDLP_COOKIES` | | Netscape cookies file for Instagram / age-gated content |
 | `YTDLP_IPV6` | | Set to `1` to let yt-dlp use IPv6. By default it's forced to IPv4, because on networks with broken IPv6 yt-dlp hangs for minutes with no output |
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
-| `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately |
+| `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately (must be the same site, e.g. `api.example.com` for `example.com`, so the session cookie is sent) |
+| `SESSION_SECRET` | random per start | **Required in production.** Signs the session cookie |
+| `DATA_DIR` | `./data` (`/data` in Docker) | Where `sharona.db` (accounts, usage, subscriptions) lives. Use a persistent disk |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in |
+| `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` | | Stripe subscription ($20/month price) and its webhook |
+| `PAYWALL` | on | `off` disables sign-in and limits |
+| `FREE_STRIPS`, `FREE_DOWNLOADS` | `1`, `1` | Free uses per account |
+| `PRICE_LABEL` | `$20` | Price shown in the upgrade dialog (the charge itself comes from the Stripe price) |
+| `TRUST_PROXY` | private ranges | Express `trust proxy`, so `https` is detected behind a load balancer |
 
 Uploads are written to a temp directory and deleted as soon as the response is sent. Finished link downloads stay for `DOWNLOAD_TTL_MIN` minutes so a reloaded page can collect them again (removing the row deletes them sooner). The server purges the temp directory on startup and sweeps it every minute for expired, hung or orphaned files, and logs why each download failed (yt-dlp's exit code and its ERROR / WARNING lines).

@@ -66,6 +66,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: { '/api': { target: `http://localhost:${process.env.PORT || 3000}`, changeOrigin: true } },
+    // xfwd: the API sees the page's own host, for sign-in and Stripe return links.
+    proxy: { '/api': { target: `http://localhost:${process.env.PORT || 3000}`, changeOrigin: true, xfwd: true } },
   },
 });
