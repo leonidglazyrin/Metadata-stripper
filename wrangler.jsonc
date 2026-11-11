@@ -30,7 +30,7 @@
     {
       "binding": "DB",
       "database_name": "sharona",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "7c9bd4b8-ee67-4223-bf5f-3022f455dbd1",
       "migrations_dir": "migrations"
     }
   ],
@@ -38,6 +38,6 @@
   "vars": {
     "SITE_URL": "https://metadata-stripper.synthidstripper.workers.dev",
     "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
-    "CLOUDFLARE_D1_DATABASE_ID": "REPLACE_WITH_D1_DATABASE_ID"
+    "CLOUDFLARE_D1_DATABASE_ID": "7c9bd4b8-ee67-4223-bf5f-3022f455dbd1"
   }
 }
