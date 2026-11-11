@@ -108,7 +108,7 @@ export const GUIDES: Guide[] = [
       { q: 'Will the Veo video lose quality?', a: 'SynthID stripping re-encodes the video, so it is not byte-for-byte identical, but it is saved at high quality and looks the same in normal viewing.' },
       { q: 'Will TikTok still label my Veo video as AI?', a: 'It might. {site} removes the C2PA Content Credentials that platforms read, but platforms also run their own classifiers and watermark detectors. We do not guarantee a file goes unlabelled.' },
     ],
-    related: ['remove-synthid-from-gemini-images', 'remove-c2pa-content-credentials', 'remove-metadata-from-videos'],
+    related: ['remove-synthid-from-higgsfield', 'remove-synthid-from-gemini-images', 'remove-metadata-from-videos'],
     updated: UPDATED,
   },
   {
@@ -226,6 +226,66 @@ export const GUIDES: Guide[] = [
       { q: 'Will the colours change?', a: 'No. Imagen output is sRGB, so dropping the colour profile does not shift the colours.' },
     ],
     related: ['remove-synthid-from-gemini-images', 'remove-synthid-from-google-veo', 'remove-exif-data-from-photos'],
+    updated: UPDATED,
+  },
+  {
+    slug: 'remove-synthid-from-higgsfield',
+    kind: 'synthid',
+    title: 'How to remove SynthID and C2PA from Higgsfield videos and images',
+    metaTitle: 'Remove SynthID & C2PA from Higgsfield Files',
+    description:
+      'Higgsfield runs several AI models, so its files can carry a SynthID watermark, C2PA Content Credentials, or both. How to clean them so platforms stop flagging the result.',
+    short: 'Remove SynthID from Higgsfield',
+    tool: 'strip',
+    cta: 'Clean a Higgsfield file now',
+    intro: [
+      'Higgsfield is a platform that runs several AI models under one roof, including Google Veo. What ends up in your file depends on which model made it: a Veo-based video carries Google’s invisible SynthID watermark, and most generators also add C2PA Content Credentials to the metadata that mark the file as AI-generated.',
+      '{site} removes the metadata — C2PA included — and re-encodes the file to disrupt a SynthID watermark if one is present, while keeping the picture and sound looking the same. SynthID is built to survive edits, so no tool can promise a detector will miss it; results are not guaranteed.',
+    ],
+    steps: [
+      { name: 'Open the SynthID stripper', text: 'Go to the Strip tab in {site}.' },
+      { name: 'Add your Higgsfield file', text: 'Drop in the video or image. Leave SynthID stripping switched on (it is on by default) so a Veo-based file gets the watermark re-encode too.' },
+      { name: 'Pick Server for speed', text: 'Server re-encodes large videos about 4x faster and deletes them straight after. This device keeps the file in your browser but is slower.' },
+      { name: 'Download the clean copy', text: 'Each file lists what was removed. Share the clean copy instead of the original.' },
+    ],
+    sections: [
+      {
+        h: 'What a Higgsfield file can carry',
+        blocks: [
+          {
+            ul: [
+              'SynthID: present when the file was made with a Google model such as Veo. It is an invisible, pixel-level watermark.',
+              'C2PA Content Credentials: a signed manifest in the metadata that records the file was AI-generated. See [removing C2PA](/guides/remove-c2pa-content-credentials/).',
+              'The usual container, encoder, EXIF and timing metadata.',
+            ],
+          },
+          { p: 'Because Higgsfield mixes models, you may not know which watermark a given file has. Leaving SynthID stripping on covers both cases: the metadata is always removed, and the watermark re-encode runs in case SynthID is there.' },
+        ],
+      },
+      {
+        h: 'How {site} cleans it',
+        blocks: [
+          {
+            p: 'Videos are re-encoded at a visually transparent quality (CRF 18) with a faint blur, a matching sharpen and a trace of noise between frames; images are resampled, noised and sharpened, then saved again at high quality. Either way every metadata block — C2PA included — is dropped. The result looks and plays the same.',
+          },
+        ],
+      },
+      {
+        h: 'What it can and can’t do',
+        blocks: [
+          {
+            note: 'SynthID is built to survive edits. {site} weakens it, but cannot guarantee a detector or a platform classifier will miss it. The C2PA metadata, however, is fully removed.',
+          },
+          { p: 'Removing these signals does not remove any legal or platform duty to label AI content. Follow each platform’s disclosure rules.' },
+        ],
+      },
+    ],
+    faq: [
+      { q: 'Does every Higgsfield file have SynthID?', a: 'No. Only files made with a Google model such as Veo carry SynthID. Files from other models on Higgsfield usually carry C2PA Content Credentials instead. {site} handles both: metadata is always removed, and the watermark re-encode runs when SynthID stripping is on.' },
+      { q: 'Will my Higgsfield video lose quality?', a: 'SynthID stripping re-encodes the video, so it is not byte-for-byte identical, but it is saved at high quality and looks the same in normal viewing.' },
+      { q: 'Will TikTok still label my Higgsfield video as AI?', a: 'It might. {site} removes the C2PA Content Credentials that platforms read, but platforms also run their own classifiers and watermark detectors. We do not guarantee a file goes unlabelled.' },
+    ],
+    related: ['remove-synthid-from-google-veo', 'remove-c2pa-content-credentials', 'remove-metadata-from-videos'],
     updated: UPDATED,
   },
 

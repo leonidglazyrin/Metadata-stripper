@@ -165,7 +165,7 @@ export const en = {
       },
       {
         q: 'How do I remove SynthID from AI videos?',
-        a: 'Open the SynthID stripper, add your video and pick Server. Metadata and SynthID are always removed — there is no switch to forget. {site} re-encodes the video at high quality with small pixel changes that weaken the watermark, and gives you a clean MP4 to download. Videos from Google Veo and Gemini carry SynthID; the same steps also clear metadata from other generators.',
+        a: 'Open the SynthID stripper, add your video, keep SynthID stripping switched on (it is on by default) and pick Server. {site} removes the metadata, re-encodes the video at high quality with small pixel changes that weaken the watermark, and gives you a clean MP4 to download. Videos from Google Veo and Gemini carry SynthID; the same steps also clear metadata from other generators.',
       },
       {
         q: 'Which AI generators does it work with?',
@@ -189,7 +189,7 @@ export const en = {
       },
       {
         q: 'Are my files uploaded?',
-        a: 'Only if you pick Server. In Server mode the file is uploaded, cleaned and deleted straight away. In This device mode it stays in your browser and nothing is sent to us. Either way metadata and SynthID are removed; on your device the SynthID re-encode runs in the browser, so videos take longer than on the server.',
+        a: 'Only if you pick Server. In Server mode the file is uploaded, cleaned and deleted straight away. In This device mode it stays in your browser and nothing is sent to us. Metadata is always removed; SynthID stripping is a switch that is on by default, and on your device its re-encode runs in the browser, so videos take longer than on the server.',
       },
       {
         q: 'Which formats are supported?',
