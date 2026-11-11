@@ -4,7 +4,7 @@
   "description": "Creator tools web app: strip metadata from photos/videos and download from YouTube, X, Instagram and TikTok",
   "main": "server/index.js",
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"node --watch server/index.js\" \"vite\"",
+    "dev": "concurrently -k -n api,web -c blue,green \"node --env-file-if-exists=.env --watch server/index.js\" \"vite\"",
     "dev:api": "node --env-file-if-exists=.env --watch server/index.js",
     "dev:web": "vite",
     "build": "tsc --noEmit -p web && vite build",
