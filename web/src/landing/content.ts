@@ -5,10 +5,25 @@ export const SITE_NAME = 'Sharona';
 
 export type Faq = { q: string; a: string };
 
+// AI generators people commonly bring files from. Shown as tags on the page.
+export const AI_SOURCES = ['Google Veo', 'Gemini', 'Imagen', 'Sora', 'ChatGPT', 'Higgsfield', 'Kling', 'Runway', 'Midjourney'];
+
 export const FAQ: Faq[] = [
   {
     q: 'What is a SynthID stripper?',
     a: 'SynthID is an invisible watermark Google adds to images and videos made with its AI models. A SynthID stripper changes the pixels slightly to break up that pattern. Sharona resamples and sharpens photos, and re-encodes videos at high quality, so the file looks the same.',
+  },
+  {
+    q: 'How do I remove SynthID from AI videos?',
+    a: 'Open the SynthID stripper, add your video, leave SynthID stripping on and pick Server. Sharona removes the metadata, re-encodes the video at high quality with small pixel changes that weaken the watermark, and gives you a clean MP4 to download. Videos from Google Veo and Gemini carry SynthID; the same steps also clear metadata from other generators.',
+  },
+  {
+    q: 'Which AI generators does it work with?',
+    a: 'Any. Videos and photos from Google Veo, Gemini and Imagen carry a SynthID watermark. Files from Sora, ChatGPT and many other tools carry C2PA Content Credentials in the metadata. Higgsfield runs several models, including Veo, so its files can carry either. Sharona removes the metadata from all of them and disrupts SynthID where it is present. It does not remove visible watermarks or logos.',
+  },
+  {
+    q: 'Will TikTok or other platforms still label my video as AI?',
+    a: 'They might. Some platforms, including TikTok, read C2PA Content Credentials to label AI content, and Sharona removes those. But platforms can also use watermark detectors, their own classifiers and disclosure rules, and we have not tested how any platform labels the output. Sharona does not guarantee a file will go undetected or unlabeled. Follow each platform’s rules on disclosing AI-generated content.',
   },
   {
     q: 'Does the SynthID remover always work?',
