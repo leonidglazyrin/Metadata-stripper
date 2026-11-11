@@ -62,6 +62,7 @@ button, input { font: inherit; color: inherit; }
   letter-spacing: -0.04em;
   line-height: 1;
   color: var(--blue);
+  text-decoration: none;
 }
 .wordmark span { color: var(--amber); }
 

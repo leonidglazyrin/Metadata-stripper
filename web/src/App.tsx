@@ -112,8 +112,8 @@ export default function App() {
 
 function Wordmark() {
   return (
-    <span className="wordmark" aria-label="Sharona">
+    <a className="wordmark" href="/" aria-label="Sharona home">
       sharon<span>a</span>
-    </span>
+    </a>
   );
 }

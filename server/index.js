@@ -316,10 +316,56 @@ app.post('/api/tiktok', (req, res, next) => { req.url = '/tiktok'; downloads(req
 // Frontend: serve the Vite build (npm run build) in production
 // ---------------------------------------------------------------------------
 
+//   /        static landing page (dist/index.html)
+//   /app/    the tools (dist/app/index.html)
+// The pages carry __SITE_URL__ placeholders for canonical, Open Graph and
+// JSON-LD links. Set SITE_URL (e.g. https://example.com) in production;
+// otherwise the origin is taken from the request.
 const distDir = path.join(__dirname, '..', 'dist');
-app.use(express.static(distDir));
-app.get(/^\/(?!api\/).*/, (_req, res, next) => {
-  res.sendFile(path.join(distDir, 'index.html'), (err) => err && next());
+const SITE_URL = (process.env.SITE_URL || '').replace(/\/+$/, '');
+function siteUrl(req) {
+  if (SITE_URL) return SITE_URL;
+  const proto = req.get('x-forwarded-proto')?.split(',')[0].trim() === 'https' ? 'https' : req.protocol;
+  // Only a plain host[:port] is trusted from the request; it ends up in HTML.
+  const host = /^[a-z0-9.-]+(:\d+)?$/i.test(req.get('host') || '') ? req.get('host') : 'localhost';
+  return `${proto}://${host}`;
+}
+
+const pageCache = new Map();
+async function sendPage(req, res, next, file, status = 200) {
+  try {
+    let html = pageCache.get(file);
+    if (html === undefined) {
+      html = await fs.readFile(path.join(distDir, file), 'utf8');
+      if (process.env.NODE_ENV === 'production') pageCache.set(file, html);
+    }
+    res.status(status).type('html').set('Cache-Control', 'no-cache').send(html.replaceAll('__SITE_URL__', siteUrl(req)));
+  } catch (e) {
+    next(e.code === 'ENOENT' ? undefined : e);
+  }
+}
+
+// Hashed build assets never change, so let browsers keep them for a year.
+app.use('/assets', express.static(path.join(distDir, 'assets'), { immutable: true, maxAge: '1y' }));
+app.use(express.static(distDir, { index: false, redirect: false }));
+
+app.get('/', (req, res, next) => sendPage(req, res, next, 'index.html'));
+app.get('/app', (req, res, next) => (req.originalUrl.split('?')[0] === '/app' ? res.redirect(301, '/app/') : next()));
+app.get(/^\/app\/.*/, (req, res, next) => sendPage(req, res, next, 'app/index.html'));
+
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${siteUrl(req)}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', (req, res) => {
+  const base = siteUrl(req);
+  const urls = [['/', '1.0'], ['/app/', '0.8']]
+    .map(([loc, priority]) => `  <url><loc>${base}${loc}</loc><priority>${priority}</priority></url>`)
+    .join('\n');
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`);
+});
+
+app.get(/^\/(?!api\/).*/, (_req, res) => {
+  res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>Not found · Sharona</title><meta name="robots" content="noindex"><p style="font:16px system-ui;padding:40px">Page not found. <a href="/">Go to Sharona</a></p>');
 });
 
 app.use((err, _req, res, _next) => {
