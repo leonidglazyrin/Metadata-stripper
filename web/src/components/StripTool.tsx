@@ -2,26 +2,13 @@ import { useRef, useState, type DragEvent } from 'react';
 import { useJobs, type Runner, type Update } from '../lib/jobs';
 
 type Where = 'server' | 'device';
-import { postForBlob, formatSize, requestJson } from '../lib/request';
+import { postForBlob, requestJson } from '../lib/request';
 import { gateError, refreshAccount } from '../lib/account';
 import { useStored } from '../lib/storage';
 import { IconFile, IconPlus } from './Icons';
 import JobList from './JobList';
 import { isImageName, isVideoName, videoFrame } from '../lib/thumb';
 import Switch from './Switch';
-
-interface Report {
-  before: { found: string[]; tags?: Record<string, string> };
-}
-
-function decodeReport(b64: string | null): Report | null {
-  if (!b64) return null;
-  try {
-    return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))));
-  } catch {
-    return null;
-  }
-}
 
 export default function StripTool() {
   const [synthid, setSynthid] = useStored('synthid', true);
@@ -47,13 +34,7 @@ export default function StripTool() {
       },
       signal,
     );
-    const rep = decodeReport(res.header('X-Strip-Report'));
-    let message = formatSize(res.blob.size);
-    if (rep) {
-      const count = rep.before.found.length + Object.keys(rep.before.tags ?? {}).length;
-      message = count ? `Removed ${rep.before.found.join(', ') || `${count} tags`}` : 'Nothing found, already clean';
-    }
-    return { blob: res.blob, filename: res.filename ?? file.name, message };
+    return { blob: res.blob, filename: res.filename ?? file.name };
   };
 
   const stripOnDevice = async (file: File, update: Update) => {
@@ -64,8 +45,7 @@ export default function StripTool() {
     const r = await stripInBrowser(file, { synthid: synthRef.current }, (message, progress = null) =>
       update({ message, progress }),
     );
-    const message = r.removed.length ? `Removed ${r.removed.join(', ')} · on this device` : 'Nothing found, already clean · on this device';
-    return { blob: r.blob, filename: r.filename, message };
+    return { blob: r.blob, filename: r.filename };
   };
 
   const runner: Runner<File> = async (job, update, signal) => {
@@ -75,10 +55,11 @@ export default function StripTool() {
     } catch (e) {
       throw gateError(e, 'strip');
     }
-    const { blob, filename, message } = out;
+    const { blob, filename } = out;
     void refreshAccount();
     if (signal.aborted) return;
-    update({ status: 'done', progress: 1, message, result: { url: URL.createObjectURL(blob), filename } });
+    // Just "Ready": no extra text after it.
+    update({ status: 'done', progress: 1, message: '', result: { url: URL.createObjectURL(blob), filename } });
     // Show the cleaned file itself: HEIC comes back as a browser-viewable JPEG.
     if (!job.preview && isImageName(filename)) update({ preview: URL.createObjectURL(blob) });
     if (!job.preview && isVideoName(filename)) {
@@ -156,11 +137,14 @@ export default function StripTool() {
           label={<><span className="synth-badge">SynthID</span> Strip AI watermarks</>}
           hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Breaks up the invisible watermark in AI photos and videos. Near-lossless.'}
         />
-        {/* Kept for now but deliberately quiet: no explainer copy around it. */}
-        <div className="segmented where-quiet" role="radiogroup" aria-label="Where to clean files">
-          {(['server', 'device'] as const).map((w) => (
+        <div className="where" role="radiogroup" aria-label="Where to clean files">
+          {(['device', 'server'] as const).map((w) => (
             <button key={w} type="button" role="radio" aria-checked={where === w} onClick={() => setWhere(w)}>
-              {w === 'server' ? 'Server' : 'This device'}
+              {w === 'device' ? (
+                <>On this device <small>the server never sees it</small></>
+              ) : (
+                <>On the server <small>faster</small></>
+              )}
             </button>
           ))}
         </div>

@@ -124,6 +124,43 @@ function createSupabaseStore({ url, key, fetchImpl = fetch, timeoutMs = 10_000 }
       }
       return settings;
     },
+
+    // --- download rows (supabase/migrations/20261111100000_download_history.sql)
+
+    /** The account's newest rows for one platform. */
+    async listDownloads(userId, platform, limit = 50) {
+      if (!isUuid(userId)) return [];
+      return (await rpc('list_downloads', { p_user_id: userId, p_platform: platform, p_limit: limit })) || [];
+    },
+
+    /** Insert or update a row; fields left out keep their value. */
+    async saveDownload(userId, row) {
+      if (!isUuid(userId) || !isUuid(row.id)) return;
+      await rpc('save_download', {
+        p_user_id: userId,
+        p_id: row.id,
+        p_platform: row.platform,
+        p_url: row.url,
+        p_mode: row.mode,
+        p_name: row.name ?? null,
+        p_job_id: row.jobId ?? null,
+        p_status: row.status ?? null,
+        p_message: row.message ?? null,
+      });
+    },
+
+    /** Delete rows by id, or all of a platform's when ids is null. Returns their job ids. */
+    async deleteDownloads(userId, platform, ids = null) {
+      if (!isUuid(userId)) return [];
+      const list = ids && ids.filter(isUuid);
+      if (list && !list.length) return [];
+      const out = await rpc('delete_downloads', { p_user_id: userId, p_platform: platform, p_ids: list });
+      return (out || []).filter(Boolean);
+    },
+
+    async pruneDownloads(days = 30) {
+      await rpc('prune_downloads', { p_days: days });
+    },
   };
 }
 

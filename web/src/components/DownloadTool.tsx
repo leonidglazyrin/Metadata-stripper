@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { useJobs, type Runner } from '../lib/jobs';
 import { apiUrl, formatSize, getBlob, RequestError, requestJson } from '../lib/request';
-import { gateError, refreshAccount } from '../lib/account';
+import { gateError, refreshAccount, useAccountState } from '../lib/account';
 import { load, save, useStored } from '../lib/storage';
 import type { Platform, ToolInfo } from '../tools';
 import { IconClose, ToolIcon } from './Icons';
@@ -40,6 +40,17 @@ interface JobStatus {
   size?: number | null;
   /** When the server deletes the job (ms since epoch) */
   expiresAt?: number | null;
+}
+
+/** A row from the account's history on the server (GET /api/download/history/:platform). */
+interface HistoryRow {
+  id: string;
+  url: string;
+  mode: Mode;
+  name: string | null;
+  serverId: string | null;
+  status: 'pending' | 'ready' | 'error' | 'expired';
+  message: string | null;
 }
 
 /** One row as remembered in localStorage, so a reload brings it back. */
@@ -139,7 +150,14 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
   const serverIds = useRef(new Map<string, string>());
   /** Rows whose download link points at the server, and when it expires. */
   const expiry = useRef(new Map<string, number>());
-  const storeKey = `downloads:${platform}`;
+
+  // Rows belong to the signed-in account: the server keeps them, so they
+  // show on every device and after a reload. localStorage is a per-account
+  // cache (and the only store when there are no accounts).
+  const { account } = useAccountState();
+  const who = account ? (account.signedIn ? account.user?.email || 'account' : '') : null;
+  const synced = Boolean(account?.paywall && account.signedIn);
+  const storeKey = who ? `downloads:${platform}:${who}` : `downloads:${platform}`;
 
   const runner: Runner<Input> = async (job, update, signal) => {
     let id = serverIds.current.get(job.id);
@@ -147,7 +165,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     if (!id) {
       update({ message: 'Starting on the server…', progress: null });
       try {
-        id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, job.input, signal)).id;
+        id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, { ...job.input, rowId: job.id }, signal)).id;
       } catch (e) {
         throw gateError(e, 'download');
       }
@@ -268,27 +286,65 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs, restored]);
 
+  // Load the rows whenever who is signed in changes (and once the account is
+  // known). Signed in: the account's rows from the server, plus any local
+  // rows that never reached it. Otherwise: this browser's rows.
   useEffect(() => {
-    const saved = load<SavedRow[]>(storeKey, []);
-    if (Array.isArray(saved) && saved.length) {
-      for (const r of saved) if (r.serverId) serverIds.current.set(r.id, r.serverId);
-      // add() puts the first item at the bottom; saved rows are newest first.
-      add(
-        [...saved].reverse().map((r) => ({
-          id: r.id,
-          input: { url: r.url, mode: r.mode, ...(r.from ? { from: r.from } : {}) },
-          name: r.name,
-          // Server job: poll it now. Failed row: just show it. Never started: queue it.
-          immediate: Boolean(r.serverId),
-          ...(r.status === 'error' && !r.serverId ? { status: 'error' as const, message: r.message || 'Download failed' } : {}),
-        })),
-      );
-    }
-    setRestored(true);
-    // React's dev double-mount: start over cleanly on the second run.
-    return () => clear();
+    if (who === null) return;
+    let cancelled = false;
+    setRestored(false);
+    clear();
+    serverIds.current.clear();
+    expiry.current.clear();
+    (async () => {
+      const local = load<SavedRow[]>(storeKey, []);
+      let saved: SavedRow[] = Array.isArray(local) ? local : [];
+      if (synced) {
+        try {
+          const h = await requestJson<{ enabled: boolean; rows: HistoryRow[] }>('GET', `/api/download/history/${platform}`);
+          if (h.enabled) {
+            const onServer = new Set(h.rows.map((r) => r.id));
+            const fromServer: SavedRow[] = h.rows.map((r) => ({
+              id: r.id,
+              url: r.url,
+              mode: r.mode,
+              name: r.name || shortUrl(r.url),
+              ...(r.serverId ? { serverId: r.serverId } : {}),
+              ...(r.status === 'error' && !r.serverId ? { status: 'error' as const, message: r.message || 'Download failed' } : {}),
+              ...(r.status === 'expired' ? { status: 'error' as const, message: EXPIRED } : {}),
+            }));
+            // Local rows the server has never seen (still queued here).
+            const queued = saved.filter((r) => !r.serverId && !r.status && !onServer.has(r.id));
+            saved = [...queued, ...fromServer];
+          }
+        } catch {
+          /* offline or the account store is down: show the local copy */
+        }
+      }
+      if (cancelled) return;
+      if (saved.length) {
+        for (const r of saved) if (r.serverId) serverIds.current.set(r.id, r.serverId);
+        // add() puts the first item at the bottom; saved rows are newest first.
+        add(
+          [...saved].reverse().map((r) => ({
+            id: r.id,
+            input: { url: r.url, mode: r.mode, ...(r.from ? { from: r.from } : {}) },
+            name: r.name,
+            // Server job: poll it now. Failed row: just show it. Never started: queue it.
+            immediate: Boolean(r.serverId),
+            ...(r.status === 'error' && !r.serverId ? { status: 'error' as const, message: r.message || 'Download failed' } : {}),
+          })),
+        );
+      }
+      setRestored(true);
+    })();
+    // React's dev double-mount, or another account: start over cleanly.
+    return () => {
+      cancelled = true;
+      clear();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [who, platform]);
 
   // Server links stop working when the server purges the file.
   useEffect(() => {
@@ -313,10 +369,12 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
   };
   const onRemove = (id: string) => {
     dropOnServer(id);
+    if (synced) void requestJson('DELETE', `/api/download/history/${platform}/${id}`).catch(() => {});
     remove(id);
   };
   const onClear = () => {
     for (const j of jobsRef.current) dropOnServer(j.id);
+    if (synced) void requestJson('DELETE', `/api/download/history/${platform}`).catch(() => {});
     clear();
   };
   const onRetry = (id: string) => {
@@ -404,6 +462,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
             </button>
           ))}
         </div>
+        <small className="options-note">Public videos only. Private videos aren’t available.</small>
       </div>
 
       <JobList

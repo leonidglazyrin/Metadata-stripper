@@ -13,6 +13,7 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
   const subs = new Map();
   const counters = new Map(); // `${user}:${kind}` -> used
   const events = [];
+  const history = new Map(); // row id -> download row
   const settings = { free_strips: 1, free_server_strips: 1, free_downloads: 1 };
   const calls = [];
   let down = false;
@@ -93,6 +94,35 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
       return null;
     },
     get_settings: () => ({ ...settings }),
+    list_downloads: ({ p_user_id, p_platform, p_limit }) => [...history.values()]
+      .filter((d) => d.user_id === p_user_id && d.platform === p_platform)
+      .sort((a, b) => b.seq - a.seq)
+      .slice(0, p_limit ?? 50)
+      .map(({ seq, ...d }) => d),
+    save_download({ p_user_id, p_id, p_platform, p_url, p_mode, p_name, p_job_id, p_status, p_message }) {
+      const d = history.get(p_id);
+      if (!d) {
+        history.set(p_id, {
+          id: p_id, user_id: p_user_id, platform: p_platform, url: p_url, mode: p_mode, name: p_name ?? null,
+          job_id: p_job_id ?? null, status: p_status ?? 'pending', message: p_message ?? null, seq: ++tick,
+        });
+      } else if (d.user_id === p_user_id) {
+        if (p_name != null) d.name = p_name;
+        if (p_job_id != null) d.job_id = p_job_id;
+        if (p_status != null) { d.status = p_status; d.message = p_message ?? null; }
+      }
+      return null;
+    },
+    delete_downloads({ p_user_id, p_platform, p_ids }) {
+      const gone = [];
+      for (const [id, d] of history) {
+        if (d.user_id !== p_user_id || d.platform !== p_platform || (p_ids && !p_ids.includes(id))) continue;
+        history.delete(id);
+        gone.push(d.job_id);
+      }
+      return gone;
+    },
+    prune_downloads: () => null,
   };
 
   async function fetchImpl(reqUrl, init = {}) {
@@ -113,7 +143,7 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
   }
 
   return {
-    url, key, fetch: fetchImpl, calls, events, settings, profiles, subs,
+    url, key, fetch: fetchImpl, calls, events, settings, profiles, subs, history,
     setDown(v) { down = v; },
   };
 }

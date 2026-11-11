@@ -62,7 +62,7 @@ Each result shows what was detected and removed.
 |-----------|----------------|-------|
 | YouTube   | `youtube.com` (watch, Shorts), `youtu.be` | MP4 (H.264 + AAC) up to 1080p |
 | X         | `x.com`, `twitter.com` | The video attached to a post |
-| Instagram | `instagram.com` (Reels, video posts) | Often needs a logged-in session, see `YTDLP_COOKIES` |
+| Instagram | `instagram.com` (Reels, video posts) | Public posts only, private videos aren't available |
 | TikTok    | `tiktok.com`, `vm.`/`vt.` short links | |
 
 Each tool can save **video** or **audio only** (M4A). Links are checked against each platform's domains, so the API can't be used to fetch arbitrary URLs. `POST /api/tiktok` still works for older clients.
@@ -110,7 +110,6 @@ docker run -p 3000:3000 --env-file .env sharona
 | `DOWNLOAD_STALL_MIN` | `5` | A download with no yt-dlp output for this long is killed as hung |
 | `DOWNLOAD_MAX_MIN` | `30` | Hard cap on one download's run time |
 | `YTDLP_PATH` | | Path to yt-dlp if not on `PATH` |
-| `YTDLP_COOKIES` | | Netscape cookies file for Instagram / age-gated content |
 | `YTDLP_IPV6` | | Set to `1` to let yt-dlp use IPv6. By default it's forced to IPv4, because on networks with broken IPv6 yt-dlp hangs for minutes with no output |
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
 | `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately (must be the same site, e.g. `api.example.com` for `example.com`, so the session cookie is sent) |
