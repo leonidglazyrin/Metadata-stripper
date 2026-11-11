@@ -266,6 +266,13 @@ function Downloader({ tool, title, text }: { tool: 'youtube' | 'x' | 'tiktok' | 
   );
 }
 
+const PhotoGlyph = () => (
+  <g>
+    <circle cx="25" cy="25" r="5" fill="#ffd34d" />
+    <path d="M14 46 27 32l8 8 6-6 9 12z" fill="#fff" />
+  </g>
+);
+
 // Stripe's "S" mark in its brand colour, with the name beside it.
 const StripeBadge = () => (
   <span className="stripe-badge" aria-label="Payments by Stripe">
@@ -277,13 +284,6 @@ const StripeBadge = () => (
     </svg>
     <span>Stripe</span>
   </span>
-);
-
-const PhotoGlyph = () => (
-  <g>
-    <circle cx="25" cy="25" r="5" fill="#ffd34d" />
-    <path d="M14 46 27 32l8 8 6-6 9 12z" fill="#fff" />
-  </g>
 );
 
 function jsonLd(siteUrl: string) {
