@@ -4,6 +4,8 @@ import { load, save } from './lib/storage';
 import { HeroArt, ToolIcon } from './components/Icons';
 import StripTool from './components/StripTool';
 import DownloadTool from './components/DownloadTool';
+import { AccountBar, AccountNotice, PaywallDialog } from './components/Account';
+import { initAccount } from './lib/account';
 
 function initialTool(): ToolId {
   const fromHash = toolById(location.hash.slice(1));
@@ -13,6 +15,10 @@ function initialTool(): ToolId {
 
 export default function App() {
   const [active, setActive] = useState<ToolId>(initialTool);
+
+  useEffect(() => {
+    void initAccount();
+  }, []);
 
   useEffect(() => {
     save('tool', active);
@@ -41,7 +47,9 @@ export default function App() {
       <section className="card hero">
         <header className="card-head">
           <Wordmark />
+          <AccountBar />
         </header>
+        <AccountNotice />
 
         <div className="hero-body">
           <div className="hero-copy">
@@ -97,6 +105,8 @@ export default function App() {
           {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} />}
         </section>
       ))}
+
+      <PaywallDialog />
 
       <footer className="foot">
         <p>

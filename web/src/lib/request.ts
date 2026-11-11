@@ -32,6 +32,8 @@ export async function requestJson<T>(method: string, path: string, body?: object
       method,
       signal,
       cache: 'no-store',
+      // The session cookie, also when the API is on another (same-site) host.
+      credentials: 'include',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -79,6 +81,7 @@ function requestForBlob(
     const xhr = new XMLHttpRequest();
     xhr.open(method, API + path);
     xhr.responseType = 'blob';
+    xhr.withCredentials = true;
     signal.addEventListener('abort', () => xhr.abort());
     xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
     xhr.onerror = () => reject(new RequestError('Network error, is the server running?'));
@@ -92,7 +95,10 @@ function requestForBlob(
       if (e.lengthComputable && xhr.status === 200) progress.onDownload?.(e.loaded / e.total);
     };
     xhr.onload = async () => {
-      if (xhr.status !== 200) return reject(new RequestError(await errorMessage(xhr), xhr.status));
+      if (xhr.status !== 200) {
+        const { message, data } = await errorMessage(xhr);
+        return reject(new RequestError(message, xhr.status, data));
+      }
       const disp = xhr.getResponseHeader('Content-Disposition') || '';
       resolve({
         blob: xhr.response as Blob,
@@ -111,20 +117,23 @@ function requestForBlob(
   });
 }
 
-async function errorMessage(xhr: XMLHttpRequest) {
+async function errorMessage(xhr: XMLHttpRequest): Promise<{ message: string; data: unknown }> {
   let text = '';
   try {
     text = await (xhr.response as Blob).text();
-    const msg = JSON.parse(text).error;
-    if (msg) return String(msg);
+    const data = JSON.parse(text);
+    if (data?.error) return { message: String(data.error), data };
   } catch {
     /* not JSON */
   }
-  if (xhr.status === 404) return 'Server is missing this feature, restart it with the latest code';
-  if (xhr.status === 413) return 'File too large';
-  if (xhr.status === 502 || xhr.status === 504) return `Server timed out or unreachable (HTTP ${xhr.status})`;
-  const pre = (text.match(/<pre>([\s\S]*?)<\/pre>/i) || [])[1];
-  return `Server error (HTTP ${xhr.status})${pre ? ': ' + pre.trim() : ''}`;
+  const message = (() => {
+    if (xhr.status === 404) return 'Server is missing this feature, restart it with the latest code';
+    if (xhr.status === 413) return 'File too large';
+    if (xhr.status === 502 || xhr.status === 504) return `Server timed out or unreachable (HTTP ${xhr.status})`;
+    const pre = (text.match(/<pre>([\s\S]*?)<\/pre>/i) || [])[1];
+    return `Server error (HTTP ${xhr.status})${pre ? ': ' + pre.trim() : ''}`;
+  })();
+  return { message, data: null };
 }
 
 export const formatSize = (n: number) =>

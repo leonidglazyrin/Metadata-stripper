@@ -2,7 +2,8 @@ import { useRef, useState, type DragEvent } from 'react';
 import { useJobs, type Runner, type Update } from '../lib/jobs';
 
 type Where = 'server' | 'device';
-import { postForBlob, formatSize } from '../lib/request';
+import { postForBlob, formatSize, requestJson } from '../lib/request';
+import { gateError, refreshAccount } from '../lib/account';
 import { useStored } from '../lib/storage';
 import { IconFile, IconPlus } from './Icons';
 import JobList from './JobList';
@@ -56,6 +57,9 @@ export default function StripTool() {
   };
 
   const stripOnDevice = async (file: File, update: Update) => {
+    // Nothing is uploaded, but the strip still counts against the account.
+    update({ message: 'Checking your plan…', progress: null });
+    await requestJson('POST', '/api/usage/strip');
     const { stripInBrowser } = await import('../lib/strip');
     const r = await stripInBrowser(file, { synthid: synthRef.current }, (message, progress = null) =>
       update({ message, progress }),
@@ -65,8 +69,14 @@ export default function StripTool() {
   };
 
   const runner: Runner<File> = async (job, update, signal) => {
-    const { blob, filename, message } =
-      whereRef.current === 'device' ? await stripOnDevice(job.input, update) : await stripOnServer(job.input, update, signal);
+    let out;
+    try {
+      out = whereRef.current === 'device' ? await stripOnDevice(job.input, update) : await stripOnServer(job.input, update, signal);
+    } catch (e) {
+      throw gateError(e, 'strip');
+    }
+    const { blob, filename, message } = out;
+    void refreshAccount();
     if (signal.aborted) return;
     update({ status: 'done', progress: 1, message, result: { url: URL.createObjectURL(blob), filename } });
     // Show the cleaned file itself: HEIC comes back as a browser-viewable JPEG.
