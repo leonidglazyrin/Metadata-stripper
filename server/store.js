@@ -58,6 +58,7 @@ const UNLIMITED_SQL = `EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ?
  */
 function createStore({ query, uuid = () => crypto.randomUUID() }) {
   const first = async (sql, params) => (await query(sql, params)).rows[0] || null;
+  const isUuid = (id) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
   const getUser = async (id) => (typeof id === 'string' && id ? first('SELECT * FROM accounts WHERE id = ?1', [id]) : null);
 
   let settings = null;
@@ -136,6 +137,57 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
         // Keep serving the last values if D1 hiccups.
       }
       return settings;
+    },
+
+    // --- download rows (migrations/0002_download_history.sql)
+
+    /** The account's newest rows for one platform. */
+    async listDownloads(userId, platform, limit = 50) {
+      const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
+      const { rows } = await query(
+        `SELECT id, user_id, platform, url, mode, name, job_id, status, message, created_at, updated_at
+         FROM download_history WHERE user_id = ?1 AND platform = ?2
+         ORDER BY created_at DESC, rowid DESC LIMIT ?3`,
+        [userId, platform, n],
+      );
+      return rows;
+    },
+
+    /**
+     * Insert or update a row; fields left out keep their value. A row id that
+     * belongs to another account is left alone.
+     */
+    async saveDownload(userId, row) {
+      if (!isUuid(userId) || !isUuid(row.id)) return;
+      await query(
+        `INSERT INTO download_history (id, user_id, platform, url, mode, name, job_id, status, message)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, 'pending'), ?9)
+         ON CONFLICT (id) DO UPDATE SET
+           name = COALESCE(excluded.name, download_history.name),
+           job_id = COALESCE(?7, download_history.job_id),
+           status = COALESCE(?8, download_history.status),
+           message = CASE WHEN ?8 IS NULL THEN download_history.message ELSE ?9 END,
+           updated_at = unixepoch()
+         WHERE download_history.user_id = ?2`,
+        [row.id, userId, row.platform, row.url, row.mode, row.name ?? null, row.jobId ?? null, row.status ?? null, row.message ?? null],
+      );
+    },
+
+    /** Delete rows by id, or all of a platform's when ids is null. Returns their job ids. */
+    async deleteDownloads(userId, platform, ids = null) {
+      const list = ids && ids.filter(isUuid);
+      if (list && !list.length) return [];
+      const { rows } = await query(
+        `DELETE FROM download_history WHERE user_id = ?1 AND platform = ?2
+           AND (?3 IS NULL OR id IN (SELECT value FROM json_each(?3)))
+         RETURNING job_id`,
+        [userId, platform, list ? JSON.stringify(list) : null],
+      );
+      return rows.map((r) => r.job_id).filter(Boolean);
+    },
+
+    async pruneDownloads(days = 30) {
+      await query('DELETE FROM download_history WHERE created_at < unixepoch() - ?1 * 86400', [Math.max(1, Number(days) || 30)]);
     },
   };
 }

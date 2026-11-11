@@ -89,7 +89,7 @@ export const en = {
     } as Downloader,
     instagram: {
       title: ['Instagram', 'Downloader'],
-      text: 'Paste a Reel or video post link. Public posts work; private ones need a logged-in session.',
+      text: 'Paste a public Reel or video post link. Private videos aren’t available.',
       cta: 'Open the Instagram Downloader',
     } as Downloader,
   },
@@ -193,7 +193,7 @@ export const en = {
       },
       {
         q: 'Why does an Instagram or X link fail?',
-        a: 'Private posts and some public ones need a logged-in session. If a post is private, or the platform asks for a login, the download fails with a message saying so.',
+        a: 'Only public videos can be downloaded. Private videos aren’t available in the download tool, and if a platform asks for a login the download fails with a message saying so.',
       },
       {
         q: 'Can I download audio only?',

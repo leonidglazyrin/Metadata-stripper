@@ -46,9 +46,10 @@ You need Node 22+ and a Cloudflare account. `wrangler` is Cloudflare's CLI; `npx
 
    ```bash
    npx wrangler d1 execute sharona --remote --file migrations/0001_accounts.sql
+   npx wrangler d1 execute sharona --remote --file migrations/0002_download_history.sql
    ```
 
-   Running it again is harmless. When later features add `migrations/0002_….sql` and so on, run each new file the same way, in order of its name.
+   Running them again is harmless. When later features add `migrations/0003_….sql` and so on, run each new file the same way, in order of its name.
 4. Your **account ID** is on the right of the Cloudflare dashboard's *Workers & Pages* overview (or run `npx wrangler whoami`). Put it in `CLOUDFLARE_ACCOUNT_ID`.
 5. Create an API token: **My Profile → API Tokens → Create Token → Custom token**, permission **Account · D1 · Edit**, limited to your account. Put it in `CLOUDFLARE_API_TOKEN`. It can read and change the whole database: keep it on the server only, never in the web app or in git.
 6. Check: `npx wrangler d1 execute sharona --remote --command "SELECT key, value FROM app_settings"` should list the three free allowances.
@@ -61,6 +62,7 @@ What the tables hold:
 | `subscriptions` | Each Stripe subscription (status, `tier` = `basic`/`pro`, price, period end, cancel at period end), written by the Stripe webhook |
 | `usage_counters` | Uses per account and `kind`: `strip` (on-device), `server_strip`, `download` |
 | `usage_events` | Every use (+1) and refund (−1), with the plan at the time and a timestamp, for support and stats (written by triggers) |
+| `download_history` | Each signed-in account's download rows (link, name, state), so they show on any device. The file itself is still deleted after `DOWNLOAD_TTL_MIN`; rows older than 30 days are pruned hourly |
 | `app_settings` | `free_strips` (on-device), `free_server_strips` and `free_downloads` (all `1`) |
 | `accounts` (view) | Profile + current subscription (with `subscription_tier`) + usage on one row; handy for looking someone up |
 
