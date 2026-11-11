@@ -17,7 +17,14 @@ const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 2048);
 
 const app = express();
 app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
-const accounts = createAccounts();
+let accounts;
+try {
+  accounts = createAccounts();
+} catch (e) {
+  // Missing Supabase settings: fail fast with a readable message.
+  log.fail('account', e.message);
+  process.exit(1);
+}
 const workDir = path.join(os.tmpdir(), 'metadata-stripper');
 
 const upload = multer({

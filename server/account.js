@@ -12,14 +12,18 @@
 //   POST /api/billing/portal         → { url } of the Stripe Customer Portal
 //   POST /api/billing/webhook        Stripe events: turn the license on / off
 //
-// Without GOOGLE_* / STRIPE_* set and NODE_ENV not "production", the app runs
-// in dev mode: "Sign in" logs into a local test account and "Upgrade" turns
-// Pro on at once, so the whole flow can be tried locally.
+// Accounts, subscriptions and usage live in Supabase (see server/store.js and
+// supabase/migrations/). Sessions are signed cookies, so the server keeps
+// nothing on disk and can run in throwaway containers.
+//
+// Without GOOGLE_* / STRIPE_* set and NODE_ENV not "production", sign-in and
+// billing run in dev mode: "Sign in" logs into a test account and "Upgrade"
+// turns Pro on at once, so the whole flow can be tried locally. Supabase is
+// still required whenever the paywall is on.
 
 const express = require('express');
 const crypto = require('crypto');
-const path = require('path');
-const { openStore, isPro } = require('./store');
+const { createSupabaseStore, isPro } = require('./store');
 const log = require('./log');
 
 const COOKIE = 'sh_sess';
@@ -37,13 +41,24 @@ function loadConfig(env = process.env) {
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
     stripePrice: env.STRIPE_PRICE_ID || '',
     sessionSecret: env.SESSION_SECRET || '',
-    dbFile: env.DATABASE_FILE || path.join(env.DATA_DIR || path.join(__dirname, '..', 'data'), 'sharona.db'),
+    supabaseUrl: env.SUPABASE_URL || '',
+    supabaseKey: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SECRET_KEY || '',
     paywall: !/^(0|off|false|no)$/i.test(env.PAYWALL || ''),
-    freeStrips: Number(env.FREE_STRIPS ?? 1),
-    freeDownloads: Number(env.FREE_DOWNLOADS ?? 1),
+    // Free allowances come from the app_settings table in Supabase (default
+    // 1 each). Setting these env vars overrides the table.
+    freeStrips: limitFromEnv(env.FREE_STRIPS),
+    freeDownloads: limitFromEnv(env.FREE_DOWNLOADS),
     priceLabel: env.PRICE_LABEL || '$20',
   };
 }
+
+function limitFromEnv(v) {
+  if (v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+const DEFAULT_FREE = 1;
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -100,7 +115,9 @@ function safeNext(next) {
 // ---------------------------------------------------------------------------
 
 function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}) {
-  store = store || openStore(config.dbFile);
+  if (!store && config.paywall) {
+    store = createSupabaseStore({ url: config.supabaseUrl, key: config.supabaseKey, fetchImpl });
+  }
   const google = Boolean(config.googleId && config.googleSecret);
   const stripe = Boolean(config.stripeKey && config.stripePrice);
   const devAuth = !google && !config.production;
@@ -115,7 +132,8 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   if (config.paywall) {
     log.info(`Accounts: sign-in ${google ? 'Google' : devAuth ? 'DEV (local test account, no Google)' : 'NOT CONFIGURED'}, `
       + `billing ${stripe ? 'Stripe' : devBilling ? 'DEV (upgrade is free and instant)' : 'NOT CONFIGURED'}, `
-      + `free tier ${config.freeStrips} strip + ${config.freeDownloads} download per account`);
+      + `accounts in Supabase (${config.supabaseUrl || 'custom store'}), free tier from `
+      + `${config.freeStrips !== null || config.freeDownloads !== null ? 'FREE_STRIPS / FREE_DOWNLOADS env' : 'the app_settings table'}`);
   } else {
     log.info('Accounts: PAYWALL=off, everything is free and no sign-in is needed');
   }
@@ -150,12 +168,33 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     res.setHeader('Set-Cookie', [...list, `${name}=${encodeURIComponent(value)}; ${cookieOpts(req, maxAgeSec)}`]);
   };
 
-  function currentUser(req) {
+  async function currentUser(req) {
     if (req._user !== undefined) return req._user;
     const id = readSession(parseCookies(req.headers.cookie)[COOKIE]);
-    req._user = id ? store.getUser(id) : null;
+    req._user = id && store ? await store.getUser(id) : null;
     return req._user;
   }
+
+  /** Free allowances: env override, else the app_settings table, else 1. */
+  async function limits() {
+    const s = config.freeStrips !== null && config.freeDownloads !== null ? {} : await store.settings();
+    const pick = (env, v) => {
+      if (env !== null) return env;
+      const n = Number(v);
+      return Number.isInteger(n) && n >= 0 ? n : DEFAULT_FREE;
+    };
+    return { strip: pick(config.freeStrips, s.free_strips), download: pick(config.freeDownloads, s.free_downloads) };
+  }
+
+  /** Wrap an async route so a Supabase outage answers 503 instead of hanging. */
+  const safe = (fn) => async (req, res, next) => {
+    try {
+      await fn(req, res, next);
+    } catch (e) {
+      log.fail('account', `${req.method} ${req.originalUrl}: ${e.message}`);
+      if (!res.headersSent) res.status(503).json({ error: 'Accounts are unavailable right now, please try again', code: 'unavailable' });
+    }
+  };
 
   function signIn(req, res, user) {
     setCookie(res, req, COOKIE, sessionToken(user.id), SESSION_DAYS * 86400);
@@ -174,16 +213,17 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
 
   // --- what the page shows --------------------------------------------------
 
-  function account(user) {
+  async function account(user) {
     const pro = isPro(user);
+    const lim = user && !pro ? await limits() : null;
     return {
       paywall: config.paywall,
       signedIn: Boolean(user),
       user: user ? { email: user.email, name: user.name, picture: user.picture } : null,
       plan: pro ? 'pro' : 'free',
       usage: user ? {
-        strip: { used: user.strips_used, limit: pro ? null : config.freeStrips },
-        download: { used: user.downloads_used, limit: pro ? null : config.freeDownloads },
+        strip: { used: user.strips_used, limit: pro ? null : lim.strip },
+        download: { used: user.downloads_used, limit: pro ? null : lim.download },
       } : null,
       subscription: user && user.subscription_status ? {
         status: user.subscription_status,
@@ -200,7 +240,6 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   // --- quota ----------------------------------------------------------------
 
   const NOOP = { refund() {}, refundUnlessSent() {} };
-  const limitOf = (kind) => (kind === 'strip' ? config.freeStrips : config.freeDownloads);
   const word = { strip: 'strip', download: 'download' };
 
   /**
@@ -208,16 +247,18 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
    * 401 (not signed in) / 402 (free use spent). Sets req.quota with
    * refund() for when the work fails and nothing reaches the user.
    */
-  const gate = (kind) => (req, res, next) => {
+  const gate = (kind) => safe(async (req, res, next) => {
     if (!config.paywall) { req.quota = NOOP; return next(); }
-    const user = currentUser(req);
+    const user = await currentUser(req);
     if (!user) {
       return res.status(401).json({ error: `Sign in with Google to ${word[kind]} for free`, code: 'auth_required' });
     }
-    if (!store.consume(user.id, kind, limitOf(kind))) {
-      const n = limitOf(kind);
+    const n = (await limits())[kind];
+    if (!(await store.consume(user.id, kind, n))) {
       return res.status(402).json({
-        error: `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to Pro for unlimited.`,
+        error: n === 0
+          ? `Upgrade to Pro to ${word[kind]}.`
+          : `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to Pro for unlimited.`,
         code: 'upgrade_required',
       });
     }
@@ -225,7 +266,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     const refund = () => {
       if (refunded) return;
       refunded = true;
-      store.refund(user.id, kind);
+      store.refund(user.id, kind).catch((e) => log.fail('account', `refund ${kind} for user ${user.id}: ${e.message}`));
     };
     req.quota = {
       refund,
@@ -236,7 +277,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       },
     };
     next();
-  };
+  });
 
   // --- Stripe ---------------------------------------------------------------
 
@@ -259,20 +300,22 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   }
 
   /** Copy a Stripe subscription object onto the user it belongs to. */
-  function applySubscription(sub, userId) {
+  async function applySubscription(sub, userId) {
     const customer = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
-    let user = userId ? store.getUser(userId) : null;
-    if (!user && customer) user = store.userByCustomer(customer);
-    if (!user && sub.metadata?.user_id) user = store.getUser(Number(sub.metadata.user_id));
+    let user = userId ? await store.getUser(userId) : null;
+    if (!user && customer) user = await store.userByCustomer(customer);
+    if (!user && sub.metadata?.user_id) user = await store.getUser(String(sub.metadata.user_id));
     if (!user) return null;
-    if (customer && user.stripe_customer_id !== customer) store.setCustomer(user.id, customer);
+    if (customer && user.stripe_customer_id !== customer) await store.setCustomer(user.id, customer);
     // Newer API versions keep the period on the subscription item.
-    const periodEnd = sub.current_period_end ?? sub.items?.data?.[0]?.current_period_end ?? null;
-    store.setSubscription(user.id, {
+    const item = sub.items?.data?.[0];
+    const periodEnd = sub.current_period_end ?? item?.current_period_end ?? null;
+    await store.setSubscription(user.id, {
       id: sub.id,
       status: sub.status,
       periodEnd,
       cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end || sub.cancel_at),
+      priceId: item?.price?.id ?? null,
     });
     return store.getUser(user.id);
   }
@@ -282,11 +325,11 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     switch (event.type) {
       case 'checkout.session.completed': {
         if (obj.mode !== 'subscription') return;
-        const userId = Number(obj.client_reference_id) || null;
-        if (userId && obj.customer) store.setCustomer(userId, obj.customer);
+        const userId = obj.client_reference_id || null;
+        if (userId && obj.customer && await store.getUser(userId)) await store.setCustomer(userId, obj.customer);
         if (obj.subscription) {
           const sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(obj.subscription)}`);
-          const u = applySubscription(sub, userId);
+          const u = await applySubscription(sub, userId);
           if (u) log.ok('billing', `user ${u.id} (${u.email}) subscribed: ${sub.status}`);
         }
         return;
@@ -301,7 +344,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         try { sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(obj.id)}`); } catch (e) {
           if (e.status !== 404) throw e;
         }
-        const u = applySubscription(sub);
+        const u = await applySubscription(sub);
         if (u) log.note('billing', `user ${u.id} (${u.email}) subscription ${sub.status}${u.cancel_at_period_end ? ' (cancels at period end)' : ''}`);
         else log.note('billing', `${event.type} for unknown customer ${sub.customer}`);
         return;
@@ -315,10 +358,10 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   const router = express.Router();
   const json = express.json({ limit: '4kb' });
 
-  router.get('/me', (req, res) => {
+  router.get('/me', safe(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json(account(currentUser(req)));
-  });
+    res.json(await account(await currentUser(req)));
+  }));
 
   router.get('/auth/google', (req, res) => {
     const next = safeNext(req.query.next);
@@ -374,7 +417,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       const info = await infoRes.json();
       if (!infoRes.ok || !info.sub) return fail(`userinfo HTTP ${infoRes.status}`);
       if (info.email && info.email_verified === false) return fail('email not verified');
-      const user = store.upsertGoogleUser(info);
+      const user = await store.upsertGoogleUser(info);
       signIn(req, res, user);
       log.ok('account', `user ${user.id} (${user.email}) signed in`);
       res.redirect(302, next);
@@ -385,37 +428,37 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
 
   // Dev mode only: a local account per ?email=, so the paywall can be tried
   // without Google credentials.
-  router.get('/auth/dev', (req, res) => {
-    if (!devAuth) return res.sendStatus(404);
+  router.get('/auth/dev', safe(async (req, res) => {
+    if (!devAuth || !store) return res.sendStatus(404);
     const email = /^[^\s@]+@[^\s@]+$/.test(req.query.email || '') ? req.query.email : 'dev@localhost';
-    const user = store.upsertGoogleUser({ sub: `dev:${email}`, email, name: 'Dev user' });
+    const user = await store.upsertGoogleUser({ sub: `dev:${email}`, email, name: 'Dev user' });
     signIn(req, res, user);
     log.note('account', `dev sign-in as user ${user.id} (${email})`);
     res.redirect(302, safeNext(req.query.next));
-  });
+  }));
 
-  router.post('/auth/logout', (req, res) => {
+  router.post('/auth/logout', safe(async (req, res) => {
     setCookie(res, req, COOKIE, '', 0);
-    res.json(account(null));
-  });
+    res.json(await account(null));
+  }));
 
   // On-device stripping never reaches the server, so the page asks for one
   // use first. (A determined user could skip this in the browser; the
   // server-side tools are the ones that can't be bypassed.)
-  router.post('/usage/strip', gate('strip'), (req, res) => {
+  router.post('/usage/strip', gate('strip'), safe(async (req, res) => {
     req._user = undefined;
-    res.json(account(currentUser(req)));
-  });
+    res.json(await account(await currentUser(req)));
+  }));
 
-  router.post('/billing/checkout', json, async (req, res) => {
-    const user = currentUser(req);
+  router.post('/billing/checkout', json, safe(async (req, res) => {
+    const user = await currentUser(req);
     if (!user) return res.status(401).json({ error: 'Sign in first', code: 'auth_required' });
     const back = safeNext(req.body?.next);
     const site = baseUrl(req);
     if (isPro(user)) return res.json({ url: `${site}${back}` });
     if (!stripe) {
       if (!devBilling) return res.status(503).json({ error: 'Payments are not set up on this server yet' });
-      store.setSubscription(user.id, { id: 'dev_sub', status: 'active', periodEnd: Math.floor(Date.now() / 1000) + 30 * 86400 });
+      await store.setSubscription(user.id, { id: `dev_sub_${user.id}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + 30 * 86400 });
       log.note('billing', `dev upgrade: user ${user.id} is Pro`);
       return res.json({ url: `${site}${withQuery(back, 'upgraded=1')}` });
     }
@@ -435,16 +478,16 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       log.fail('billing', `checkout for user ${user.id}: ${e.message}`);
       res.status(502).json({ error: 'Could not reach Stripe, please try again' });
     }
-  });
+  }));
 
-  router.post('/billing/portal', json, async (req, res) => {
-    const user = currentUser(req);
+  router.post('/billing/portal', json, safe(async (req, res) => {
+    const user = await currentUser(req);
     if (!user) return res.status(401).json({ error: 'Sign in first', code: 'auth_required' });
     const back = `${baseUrl(req)}${safeNext(req.body?.next)}`;
     if (!stripe) {
       if (!devBilling) return res.status(503).json({ error: 'Payments are not set up on this server yet' });
       // Dev: "managing" the plan simply cancels it, to test the free state again.
-      store.setSubscription(user.id, { id: null, status: 'canceled', periodEnd: null });
+      await store.setSubscription(user.id, { id: `dev_sub_${user.id}`, status: 'canceled', periodEnd: null });
       log.note('billing', `dev cancel: user ${user.id} is back on free`);
       return res.json({ url: back });
     }
@@ -456,9 +499,10 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       log.fail('billing', `portal for user ${user.id}: ${e.message}`);
       res.status(502).json({ error: 'Could not reach Stripe, please try again' });
     }
-  });
+  }));
 
   router.post('/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) => {
+    if (!store) return res.status(503).json({ error: 'Accounts are off (PAYWALL=off)' });
     if (!config.stripeWebhookSecret) return res.status(503).json({ error: 'STRIPE_WEBHOOK_SECRET is not set' });
     const payload = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
     if (!verifyStripeSignature(payload, req.get('stripe-signature'), config.stripeWebhookSecret)) {
@@ -478,7 +522,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     }
   });
 
-  return { router, gate, currentUser, account, store, sessionToken, readSession, handleEvent };
+  return { router, gate, currentUser, account, limits, store, sessionToken, readSession, handleEvent };
 }
 
 function withQuery(p, q) {

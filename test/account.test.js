@@ -1,22 +1,25 @@
 'use strict';
 
 // node --test: accounts, quota, Google sign-in and Stripe billing, with
-// Google and Stripe mocked out.
+// Google, Stripe and Supabase mocked out.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
 const express = require('express');
 const { createAccounts, loadConfig, verifyStripeSignature, safeNext, withQuery } = require('../server/account');
-const { openStore } = require('../server/store');
+const { createSupabaseStore } = require('../server/store');
+const { fakeSupabase } = require('./fake-supabase');
 
 function config(over = {}) {
-  return { ...loadConfig({ NODE_ENV: 'test' }), dbFile: ':memory:', sessionSecret: 'test-secret', siteUrl: 'http://app.test', ...over };
+  return { ...loadConfig({ NODE_ENV: 'test' }), sessionSecret: 'test-secret', siteUrl: 'http://app.test', ...over };
 }
 
+const storeFor = (db) => createSupabaseStore({ url: db.url, key: db.key, fetchImpl: db.fetch });
+
 /** A tiny app: the account routes plus two gated endpoints standing in for strip/download. */
-async function start(opts) {
-  const accounts = createAccounts({ store: openStore(':memory:'), ...opts });
+async function start({ db = fakeSupabase(), ...opts } = {}) {
+  const accounts = createAccounts({ store: storeFor(db), ...opts });
   const app = express();
   app.use('/api', accounts.router);
   app.post('/api/strip', accounts.gate('strip'), (req, res) => {
@@ -50,7 +53,7 @@ async function start(opts) {
     try { data = JSON.parse(text); } catch { /* not JSON */ }
     return { status: res.status, data, location: res.headers.get('location') };
   };
-  return { accounts, call, close: () => server.close() };
+  return { accounts, call, db, close: () => server.close() };
 }
 
 test('helpers', () => {
@@ -123,14 +126,14 @@ test('parallel requests cannot both take the last free use', async (t) => {
 });
 
 test('tampered or expired session cookies are ignored', async () => {
-  const accounts = createAccounts({ config: config(), store: openStore(':memory:') });
-  const tok = accounts.sessionToken(7);
-  assert.equal(accounts.readSession(tok), 7);
+  const accounts = createAccounts({ config: config(), store: storeFor(fakeSupabase()) });
+  const tok = accounts.sessionToken('7');
+  assert.equal(accounts.readSession(tok), '7');
   const [body, mac] = tok.split('.');
   const forged = Buffer.from(JSON.stringify({ u: 1, e: Date.now() + 1e9 })).toString('base64url');
   assert.equal(accounts.readSession(`${forged}.${mac}`), null);
   assert.equal(accounts.readSession(`${body}.x${mac.slice(1)}`), null);
-  assert.equal(accounts.readSession(accounts.sessionToken(7, Date.now() - 31 * 86400000)), null);
+  assert.equal(accounts.readSession(accounts.sessionToken('7', Date.now() - 31 * 86400000)), null);
 });
 
 test('production without Google or Stripe refuses sign-in and checkout instead of faking them', async (t) => {
@@ -271,4 +274,82 @@ test('Stripe: checkout, webhook turns Pro on, cancellation turns it off', async 
   await s.call('POST', '/api/billing/checkout', { body: {} });
   assert.equal(checkoutParams.get('customer'), 'cus_1');
   assert.equal(checkoutParams.get('customer_email'), null);
+});
+
+test('Supabase store: sends the service key, and the free allowance follows the app_settings table', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  const c = s.db.calls.find((x) => x.fn === 'upsert_google_user');
+  assert.equal(c.headers.apikey, 'sb_secret_test');
+  assert.equal(c.headers.Authorization, undefined);
+  assert.deepEqual(c.args, { p_sub: 'dev:dev@localhost', p_email: 'dev@localhost', p_name: 'Dev user', p_picture: null });
+
+  assert.equal((await s.call('POST', '/api/download')).status, 202);
+  assert.equal((await s.call('POST', '/api/download')).status, 402);
+  const consume = s.db.calls.find((x) => x.fn === 'consume_usage');
+  assert.equal(consume.args.p_kind, 'download');
+  assert.equal(consume.args.p_free_limit, 1);
+
+  // Raising the allowance in the table takes effect without a restart (after the 1-minute cache).
+  s.db.settings.free_downloads = 3;
+  const settings = await s.accounts.store.settings(Date.now() + 61_000);
+  assert.equal(settings.free_downloads, 3);
+  const me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.usage.download, { used: 1, limit: 3 });
+  assert.equal((await s.call('POST', '/api/download')).status, 202);
+  assert.deepEqual(s.db.events.map((e) => e.delta), [1, 1]);
+});
+
+test('FREE_STRIPS / FREE_DOWNLOADS env override the table', async (t) => {
+  const s = await start({ config: config(loadConfigOverrides({ FREE_STRIPS: '2', FREE_DOWNLOADS: '0' })) });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  assert.equal((await s.call('POST', '/api/strip')).status, 402);
+  const dl = await s.call('POST', '/api/download');
+  assert.equal(dl.status, 402);
+  assert.match(dl.data.error, /Upgrade to Pro/);
+  assert.ok(!s.db.calls.some((x) => x.fn === 'get_settings'));
+});
+
+function loadConfigOverrides(env) {
+  const c = loadConfig({ NODE_ENV: 'test', ...env });
+  return { freeStrips: c.freeStrips, freeDownloads: c.freeDownloads };
+}
+
+test('a Supabase outage answers 503 instead of letting work through', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  s.db.setDown(true);
+  const r = await s.call('POST', '/api/strip');
+  assert.equal(r.status, 503);
+  assert.equal(r.data.code, 'unavailable');
+  assert.equal((await s.call('GET', '/api/me')).status, 503);
+  s.db.setDown(false);
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+});
+
+test('with the paywall on, Supabase settings are required', () => {
+  assert.throws(() => createAccounts({ config: config() }), /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
+  // PAYWALL=off needs no database at all.
+  assert.doesNotThrow(() => createAccounts({ config: config({ paywall: false }) }));
+  const c = loadConfig({ SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SECRET_KEY: 'sb_secret_1' });
+  assert.equal(c.supabaseKey, 'sb_secret_1');
+  assert.equal(c.freeStrips, null);
+});
+
+test('legacy JWT service_role keys also go in the Authorization header', async () => {
+  let seen;
+  const store = createSupabaseStore({
+    url: 'https://x.supabase.co/', key: 'eyJhbGciOi.x.y',
+    fetchImpl: async (u, init) => { seen = { u, init }; return Response.json([]); },
+  });
+  assert.equal(await store.getUser('not-a-uuid'), null);
+  assert.equal(seen, undefined);
+  assert.equal(await store.getUser('00000000-0000-4000-8000-000000000000'), null);
+  assert.equal(seen.u, 'https://x.supabase.co/rest/v1/rpc/get_account');
+  assert.equal(seen.init.headers.Authorization, 'Bearer eyJhbGciOi.x.y');
 });

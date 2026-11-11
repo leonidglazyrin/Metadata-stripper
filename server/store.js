@@ -1,112 +1,127 @@
 'use strict';
 
-// Accounts, usage counts and subscription status, in one SQLite file.
-// Uses Node's built-in node:sqlite (Node 22.13+), so there is no native
-// module to compile. DATA_DIR (default ./data) must be on a persistent disk
-// in production, or accounts and usage reset on every deploy.
-
-const fs = require('fs');
-const path = require('path');
-
-// node:sqlite prints an ExperimentalWarning on load; it is stable enough for
-// this, so keep the log clean.
-const emit = process.emitWarning;
-process.emitWarning = (w, ...rest) => {
-  if (String(w?.message ?? w).includes('SQLite')) return;
-  emit.call(process, w, ...rest);
-};
-const { DatabaseSync } = require('node:sqlite');
-process.emitWarning = emit;
+// Accounts, Pro subscriptions and usage counts, stored in Supabase (Postgres).
+//
+// The server talks to Supabase's REST API (PostgREST) with the service role
+// key, so there is no extra dependency and nothing is kept on local disk.
+// Every read and write goes through the SQL functions in
+// supabase/migrations/, which keep the free-use check atomic. The tables have
+// row level security on with no policies, so only the service role can reach
+// them; never send this key to the browser.
 
 /** Subscription statuses that count as a paid license. */
 const ACTIVE = new Set(['active', 'trialing', 'past_due']);
 
-function openStore(file) {
-  if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA busy_timeout = 5000;
-    CREATE TABLE IF NOT EXISTS users (
-      id                  INTEGER PRIMARY KEY,
-      google_sub          TEXT UNIQUE NOT NULL,
-      email               TEXT,
-      name                TEXT,
-      picture             TEXT,
-      created_at          INTEGER NOT NULL,
-      last_login_at       INTEGER,
-      strips_used         INTEGER NOT NULL DEFAULT 0,
-      downloads_used      INTEGER NOT NULL DEFAULT 0,
-      stripe_customer_id  TEXT UNIQUE,
-      subscription_id     TEXT,
-      subscription_status TEXT,
-      current_period_end  INTEGER,
-      cancel_at_period_end INTEGER NOT NULL DEFAULT 0
-    );
-  `);
+const SETTINGS_TTL_MS = 60_000;
 
-  const q = {
-    byId: db.prepare('SELECT * FROM users WHERE id = ?'),
-    bySub: db.prepare('SELECT * FROM users WHERE google_sub = ?'),
-    byCustomer: db.prepare('SELECT * FROM users WHERE stripe_customer_id = ?'),
-    insert: db.prepare(`INSERT INTO users (google_sub, email, name, picture, created_at, last_login_at)
-                        VALUES (?, ?, ?, ?, ?, ?)`),
-    touch: db.prepare('UPDATE users SET email = ?, name = ?, picture = ?, last_login_at = ? WHERE id = ?'),
-    setCustomer: db.prepare('UPDATE users SET stripe_customer_id = ? WHERE id = ?'),
-    setSub: db.prepare(`UPDATE users SET subscription_id = ?, subscription_status = ?, current_period_end = ?,
-                        cancel_at_period_end = ? WHERE id = ?`),
+class StoreError extends Error {}
+
+/**
+ * @param {{ url: string, key: string, fetchImpl?: typeof fetch, timeoutMs?: number }} opts
+ */
+function createSupabaseStore({ url, key, fetchImpl = fetch, timeoutMs = 10_000 }) {
+  if (!url || !key) {
+    throw new StoreError('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see docs/accounts-and-billing.md)');
+  }
+  const base = `${url.replace(/\/+$/, '')}/rest/v1`;
+  const headers = {
+    apikey: key,
+    // Legacy service_role keys are JWTs and also go in Authorization; the
+    // newer sb_secret_... keys only go in apikey.
+    ...(key.startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : {}),
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
   };
-  const column = { strip: 'strips_used', download: 'downloads_used' };
-  const take = {
-    strip: db.prepare('UPDATE users SET strips_used = strips_used + 1 WHERE id = ? AND strips_used < ?'),
-    download: db.prepare('UPDATE users SET downloads_used = downloads_used + 1 WHERE id = ? AND downloads_used < ?'),
-  };
-  const give = {
-    strip: db.prepare('UPDATE users SET strips_used = MAX(strips_used - 1, 0) WHERE id = ?'),
-    download: db.prepare('UPDATE users SET downloads_used = MAX(downloads_used - 1, 0) WHERE id = ?'),
-  };
+
+  async function rpc(fn, args = {}) {
+    let res;
+    try {
+      res = await fetchImpl(`${base}/rpc/${fn}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(args),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (e) {
+      throw new StoreError(`Supabase ${fn}: ${e.message}`);
+    }
+    const text = await res.text();
+    let data = null;
+    if (text) {
+      try { data = JSON.parse(text); } catch { data = text; }
+    }
+    if (!res.ok) {
+      const why = data?.message || data?.hint || (typeof data === 'string' ? data : '') || `HTTP ${res.status}`;
+      throw new StoreError(`Supabase ${fn}: ${why}`);
+    }
+    return data;
+  }
+
+  const one = (rows) => (Array.isArray(rows) ? rows[0] || null : rows || null);
+  const isUuid = (id) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+  let settings = null;
+  let settingsAt = 0;
 
   return {
-    db,
-    getUser: (id) => q.byId.get(id) || null,
-    userByCustomer: (cid) => q.byCustomer.get(cid) || null,
-
-    /** Find or create the account for a Google identity, refreshing its profile. */
-    upsertGoogleUser({ sub, email, name, picture }) {
-      const now = Date.now();
-      const found = q.bySub.get(sub);
-      if (found) {
-        q.touch.run(email ?? null, name ?? null, picture ?? null, now, found.id);
-        return q.byId.get(found.id);
-      }
-      const r = q.insert.run(sub, email ?? null, name ?? null, picture ?? null, now, now);
-      return q.byId.get(r.lastInsertRowid);
+    /** The account row (see the `accounts` view), or null. */
+    async getUser(id) {
+      if (!isUuid(id)) return null;
+      return one(await rpc('get_account', { p_user_id: id }));
     },
 
-    setCustomer: (userId, customerId) => q.setCustomer.run(customerId, userId),
+    async userByCustomer(customerId) {
+      return one(await rpc('account_by_customer', { p_customer: customerId }));
+    },
 
-    setSubscription(userId, sub) {
-      q.setSub.run(sub.id ?? null, sub.status ?? null, sub.periodEnd ?? null, sub.cancelAtPeriodEnd ? 1 : 0, userId);
+    /** Find or create the account for a Google identity, refreshing its profile. */
+    async upsertGoogleUser({ sub, email, name, picture }) {
+      return one(await rpc('upsert_google_user', {
+        p_sub: sub, p_email: email ?? null, p_name: name ?? null, p_picture: picture ?? null,
+      }));
+    },
+
+    async setCustomer(userId, customerId) {
+      await rpc('set_customer', { p_user_id: userId, p_customer: customerId });
+    },
+
+    async setSubscription(userId, sub) {
+      await rpc('set_subscription', {
+        p_user_id: userId,
+        p_id: sub.id,
+        p_status: sub.status,
+        p_period_end: sub.periodEnd ?? null,
+        p_cancel_at_period_end: Boolean(sub.cancelAtPeriodEnd),
+        p_price_id: sub.priceId ?? null,
+      });
     },
 
     /**
-     * Count one use of `kind` ('strip' | 'download'). Paid users are always
-     * allowed; free users only while under `freeLimit`. The check and the
-     * increment are one statement, so parallel requests can't both get the
-     * last free use.
+     * Count one use of `kind` ('strip' | 'download'). Pro accounts are always
+     * allowed; free ones only while under `freeLimit`. Atomic in Postgres.
      */
-    consume(userId, kind, freeLimit) {
-      const user = q.byId.get(userId);
-      if (!user) return false;
-      if (isPro(user)) {
-        db.prepare(`UPDATE users SET ${column[kind]} = ${column[kind]} + 1 WHERE id = ?`).run(userId);
-        return true;
-      }
-      return take[kind].run(userId, freeLimit).changes === 1;
+    async consume(userId, kind, freeLimit) {
+      if (!isUuid(userId)) return false;
+      return (await rpc('consume_usage', { p_user_id: userId, p_kind: kind, p_free_limit: freeLimit })) === true;
     },
 
     /** Give back a use that didn't produce a file (failed or cancelled). */
-    refund: (userId, kind) => give[kind].run(userId),
+    async refund(userId, kind) {
+      await rpc('refund_usage', { p_user_id: userId, p_kind: kind });
+    },
+
+    /** Rows of the app_settings table as { key: value }, cached for a minute. */
+    async settings(now = Date.now()) {
+      if (settings && now - settingsAt < SETTINGS_TTL_MS) return settings;
+      try {
+        settings = (await rpc('get_settings')) || {};
+        settingsAt = now;
+      } catch (e) {
+        if (!settings) throw e;
+        // Keep serving the last values if Supabase hiccups.
+      }
+      return settings;
+    },
   };
 }
 
@@ -116,4 +131,4 @@ function isPro(user) {
   return !user.current_period_end || user.current_period_end * 1000 + 86400000 > Date.now();
 }
 
-module.exports = { openStore, isPro };
+module.exports = { createSupabaseStore, isPro, StoreError };
