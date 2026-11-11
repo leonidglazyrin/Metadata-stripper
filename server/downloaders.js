@@ -49,15 +49,57 @@ function parseUrl(platform, raw) {
   return u.toString();
 }
 
+// Hard cap on one yt-dlp run, whatever the caller does.
+const MAX_RUN_MS = Number(process.env.DOWNLOAD_MAX_MIN || 30) * 60 * 1000;
+
 // Run yt-dlp, handing each output line (stdout and stderr) to onLine as it
-// arrives so the caller can follow progress.
+// arrives so the caller can follow progress. A failure carries exitCode,
+// exitSignal, timedOut and the tail of stderr so the log can say why.
+// Live yt-dlp processes, so a cancel or a server shutdown can take down the
+// whole process group (yt-dlp starts ffmpeg, which would otherwise linger).
+const children = new Set();
+
+function killTree(child, sig) {
+  try {
+    if (process.platform === 'win32') child.kill(sig);
+    else process.kill(-child.pid, sig);
+  } catch (_) { /* already gone */ }
+}
+
+function killAll() {
+  for (const c of children) killTree(c, 'SIGKILL');
+}
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.once(sig, () => {
+    if (children.size) log.note('download', `server stopping, killed ${children.size} running yt-dlp process${children.size === 1 ? '' : 'es'}`);
+    killAll();
+    process.exit(sig === 'SIGINT' ? 130 : 143);
+  });
+}
+
 function spawnLines(cmd, args, onLine, signal) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { signal, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (signal && signal.aborted) return reject(Object.assign(new Error('Cancelled'), { aborted: true }));
+    // Own process group (detached), so killTree reaches ffmpeg too.
+    const child = spawn(cmd, args, { detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    children.add(child);
     let stdout = '';
     let stderr = '';
-    const timer = setTimeout(() => child.kill('SIGKILL'), 15 * 60 * 1000);
-    const reader = (append) => {
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; killTree(child, 'SIGKILL'); }, MAX_RUN_MS);
+    let hardKill = null;
+    const onAbort = () => {
+      killTree(child, 'SIGTERM');
+      hardKill = setTimeout(() => killTree(child, 'SIGKILL'), 5000);
+    };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    const done = () => {
+      clearTimeout(timer);
+      clearTimeout(hardKill);
+      children.delete(child);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+    const reader = (append, stream) => {
       let buf = '';
       return (chunk) => {
         const text = chunk.toString();
@@ -65,21 +107,37 @@ function spawnLines(cmd, args, onLine, signal) {
         buf += text;
         const lines = buf.split(/\r?\n|\r/);
         buf = lines.pop();
-        for (const l of lines) if (l.trim()) onLine(l.trim());
+        for (const l of lines) if (l.trim()) onLine(l.trim(), stream);
       };
     };
-    child.stdout.on('data', reader((t) => { if (stdout.length < 1e6) stdout += t; }));
-    child.stderr.on('data', reader((t) => { stderr = (stderr + t).slice(-64 * 1024); }));
-    child.on('error', (err) => { clearTimeout(timer); err.stderr = stderr; reject(err); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) return resolve(stdout);
-      const err = new Error(signal && signal.aborted ? 'Cancelled' : `yt-dlp exited with code ${code}`);
+    child.stdout.on('data', reader((t) => { if (stdout.length < 1e6) stdout += t; }, 'stdout'));
+    child.stderr.on('data', reader((t) => { stderr = (stderr + t).slice(-64 * 1024); }, 'stderr'));
+    child.on('error', (err) => {
+      done();
       err.stderr = stderr;
       err.aborted = Boolean(signal && signal.aborted);
       reject(err);
     });
+    child.on('close', (code, sig) => {
+      done();
+      if (code === 0) return resolve(stdout);
+      const aborted = Boolean(signal && signal.aborted);
+      const err = new Error(aborted ? 'Cancelled'
+        : timedOut ? `yt-dlp killed after ${log.duration(MAX_RUN_MS)}`
+          : `yt-dlp exited with code ${code}${sig ? ` (${sig})` : ''}`);
+      Object.assign(err, { stderr, stdout, exitCode: code, exitSignal: sig, timedOut, aborted });
+      reject(err);
+    });
   });
+}
+
+// The useful part of yt-dlp's stderr for a log line: its ERROR and WARNING
+// lines (or the last few lines when there are none), progress noise removed.
+function stderrSummary(stderr, max = 4) {
+  const lines = String(stderr || '').split(/\r?\n|\r/).map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('MSPROG ') && !/^\[download\]\s+[\d.]+%/.test(l));
+  const flagged = lines.filter((l) => /^(ERROR|WARNING)\b/.test(l));
+  return (flagged.length ? flagged : lines).slice(-max).map((l) => l.slice(0, 300)).join(' | ');
 }
 
 // yt-dlp may be a binary on PATH, a path given via YTDLP_PATH, or only
@@ -146,12 +204,13 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
   let part = 0;
   let last = 0;
   let printed = null;
-  const onLine = (line) => {
+  const onLine = (line, stream) => {
+    onEvent({ type: 'line', line, stream });
     if (line.startsWith(INFO)) {
       let info = {};
       try { info = JSON.parse(line.slice(INFO.length)); } catch (_) { /* ignore */ }
       parts = Math.max(1, String(info.format_id || '').split('+').length);
-      onEvent({ type: 'info', title: info.title || null, thumbnail: info.thumbnail || null, parts });
+      onEvent({ type: 'info', title: info.title || null, thumbnail: info.thumbnail || null, format: info.format_id || null, parts });
     } else if (line.startsWith(PROG)) {
       const [done, total, estimate] = line.slice(PROG.length).split(' ').map(Number);
       const size = total > 0 ? total : estimate;
@@ -175,8 +234,13 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
     if (e.aborted) throw e;
     if (e.code === 'ENOENT') throw new Error('yt-dlp is not installed on the server (brew install yt-dlp, or pip install yt-dlp)');
     const lines = (e.stderr || e.message).trim().split('\n').filter((l) => l.trim() && !l.includes(PROG));
-    const msg = lines.pop() || 'Download failed';
-    throw new Error(friendlyError(platform, msg.replace(/^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s+)?/, '')));
+    const errLine = [...lines].reverse().find((l) => /^ERROR\b/.test(l.trim())) || lines.pop() || 'Download failed';
+    const msg = e.timedOut ? `Took longer than ${log.duration(MAX_RUN_MS)}, gave up`
+      : friendlyError(platform, errLine.trim().replace(/^ERROR:\s*(\[[^\]]+\]\s*)?([\w-]+:\s+)?/, ''));
+    const err = new Error(msg);
+    // For the server log: what yt-dlp actually said and how it ended.
+    err.detail = `${e.message}; stderr: ${stderrSummary(e.stderr) || '(empty)'}`;
+    throw err;
   }
   if (printed && printed.startsWith(dir)) {
     try { await fs.access(printed); return printed; } catch (_) { /* fall through */ }
@@ -185,7 +249,9 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
   if (files.length) return path.join(dir, files[0]);
   const tail = out.trim().split('\n').filter((l) => l.trim() && !l.startsWith(PROG)).pop();
   if (/max-filesize|larger than max/i.test(out)) throw new Error(`File is larger than the ${MAX_DOWNLOAD_MB} MB limit`);
-  throw new Error(`Nothing was downloaded${tail ? ` (yt-dlp: ${tail.slice(0, 200)})` : ''}`);
+  const err = new Error(`Nothing was downloaded${tail ? ` (yt-dlp: ${tail.slice(0, 200)})` : ''}`);
+  err.detail = `yt-dlp exited 0 but left no file; stdout: ${tail ? tail.slice(0, 300) : '(empty)'}`;
+  throw err;
 }
 
 function friendlyError(platform, msg) {
@@ -225,27 +291,95 @@ async function fetchThumb(url) {
   return { type, body };
 }
 
-// Finished downloads wait this long for the browser to collect them.
-const JOB_TTL_MS = 10 * 60 * 1000;
+// How long things live on the server (all overridable in minutes):
+//   DOWNLOAD_TTL_MIN    a finished file waits this long to be (re)collected,
+//                       so a reloaded page can still download it
+//   DOWNLOAD_STALL_MIN  a running download with no output from yt-dlp for this
+//                       long is killed as hung
+//   DOWNLOAD_MAX_MIN    hard cap on one download's run time
+//   ERROR_TTL           failed / expired jobs are remembered this long so the
+//                       page can show why
+const minutes = (env, dflt) => Number(process.env[env] || dflt) * 60 * 1000;
+const READY_TTL_MS = minutes('DOWNLOAD_TTL_MIN', 30);
+const STALL_MS = minutes('DOWNLOAD_STALL_MIN', 5);
+const ERROR_TTL_MS = 30 * 60 * 1000;
+// Anything in the work dir that no job owns (strip uploads that crashed, dirs
+// from a previous run) is deleted once it's this old.
+const ORPHAN_MS = 60 * 60 * 1000;
+const SWEEP_EVERY_MS = 60 * 1000;
+
+const shortId = (id) => `#${id.slice(0, 8)}`;
+
+async function dirSize(dir) {
+  let total = 0;
+  for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) total += await dirSize(p);
+    else total += (await fs.stat(p).catch(() => ({ size: 0 }))).size;
+  }
+  return total;
+}
 
 function createDownloadRouter(workDir) {
   const router = express.Router();
   /** id → download job (see POST /:platform/jobs) */
   const jobs = new Map();
 
-  const dropJob = (id) => {
+  const tag = (job) => `${shortId(job.id)} ${job.label} ${job.mode}`;
+  const age = (job) => log.duration(Date.now() - job.started);
+
+  // Forget a job and delete its files. reason is only for the log.
+  const dropJob = (id, reason) => {
     const job = jobs.get(id);
     if (!job) return;
     jobs.delete(id);
-    clearTimeout(job.expiry);
+    job.ctrl.abort();
+    const hadFile = Boolean(job.file);
+    fs.rm(job.dir, { recursive: true, force: true }).catch(() => {});
+    if (reason) log.note('download', `${tag(job)} ${reason}${hadFile && job.size ? `, deleted ${log.size(job.size)}` : ''}`);
+  };
+
+  // A running job ends with an error: kill yt-dlp if needed, delete partial
+  // files, but keep the record for a while so the page can show what happened.
+  const failJob = (job, message, detail) => {
+    if (job.state === 'error') return;
+    job.state = 'error';
+    job.error = message;
+    job.endedAt = Date.now();
+    job.expiresAt = job.endedAt + ERROR_TTL_MS;
     job.ctrl.abort();
     fs.rm(job.dir, { recursive: true, force: true }).catch(() => {});
+    log.fail('download', `${tag(job)} ${job.url} after ${age(job)}: ${message}${detail && detail !== message ? `\n         ↳ ${detail}` : ''}`);
   };
-  const expireLater = (job) => {
-    clearTimeout(job.expiry);
-    job.expiry = setTimeout(() => dropJob(job.id), JOB_TTL_MS);
-    job.expiry.unref();
+
+  const sweep = async () => {
+    const now = Date.now();
+    for (const job of [...jobs.values()]) {
+      if (job.state === 'downloading' || job.state === 'processing') {
+        if (now - job.lastActivity > STALL_MS) {
+          job.abortReason = 'stalled';
+          failJob(job, `No progress for ${log.duration(STALL_MS)}, the download was stopped`,
+            `hung: yt-dlp printed nothing since ${log.duration(now - job.lastActivity)} ago; last line: ${job.lastLine || '(none)'}`);
+        }
+      } else if (job.expiresAt && now > job.expiresAt) {
+        dropJob(job.id, job.state === 'ready'
+          ? `expired: file not needed after ${log.duration(READY_TTL_MS)}${job.sent ? ` (sent ${job.sent}×)` : ' (never collected)'}`
+          : 'error record expired');
+      }
+    }
+    // Orphans: files in the work dir no job owns.
+    const owned = new Set([...jobs.values()].map((j) => path.basename(j.dir)));
+    for (const name of await fs.readdir(workDir).catch(() => [])) {
+      if (owned.has(name)) continue;
+      const p = path.join(workDir, name);
+      const st = await fs.stat(p).catch(() => null);
+      if (!st || now - st.mtimeMs < ORPHAN_MS) continue;
+      const size = st.isDirectory() ? await dirSize(p) : st.size;
+      await fs.rm(p, { recursive: true, force: true }).catch(() => {});
+      log.note('purge', `removed orphaned ${st.isDirectory() ? 'folder' : 'file'} ${name} (${log.size(size)}, ${log.duration(now - st.mtimeMs)} old)`);
+    }
   };
+  setInterval(() => { sweep().catch((e) => log.fail('purge', e.message)); }, SWEEP_EVERY_MS).unref();
 
   const checkRequest = (req, res) => {
     const { platform } = req.params;
@@ -275,7 +409,9 @@ function createDownloadRouter(workDir) {
     // Stream instead of buffering: YouTube videos can be large.
     const stream = createReadStream(file);
     stream.on('error', () => res.destroy());
-    res.on('close', () => onClose(res.writableFinished, filename, size));
+    let finished = false;
+    res.on('finish', () => { finished = true; });
+    res.on('close', () => onClose(finished, filename, size));
     stream.pipe(res);
   };
 
@@ -285,7 +421,8 @@ function createDownloadRouter(workDir) {
 
   // Start a download on the server and return its id at once. The browser
   // polls GET /jobs/:id for progress and the thumbnail, then fetches
-  // GET /jobs/:id/file when it's ready.
+  // GET /jobs/:id/file when it's ready. The page keeps the id, so after a
+  // reload it picks the job up again; the file stays until READY_TTL_MS.
   router.post('/:platform/jobs', express.json({ limit: '4kb' }), async (req, res) => {
     const r = checkRequest(req, res);
     if (!r) return;
@@ -297,53 +434,80 @@ function createDownloadRouter(workDir) {
       dir: path.join(workDir, crypto.randomUUID()),
       ctrl: new AbortController(),
       started: Date.now(),
+      lastActivity: Date.now(),
+      lastLine: null,
       state: 'downloading',
       progress: null,
+      milestone: 0,
       title: null,
       thumbnail: null,
       thumb: null,
       error: null,
       file: null,
+      filename: null,
+      size: null,
+      expiresAt: null,
+      sent: 0,
     };
     jobs.set(job.id, job);
-    expireLater(job);
-    log.start('download', `${label} ${r.mode} ${r.url}`);
+    log.start('download', `${tag(job)} ${r.url} (started, ${jobs.size} job${jobs.size === 1 ? '' : 's'} on the server)`);
     res.status(202).json({ id: job.id });
 
     try {
       await fs.mkdir(job.dir, { recursive: true });
-      job.file = await download(r.platform, r.url, job.dir, r.mode, (ev) => {
-        if (ev.type === 'info') {
+      const file = await download(r.platform, r.url, job.dir, r.mode, (ev) => {
+        if (ev.type === 'line') {
+          job.lastActivity = Date.now();
+          if (!ev.line.startsWith('MSPROG ')) job.lastLine = ev.line.slice(0, 200);
+          if (/^WARNING\b/.test(ev.line)) log.note('download', `${tag(job)} yt-dlp ${ev.line.slice(0, 300)}`);
+        } else if (ev.type === 'info') {
           job.title = ev.title;
           if (ev.thumbnail && thumbAllowed(ev.thumbnail)) job.thumbnail = ev.thumbnail;
+          log.note('download', `${tag(job)} resolved "${(ev.title || '?').slice(0, 80)}" format ${ev.format || '?'}`);
         } else if (ev.type === 'progress') {
           job.progress = ev.progress;
-        } else if (ev.type === 'processing') {
+          const step = Math.floor(ev.progress * 4) * 25; // 25 / 50 / 75 / 100
+          if (step > job.milestone && step < 100) {
+            job.milestone = step;
+            log.note('download', `${tag(job)} ${step}% after ${age(job)}`);
+          }
+        } else if (ev.type === 'processing' && job.state !== 'processing') {
           job.state = 'processing';
+          log.note('download', `${tag(job)} downloaded, merging / remuxing after ${age(job)}`);
         }
       }, job.ctrl.signal);
+      if (!jobs.has(job.id) || job.state === 'error') { fs.rm(job.dir, { recursive: true, force: true }).catch(() => {}); return; }
+      const name = path.basename(file);
+      const ext = path.extname(name).toLowerCase() || (r.mode === 'audio' ? '.m4a' : '.mp4');
+      job.file = file;
+      job.filename = `${safeBase(name)}${ext}`;
+      job.size = (await fs.stat(file)).size;
       job.state = 'ready';
       job.progress = 1;
-      expireLater(job);
+      job.endedAt = Date.now();
+      job.expiresAt = job.endedAt + READY_TTL_MS;
+      log.ok('download', `${tag(job)} ${r.url} → ${job.filename} (${log.size(job.size)}) ready on the server in ${age(job)}, kept ${log.duration(READY_TTL_MS)}`);
     } catch (e) {
-      if (!jobs.has(job.id)) return; // cancelled by the browser
-      job.state = 'error';
-      job.error = e.message || 'Download failed';
-      log.fail('download', `${label} ${r.mode} ${r.url} after ${log.duration(Date.now() - job.started)}: ${job.error}`);
-      fs.rm(job.dir, { recursive: true, force: true }).catch(() => {});
+      if (!jobs.has(job.id) || job.state === 'error') return; // cancelled, or already failed by the sweeper
+      failJob(job, e.message || 'Download failed', e.detail);
     }
   });
 
   router.get('/jobs/:id', (req, res) => {
     const job = jobs.get(req.params.id);
-    if (!job) return res.status(404).json({ error: 'This download expired, try again' });
     res.setHeader('Cache-Control', 'no-store');
+    if (!job) return res.status(404).json({ error: 'Expired: the server no longer has this download', expired: true });
     res.json({
       state: job.state,
       progress: job.progress,
       title: job.title,
       thumbnail: Boolean(job.thumbnail),
       error: job.error,
+      url: job.url,
+      mode: job.mode,
+      filename: job.filename,
+      size: job.size,
+      expiresAt: job.expiresAt,
     });
   });
 
@@ -365,28 +529,28 @@ function createDownloadRouter(workDir) {
 
   router.get('/jobs/:id/file', async (req, res) => {
     const job = jobs.get(req.params.id);
-    if (!job) return res.status(404).json({ error: 'This download expired, try again' });
+    if (!job) return res.status(404).json({ error: 'Expired: the server no longer has this download', expired: true });
     if (job.state !== 'ready') return res.status(409).json({ error: job.error || 'Not ready yet' });
     try {
+      // The file stays after it's sent, so a reloaded page can fetch it again
+      // until it expires (or the user removes the row).
       await sendFile(res, job.file, job.mode, (finished, filename, size) => {
-        const took = log.duration(Date.now() - job.started);
         if (finished) {
-          log.ok('download', `${job.label} ${job.mode} ${job.url} → ${filename} (${log.size(size)}) in ${took}`);
-          dropJob(job.id);
+          job.sent++;
+          log.ok('download', `${tag(job)} sent ${filename} (${log.size(size)}) to the browser${job.sent > 1 ? ` (${job.sent}×)` : ''}`);
         } else {
-          // Keep the file so a retry can collect it.
-          log.fail('download', `${job.label} ${job.mode} ${job.url} → client disconnected before the ${log.size(size)} file was sent (${took})`);
+          log.fail('download', `${tag(job)} browser disconnected before the ${log.size(size)} file was sent; kept for a retry`);
         }
       });
     } catch (e) {
+      log.fail('download', `${tag(job)} could not send the file: ${e.message}`);
       res.status(500).json({ error: e.message });
     }
   });
 
   router.delete('/jobs/:id', (req, res) => {
     const job = jobs.get(req.params.id);
-    if (job && job.state !== 'ready' && job.state !== 'error') log.fail('download', `${job.label} ${job.mode} ${job.url} cancelled`);
-    dropJob(req.params.id);
+    if (job) dropJob(job.id, job.state === 'ready' || job.state === 'error' ? 'removed by the user' : `cancelled by the user after ${age(job)}`);
     res.sendStatus(204);
   });
 
@@ -411,7 +575,7 @@ function createDownloadRouter(workDir) {
         cleanup();
       });
     } catch (e) {
-      log.fail('download', `${label} ${mode} ${url} after ${log.duration(Date.now() - started)}: ${e.message}`);
+      log.fail('download', `${label} ${mode} ${url} after ${log.duration(Date.now() - started)}: ${e.message}${e.detail ? `\n         ↳ ${e.detail}` : ''}`);
       await cleanup();
       res.status(502).json({ error: e.message || 'Download failed' });
     }
@@ -420,4 +584,4 @@ function createDownloadRouter(workDir) {
   return router;
 }
 
-module.exports = { createDownloadRouter, download, parseUrl, PLATFORMS };
+module.exports = { createDownloadRouter, download, parseUrl, PLATFORMS, stderrSummary, dirSize };

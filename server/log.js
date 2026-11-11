@@ -15,7 +15,11 @@ function size(bytes) {
 }
 
 function duration(ms) {
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60000);
+  const sec = Math.round((ms % 60000) / 1000);
+  return sec ? `${m}m ${sec}s` : `${m} min`;
 }
 
 function stamp() {
@@ -25,7 +29,8 @@ function stamp() {
 }
 
 function line(tag, status, msg) {
-  const st = status === 'ok' ? paint('32', 'OK  ') : status === 'fail' ? paint('31', 'FAIL') : paint('33', '... ');
+  const st = status === 'ok' ? paint('32', 'OK  ') : status === 'fail' ? paint('31', 'FAIL')
+    : status === 'note' ? '    ' : paint('33', '... ');
   const out = `${paint('90', stamp())} ${paint('36', tag.padEnd(8))} ${st} ${msg}`;
   (status === 'fail' ? console.error : console.log)(out);
 }
@@ -36,5 +41,6 @@ module.exports = {
   start: (tag, msg) => line(tag, 'start', msg),
   ok: (tag, msg) => line(tag, 'ok', msg),
   fail: (tag, msg) => line(tag, 'fail', msg),
+  note: (tag, msg) => line(tag, 'note', msg),
   info: (msg) => console.log(`${paint('90', stamp())} ${msg}`),
 };

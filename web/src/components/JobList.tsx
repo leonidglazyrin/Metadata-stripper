@@ -49,7 +49,16 @@ export default function JobList({ jobs, icon, onRemove, onRetry, onClear }: Prop
               <div className="row-name" title={j.name}>{j.result?.filename ?? j.name}</div>
               <div className="row-sub" title={j.message}>
                 {j.status === 'done' && <b>Ready</b>}
-                {j.status === 'done' ? ` · ${j.message}` : j.message}
+                {j.status === 'done' ? (
+                  ` · ${j.message}`
+                ) : j.status === 'error' && j.message.startsWith('Expired · ') ? (
+                  <>
+                    <b>Expired</b>
+                    {j.message.slice('Expired'.length)}
+                  </>
+                ) : (
+                  j.message
+                )}
               </div>
             </div>
             <div className="row-meter">

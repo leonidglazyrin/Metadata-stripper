@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { useJobs, type Runner } from '../lib/jobs';
-import { apiUrl, formatSize, getBlob, requestJson } from '../lib/request';
-import { useStored } from '../lib/storage';
+import { apiUrl, formatSize, getBlob, RequestError, requestJson } from '../lib/request';
+import { load, save, useStored } from '../lib/storage';
 import type { Platform, ToolInfo } from '../tools';
 import { IconClose, ToolIcon } from './Icons';
 import JobList from './JobList';
@@ -27,7 +27,28 @@ interface JobStatus {
   title: string | null;
   thumbnail: boolean;
   error: string | null;
+  filename?: string | null;
+  size?: number | null;
+  /** When the server deletes the job (ms since epoch) */
+  expiresAt?: number | null;
 }
+
+/** One row as remembered in localStorage, so a reload brings it back. */
+interface SavedRow {
+  id: string;
+  url: string;
+  mode: Mode;
+  name: string;
+  /** The server's job id, once it has one */
+  serverId?: string;
+  status?: 'error';
+  message?: string;
+}
+
+const MAX_SAVED = 50;
+const EXPIRED = 'Expired · the server deleted this download. Retry to fetch it again.';
+
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 const sleep = (ms: number, signal: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
@@ -104,17 +125,43 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     }
   };
 
+  /** Our row id → the server's job id. Kept in localStorage with the rows. */
+  const serverIds = useRef(new Map<string, string>());
+  /** Rows whose download link points at the server, and when it expires. */
+  const expiry = useRef(new Map<string, number>());
+  const storeKey = `downloads:${platform}`;
+
   const runner: Runner<Input> = async (job, update, signal) => {
-    update({ message: 'Starting on the server…', progress: null });
-    const { id } = await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, job.input, signal);
+    let id = serverIds.current.get(job.id);
+    const resumed = Boolean(id);
+    if (!id) {
+      update({ message: 'Starting on the server…', progress: null });
+      id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, job.input, signal)).id;
+      serverIds.current.set(job.id, id);
+      persist();
+    } else {
+      update({ message: 'Checking on the server…', progress: null });
+    }
     const base = `/api/download/jobs/${id}`;
-    // Removing or clearing the row cancels the server side too.
-    const cancel = () => void requestJson('DELETE', base).catch(() => {});
-    signal.addEventListener('abort', cancel, { once: true });
+    // The server's record is no use once it failed or is gone; a retry starts over.
+    const forget = () => {
+      serverIds.current.delete(job.id);
+      persist();
+    };
 
     let thumb: Promise<void> | null = null;
+    let first = true;
+    let s: JobStatus;
     for (;;) {
-      const s = await requestJson<JobStatus>('GET', base, undefined, signal);
+      try {
+        s = await requestJson<JobStatus>('GET', base, undefined, signal);
+      } catch (e) {
+        if (e instanceof RequestError && e.status === 404) {
+          forget();
+          throw new Error(EXPIRED);
+        }
+        throw e;
+      }
       if (s.title) update({ name: s.title });
       if (s.thumbnail && !thumb) {
         const src = apiUrl(`${base}/thumb`);
@@ -122,22 +169,49 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
           if (ok && !signal.aborted) update({ preview: src });
         });
       }
-      if (s.state === 'error') throw new Error(s.error || 'Download failed');
+      if (s.state === 'error') {
+        forget();
+        throw new Error(s.error || 'Download failed');
+      }
       if (s.state === 'ready') break;
       if (s.state === 'processing') update({ message: 'Processing on the server', progress: null });
       else if (s.progress != null) update({ message: 'Downloading on the server', progress: s.progress });
       else update({ message: 'Fetching on the server…', progress: null });
+      first = false;
       await sleep(700, signal);
     }
 
+    const kind = job.input.mode === 'audio' ? 'Audio' : 'Video';
+    if (resumed && first) {
+      // Picked up after a reload and already finished: link straight to the
+      // file on the server instead of pulling it into the page again.
+      await thumb;
+      if (s.expiresAt) expiry.current.set(job.id, s.expiresAt);
+      update({
+        status: 'done',
+        progress: 1,
+        message: `${kind}${s.size ? ` · ${formatSize(s.size)}` : ''}${s.expiresAt ? ` · on the server until ${clock(s.expiresAt)}` : ''}`,
+        result: { url: apiUrl(`${base}/file`), filename: s.filename ?? `${platform}.${job.input.mode === 'audio' ? 'm4a' : 'mp4'}` },
+      });
+      return;
+    }
+
     update({ message: 'Sending to you', progress: 0 });
-    const res = await getBlob(`${base}/file`, { onDownload: (p) => update({ progress: p }) }, signal);
-    signal.removeEventListener('abort', cancel);
+    let res;
+    try {
+      res = await getBlob(`${base}/file`, { onDownload: (p) => update({ progress: p }) }, signal);
+    } catch (e) {
+      if (e instanceof RequestError && e.status === 404) {
+        forget();
+        throw new Error(EXPIRED);
+      }
+      throw e;
+    }
     const filename = res.filename ?? `${platform}.${job.input.mode === 'audio' ? 'm4a' : 'mp4'}`;
     update({
       status: 'done',
       progress: 1,
-      message: `${job.input.mode === 'audio' ? 'Audio' : 'Video'} · ${formatSize(res.blob.size)}`,
+      message: `${kind} · ${formatSize(res.blob.size)}`,
       result: { url: URL.createObjectURL(res.blob), filename },
     });
     // No usable thumbnail from the platform: fall back to a frame of the video.
@@ -148,9 +222,83 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     }
   };
 
-  const { jobs, add, remove, retry, clear } = useJobs(runner);
+  const { jobs, add, remove, retry, clear, update } = useJobs(runner);
   const jobsRef = useRef(jobs);
   jobsRef.current = jobs;
+
+  // Remember the rows (and their server job ids) so a reload brings them back.
+  const [restored, setRestored] = useState(false);
+  function persist() {
+    const rows: SavedRow[] = jobsRef.current.slice(0, MAX_SAVED).map((j) => ({
+      id: j.id,
+      url: j.input.url,
+      mode: j.input.mode,
+      name: j.name,
+      serverId: serverIds.current.get(j.id),
+      ...(j.status === 'error' ? { status: 'error' as const, message: j.message } : {}),
+    }));
+    save(storeKey, rows);
+  }
+  useEffect(() => {
+    if (restored) persist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs, restored]);
+
+  useEffect(() => {
+    const saved = load<SavedRow[]>(storeKey, []);
+    if (Array.isArray(saved) && saved.length) {
+      for (const r of saved) if (r.serverId) serverIds.current.set(r.id, r.serverId);
+      // add() puts the first item at the bottom; saved rows are newest first.
+      add(
+        [...saved].reverse().map((r) => ({
+          id: r.id,
+          input: { url: r.url, mode: r.mode },
+          name: r.name,
+          // Server job: poll it now. Failed row: just show it. Never started: queue it.
+          immediate: Boolean(r.serverId),
+          ...(r.status === 'error' && !r.serverId ? { status: 'error' as const, message: r.message || 'Download failed' } : {}),
+        })),
+      );
+    }
+    setRestored(true);
+    // React's dev double-mount: start over cleanly on the second run.
+    return () => clear();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Server links stop working when the server purges the file.
+  useEffect(() => {
+    const timers = jobs
+      .filter((j) => j.status === 'done' && expiry.current.has(j.id))
+      .map((j) =>
+        setTimeout(() => {
+          expiry.current.delete(j.id);
+          serverIds.current.delete(j.id);
+          update(j.id, { status: 'error', message: EXPIRED, result: undefined, progress: null });
+        }, Math.max(0, expiry.current.get(j.id)! - Date.now())),
+      );
+    return () => timers.forEach(clearTimeout);
+  }, [jobs, update]);
+
+  // Removing or clearing rows deletes the server's copy too.
+  const dropOnServer = (id: string) => {
+    const sid = serverIds.current.get(id);
+    serverIds.current.delete(id);
+    expiry.current.delete(id);
+    if (sid) void requestJson('DELETE', `/api/download/jobs/${sid}`).catch(() => {});
+  };
+  const onRemove = (id: string) => {
+    dropOnServer(id);
+    remove(id);
+  };
+  const onClear = () => {
+    for (const j of jobsRef.current) dropOnServer(j.id);
+    clear();
+  };
+  const onRetry = (id: string) => {
+    expiry.current.delete(id);
+    retry(id);
+  };
 
   const submit = () => {
     if (!urls.length) return refs.current[0]?.focus();
@@ -213,7 +361,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         </div>
       </div>
 
-      <JobList jobs={jobs} icon={<ToolIcon tool={platform} size={26} />} onRemove={remove} onRetry={retry} onClear={clear} />
+      <JobList jobs={jobs} icon={<ToolIcon tool={platform} size={26} />} onRemove={onRemove} onRetry={onRetry} onClear={onClear} />
     </>
   );
 }

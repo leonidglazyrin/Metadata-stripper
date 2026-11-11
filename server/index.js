@@ -8,7 +8,7 @@ const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { createDownloadRouter } = require('./downloaders');
+const { createDownloadRouter, dirSize } = require('./downloaders');
 const log = require('./log');
 
 const PORT = process.env.PORT || 3000;
@@ -387,7 +387,17 @@ app.use((err, req, res, _next) => {
   res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
+// Jobs live in memory, so whatever a previous run left in the work dir
+// (downloads, uploads cut off by a crash or restart) belongs to nobody now.
+async function purgeOnStartup() {
+  const names = await fs.readdir(workDir).catch(() => []);
+  if (!names.length) return;
+  const size = await dirSize(workDir);
+  await Promise.all(names.map((n) => fs.rm(path.join(workDir, n), { recursive: true, force: true }).catch(() => {})));
+  log.note('purge', `startup: removed ${names.length} leftover item${names.length === 1 ? '' : 's'} (${log.size(size)}) from ${workDir}`);
+}
+
+purgeOnStartup().catch((e) => log.fail('purge', `startup purge failed: ${e.message}`)).finally(() => app.listen(PORT, () => {
   log.info(`Sharona running on http://localhost:${PORT}  (tools at /app/)`);
   log.info('Logging every download and strip below.');
-});
+}));
