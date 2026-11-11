@@ -4,6 +4,7 @@ import { postForBlob, formatSize } from '../lib/request';
 import { useStored } from '../lib/storage';
 import { IconFile, IconPlus } from './Icons';
 import JobList from './JobList';
+import { isImageName, isVideoName, videoFrame } from '../lib/thumb';
 import Switch from './Switch';
 
 interface Report {
@@ -48,18 +49,33 @@ export default function StripTool() {
       message = count ? `Removed ${rep.before.found.join(', ') || `${count} tags`}` : 'Nothing found, already clean';
     }
     update({ status: 'done', progress: 1, message, result: { url: URL.createObjectURL(res.blob), filename } });
+    // Show the cleaned file itself: HEIC comes back as a browser-viewable JPEG.
+    if (!job.preview && isImageName(filename)) update({ preview: URL.createObjectURL(res.blob) });
+    if (!job.preview && isVideoName(filename)) {
+      const frame = await videoFrame(res.blob);
+      if (frame) update({ preview: frame });
+    }
   };
 
-  const { jobs, add, clear } = useJobs(runner);
+  const { jobs, add, remove, clear, setPreview } = useJobs(runner);
 
   const addFiles = (files: FileList | null) => {
     if (!files?.length) return;
-    add(
-      [...files].map((f) => {
-        const kind = f.type.startsWith('image/') ? 'image' : f.type.startsWith('video/') ? 'video' : null;
-        return { input: f, name: f.name, preview: kind ? { url: URL.createObjectURL(f), kind } : undefined };
-      }),
+    const list = [...files];
+    const ids = add(
+      list.map((f) => ({
+        input: f,
+        name: f.name,
+        // HEIC/HEIF won't render in most browsers; it gets a preview once cleaned.
+        preview: f.type.startsWith('image/') && !/hei[cf]/i.test(f.type) ? URL.createObjectURL(f) : undefined,
+      })),
     );
+    // Videos: grab one frame from the original as the thumbnail.
+    list.forEach(async (f, i) => {
+      if (!f.type.startsWith('video/') && !isVideoName(f.name)) return;
+      const frame = await videoFrame(f);
+      if (frame) setPreview(ids[i], frame);
+    });
   };
 
   const onDrag = (e: DragEvent, on: boolean) => {
@@ -111,7 +127,7 @@ export default function StripTool() {
         />
       </div>
 
-      <JobList jobs={jobs} icon={<IconFile />} onClear={clear} />
+      <JobList jobs={jobs} icon={<IconFile />} onRemove={remove} onClear={clear} />
     </>
   );
 }

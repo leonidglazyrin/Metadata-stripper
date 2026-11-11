@@ -10,7 +10,8 @@ export interface Job<I = unknown> {
   /** 0..1 for a determinate bar, null for an indeterminate one */
   progress: number | null;
   message: string;
-  preview?: { url: string; kind: 'image' | 'video' };
+  /** Thumbnail image URL (a photo, or one frame of a video) */
+  preview?: string;
   result?: { url: string; filename: string };
 }
 
@@ -30,7 +31,7 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
   const urls = useRef(new Set<string>());
 
   const update = useCallback((id: string, patch: Partial<Job>) => {
-    for (const u of [patch.preview?.url, patch.result?.url]) if (u) urls.current.add(u);
+    for (const u of [patch.preview, patch.result?.url]) if (u) urls.current.add(u);
     setJobs((list) => list.map((j) => (j.id === id ? ({ ...j, ...patch } as Job<I>) : j)));
   }, []);
 
@@ -64,13 +65,29 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
         progress: null,
         message: 'Waiting…',
       }));
-      for (const j of created) if (j.preview) urls.current.add(j.preview.url);
+      for (const j of created) if (j.preview) urls.current.add(j.preview);
       queue.current.push(...created);
-      setJobs((list) => [...created.reverse(), ...list]);
+      setJobs((list) => [...[...created].reverse(), ...list]);
       pump();
+      return created.map((j) => j.id);
     },
     [pump],
   );
+
+  const remove = useCallback((id: string) => {
+    queue.current = queue.current.filter((j) => j.id !== id);
+    running.current.get(id)?.abort();
+    running.current.delete(id);
+    setJobs((list) => {
+      const j = list.find((x) => x.id === id);
+      for (const u of [j?.preview, j?.result?.url]) {
+        if (!u) continue;
+        URL.revokeObjectURL(u);
+        urls.current.delete(u);
+      }
+      return list.filter((x) => x.id !== id);
+    });
+  }, []);
 
   const clear = useCallback(() => {
     queue.current = [];
@@ -86,5 +103,7 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
     for (const c of running.current.values()) c.abort();
   }, []);
 
-  return { jobs, add, clear };
+  const setPreview = useCallback((id: string, url: string) => update(id, { preview: url }), [update]);
+
+  return { jobs, add, remove, clear, setPreview };
 }

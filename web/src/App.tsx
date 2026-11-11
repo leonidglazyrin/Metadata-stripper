@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TOOLS, toolById, type ToolId } from './tools';
-import { load, save, useStored } from './lib/storage';
+import { load, save } from './lib/storage';
 import { HeroArt, ToolIcon } from './components/Icons';
 import StripTool from './components/StripTool';
 import DownloadTool from './components/DownloadTool';
@@ -13,8 +13,6 @@ function initialTool(): ToolId {
 
 export default function App() {
   const [active, setActive] = useState<ToolId>(initialTool);
-  const [multi, setMulti] = useStored('multiLinks', true);
-  const tool = toolById(active)!;
 
   useEffect(() => {
     save('tool', active);
@@ -43,7 +41,6 @@ export default function App() {
       <section className="card hero">
         <header className="card-head">
           <Wordmark />
-          <span className="kicker">Creator tools · 2026</span>
         </header>
 
         <div className="hero-body">
@@ -75,12 +72,6 @@ export default function App() {
           </div>
           <HeroArt />
         </div>
-
-        <div className="codebar" aria-label="Current tool">
-          <span className="prompt">$</span> {tool.cmd[0]}
-          <span className="hl">{tool.cmd[1]}</span>
-          {tool.cmd[2]}
-        </div>
       </section>
 
       {TOOLS.map((t) => (
@@ -93,10 +84,6 @@ export default function App() {
           className="card tool"
           hidden={t.id !== active}
         >
-          <header className="card-head">
-            <Wordmark />
-            <span className="kicker">{t.eyebrow}</span>
-          </header>
           <div className="tool-head">
             <ToolIcon tool={t.id} size={56} />
             <div>
@@ -107,17 +94,7 @@ export default function App() {
             </div>
           </div>
 
-          {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} multi={multi} setMulti={setMulti} />}
-
-          <ul className="facts">
-            {t.facts.map((f) => (
-              <li key={f.label} className="fact">
-                <span className="fact-label">{f.label}</span>
-                <span className="fact-title">{f.title}</span>
-                <span className="fact-sub">{f.sub}</span>
-              </li>
-            ))}
-          </ul>
+          {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} />}
         </section>
       ))}
 

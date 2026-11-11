@@ -1,15 +1,16 @@
 import type { ReactNode } from 'react';
 import type { Job } from '../lib/jobs';
-import { IconDownload } from './Icons';
+import { IconClose, IconDownload } from './Icons';
 
 interface Props {
   jobs: Job<unknown>[];
   icon: ReactNode;
+  onRemove: (id: string) => void;
   onClear: () => void;
 }
 
 /** Result rows, styled like the playbook's comparison table rows. */
-export default function JobList({ jobs, icon, onClear }: Props) {
+export default function JobList({ jobs, icon, onRemove, onClear }: Props) {
   if (!jobs.length) return null;
   const done = jobs.filter((j) => j.result);
 
@@ -30,12 +31,15 @@ export default function JobList({ jobs, icon, onClear }: Props) {
         {jobs.map((j) => (
           <li key={j.id} className={`row is-${j.status}`}>
             <div className="thumb">
-              {j.preview?.kind === 'image' ? (
-                <img src={j.preview.url} alt="" />
-              ) : j.preview?.kind === 'video' ? (
-                <video src={`${j.preview.url}#t=0.1`} muted preload="metadata" />
-              ) : (
-                icon
+              {icon}
+              {j.preview && (
+                <img
+                  src={j.preview}
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.hidden = true;
+                  }}
+                />
               )}
             </div>
             <div className="row-main">
@@ -53,13 +57,16 @@ export default function JobList({ jobs, icon, onClear }: Props) {
               )}
               {j.status === 'done' && <div className="meter full"><i /></div>}
             </div>
-            {j.result ? (
-              <a className="row-action" href={j.result.url} download={j.result.filename} title={`Download ${j.result.filename}`}>
-                <IconDownload />
-              </a>
-            ) : (
-              <span className="row-action placeholder" />
-            )}
+            <span className="row-actions">
+              {j.result && (
+                <a className="row-action" href={j.result.url} download={j.result.filename} title={`Download ${j.result.filename}`}>
+                  <IconDownload />
+                </a>
+              )}
+              <button type="button" className="row-remove" aria-label={`Remove ${j.name}`} title="Remove" onClick={() => onRemove(j.id)}>
+                <IconClose />
+              </button>
+            </span>
           </li>
         ))}
       </ul>

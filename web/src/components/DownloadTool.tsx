@@ -5,7 +5,7 @@ import { useStored } from '../lib/storage';
 import type { Platform, ToolInfo } from '../tools';
 import { IconClose, ToolIcon } from './Icons';
 import JobList from './JobList';
-import Switch from './Switch';
+import { videoFrame } from '../lib/thumb';
 
 type Mode = 'video' | 'audio';
 interface Input {
@@ -18,7 +18,7 @@ const extractUrls = (text: string) =>
 const looksLikeLink = (v: string) => /^https?:\/\/\S+\.\S+/i.test(v.trim()) || /\.(com|be|am)\//i.test(v);
 const shortUrl = (u: string) => u.replace(/^https?:\/\/(www\.|m\.)?/, '');
 
-export default function DownloadTool({ tool, multi, setMulti }: { tool: ToolInfo; multi: boolean; setMulti: (v: boolean) => void }) {
+export default function DownloadTool({ tool }: { tool: ToolInfo }) {
   const platform = tool.id as Platform;
   const [mode, setMode] = useStored<Mode>(`mode:${platform}`, 'video');
   const [fields, setFields] = useState<string[]>(['']);
@@ -32,8 +32,8 @@ export default function DownloadTool({ tool, multi, setMulti }: { tool: ToolInfo
     }
   });
 
-  // With multiple links on, always offer one empty field after the last link.
-  const shown = multi && looksLikeLink(fields[fields.length - 1]) ? [...fields, ''] : fields;
+  // Always offer one empty field after the last link.
+  const shown = looksLikeLink(fields[fields.length - 1]) ? [...fields, ''] : fields;
   const urls = [...new Set(extractUrls(fields.join(' ')))];
 
   const setField = (i: number, v: string) =>
@@ -52,7 +52,6 @@ export default function DownloadTool({ tool, multi, setMulti }: { tool: ToolInfo
     const found = extractUrls(e.clipboardData.getData('text'));
     if (found.length < 2) return;
     e.preventDefault();
-    if (!multi) return setField(i, found.join(' '));
     setFields((f) => {
       const next = [...f];
       next.splice(i, 1, ...found);
@@ -74,11 +73,6 @@ export default function DownloadTool({ tool, multi, setMulti }: { tool: ToolInfo
     }
   };
 
-  const toggleMulti = (on: boolean) => {
-    setMulti(on);
-    if (!on) setFields([fields.map((v) => v.trim()).filter(Boolean).join(' ')]);
-  };
-
   const runner: Runner<Input> = async (job, update, signal) => {
     update({ message: 'Fetching on the server…', progress: null });
     const res = await postForBlob(
@@ -94,9 +88,13 @@ export default function DownloadTool({ tool, multi, setMulti }: { tool: ToolInfo
       message: `${job.input.mode === 'audio' ? 'Audio' : 'Video'} · ${formatSize(res.blob.size)}`,
       result: { url: URL.createObjectURL(res.blob), filename },
     });
+    if (job.input.mode === 'video') {
+      const frame = await videoFrame(res.blob);
+      if (frame) update({ preview: frame });
+    }
   };
 
-  const { jobs, add, clear } = useJobs(runner);
+  const { jobs, add, remove, clear } = useJobs(runner);
 
   const submit = () => {
     if (!urls.length) return refs.current[0]?.focus();
@@ -157,10 +155,9 @@ export default function DownloadTool({ tool, multi, setMulti }: { tool: ToolInfo
             </button>
           ))}
         </div>
-        <Switch checked={multi} onChange={toggleMulti} label="Multiple links" hint="A new field appears after each link." />
       </div>
 
-      <JobList jobs={jobs} icon={<ToolIcon tool={platform} size={26} />} onClear={clear} />
+      <JobList jobs={jobs} icon={<ToolIcon tool={platform} size={26} />} onRemove={remove} onClear={clear} />
     </>
   );
 }
