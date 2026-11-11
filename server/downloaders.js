@@ -10,6 +10,7 @@ const fs = require('fs/promises');
 const { createReadStream } = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const log = require('./log');
 
 const MAX_DOWNLOAD_MB = Number(process.env.MAX_DOWNLOAD_MB || 2048);
 
@@ -142,11 +143,17 @@ function createDownloadRouter(workDir) {
     const { platform } = req.params;
     if (!Object.hasOwn(PLATFORMS, platform)) return res.status(404).json({ error: 'Unknown platform' });
     const url = parseUrl(platform, req.body && req.body.url);
-    if (!url) return res.status(400).json({ error: `Not a ${PLATFORMS[platform].label} link` });
+    if (!url) {
+      log.fail('download', `${PLATFORMS[platform].label}: rejected link ${String((req.body && req.body.url) || '').slice(0, 200)}`);
+      return res.status(400).json({ error: `Not a ${PLATFORMS[platform].label} link` });
+    }
     const mode = req.body.mode === 'audio' ? 'audio' : 'video';
 
     const dir = path.join(workDir, crypto.randomUUID());
     const cleanup = () => fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    const label = PLATFORMS[platform].label;
+    const started = Date.now();
+    log.start('download', `${label} ${mode} ${url}`);
     try {
       await fs.mkdir(dir, { recursive: true });
       const file = await download(platform, url, dir, mode);
@@ -160,10 +167,15 @@ function createDownloadRouter(workDir) {
       // Stream instead of buffering: YouTube videos can be large.
       const stream = createReadStream(file);
       stream.on('error', () => res.destroy());
-      res.on('close', cleanup);
+      res.on('close', () => {
+        const took = log.duration(Date.now() - started);
+        if (res.writableFinished) log.ok('download', `${label} ${mode} ${url} → ${safeBase(name)}${ext} (${log.size(size)}) in ${took}`);
+        else log.fail('download', `${label} ${mode} ${url} → client disconnected before the ${log.size(size)} file was sent (${took})`);
+        cleanup();
+      });
       stream.pipe(res);
     } catch (e) {
-      console.error(`[${platform}]`, e.message);
+      log.fail('download', `${label} ${mode} ${url} after ${log.duration(Date.now() - started)}: ${e.message}`);
       await cleanup();
       res.status(502).json({ error: e.message || 'Download failed' });
     }
