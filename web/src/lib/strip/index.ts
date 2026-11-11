@@ -39,8 +39,14 @@ export async function stripInBrowser(
 
   if (isVideo) {
     if (!ext) ext = '.mp4';
-    const { stripVideoInBrowser } = await import('./video');
-    const r = await stripVideoInBrowser(file, ext, onStatus);
+    let r;
+    if (opts.synthid) {
+      const { stripVideoSynthidInBrowser } = await import('./video-synthid');
+      r = await stripVideoSynthidInBrowser(file, ext, onStatus);
+    } else {
+      const { stripVideoInBrowser } = await import('./video');
+      r = await stripVideoInBrowser(file, ext, onStatus);
+    }
     r.found.forEach((f) => removed.add(f));
     blob = r.blob;
     outExt = r.ext;

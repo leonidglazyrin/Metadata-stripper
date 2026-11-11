@@ -157,7 +157,7 @@ export default function StripTool() {
           checked={synthid}
           onChange={setSynthid}
           label="Strip SynthID watermarks"
-          hint={where === 'device' ? 'Photos only on this device. Videos need Server.' : 'Disrupts invisible AI watermarks. Near-lossless.'}
+          hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Disrupts invisible AI watermarks. Near-lossless.'}
         />
       </div>
 

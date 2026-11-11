@@ -81,6 +81,7 @@ export async function stripVideoInBrowser(
   file: File,
   ext: string,
   onStatus: (msg: string, progress?: number | null) => void,
+  { synthid = false } = {},
 ): Promise<VideoResult> {
   if (file.size > 1.8 * 1024 ** 3) throw new Error('Too large to process in the browser (max ~1.8 GB). Switch to Server.');
   const ff = await getFFmpeg((m) => onStatus(m, null));
@@ -92,7 +93,9 @@ export async function stripVideoInBrowser(
     const input = `${dir}/${file.name}`;
     const outputs: string[] = [];
     const onProgress = ({ progress }: { progress: number }) => {
-      if (progress >= 0 && progress <= 1) onStatus(`Cleaning · ${Math.round(progress * 100)}%`, progress);
+      if (progress >= 0 && progress <= 1) {
+        onStatus(`${synthid ? 'Removing SynthID (slow engine)' : 'Cleaning'} · ${Math.round(progress * 100)}%`, progress);
+      }
     };
     try {
       onStatus('Reading metadata…', null);
@@ -110,10 +113,20 @@ export async function stripVideoInBrowser(
           '-map_chapters', '-1',
           '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact',
           '-metadata', 'creation_time=', '-metadata:s', 'handler_name=', '-metadata:s', 'vendor_id=',
-          '-c', 'copy',
         ];
-        if (codecs.length === 1 && codecs[0] === 'h264') args.push('-bsf:v', 'filter_units=remove_types=6');
-        if (codecs.length === 1 && codecs[0] === 'hevc') args.push('-bsf:v', 'filter_units=remove_types=39|40');
+        if (synthid) {
+          // Same filters, codec and CRF as the server. Only the x264 preset is
+          // faster: it changes compression efficiency, not the filtering.
+          args.push(
+            '-vf', 'gblur=sigma=0.3,noise=c0s=2:c0f=t,unsharp=3:3:0.4:3:3:0',
+            '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac', '-b:a', '256k', '-af', 'aresample=async=1',
+          );
+        } else {
+          args.push('-c', 'copy');
+          if (codecs.length === 1 && codecs[0] === 'h264') args.push('-bsf:v', 'filter_units=remove_types=6');
+          if (codecs.length === 1 && codecs[0] === 'hevc') args.push('-bsf:v', 'filter_units=remove_types=39|40');
+        }
         if (outExt === '.mp4' && ext !== '.mp4') args.push('-c:s', 'mov_text');
         if (['.mp4', '.mov', '.m4v'].includes(outExt)) args.push('-movflags', '+faststart');
         args.push(out);
@@ -122,7 +135,8 @@ export async function stripVideoInBrowser(
         return out;
       };
 
-      const preferred = ['.avi', '.wmv', '.flv', '.mts', '.m2ts', '.ts', '.3gp'].includes(ext) ? '.mp4' : ext;
+      const preferred = synthid && ext === '.webm' ? '.mkv'
+        : ['.avi', '.wmv', '.flv', '.mts', '.m2ts', '.ts', '.3gp'].includes(ext) ? '.mp4' : ext;
       ff.on('progress', onProgress);
       let out: string;
       let outExt = preferred;
