@@ -180,3 +180,9 @@ export const IconFile = () => (
     <path d="M14 3v5h5" />
   </svg>
 );
+
+export const IconRetry = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5" />
+  </svg>
+);

@@ -1,18 +1,21 @@
 import type { ReactNode } from 'react';
 import type { Job } from '../lib/jobs';
-import { IconClose, IconDownload } from './Icons';
+import { IconClose, IconDownload, IconRetry } from './Icons';
 
 interface Props {
   jobs: Job<unknown>[];
   icon: ReactNode;
   onRemove: (id: string) => void;
+  onRetry?: (id: string) => void;
   onClear: () => void;
 }
 
 /** Result rows, styled like the playbook's comparison table rows. */
-export default function JobList({ jobs, icon, onRemove, onClear }: Props) {
+export default function JobList({ jobs, icon, onRemove, onRetry, onClear }: Props) {
   if (!jobs.length) return null;
   const done = jobs.filter((j) => j.result);
+  const failed = jobs.filter((j) => j.status === 'error').length;
+  const pending = jobs.filter((j) => j.status === 'waiting' || j.status === 'active').length;
 
   const downloadAll = () => {
     done.forEach((j, i) =>
@@ -51,13 +54,23 @@ export default function JobList({ jobs, icon, onRemove, onClear }: Props) {
             </div>
             <div className="row-meter">
               {(j.status === 'active' || j.status === 'waiting') && (
-                <div className={`meter ${j.progress == null && j.status === 'active' ? 'busy' : ''}`}>
-                  <i style={{ width: `${(j.progress ?? 0) * 100}%` }} />
-                </div>
+                <>
+                  <div className={`meter ${j.progress == null && j.status === 'active' ? 'busy' : ''}`}>
+                    <i style={{ width: `${(j.progress ?? 0) * 100}%` }} />
+                  </div>
+                  {j.status === 'active' && j.progress != null && (
+                    <span className="pct">{Math.floor(j.progress * 100)}%</span>
+                  )}
+                </>
               )}
               {j.status === 'done' && <div className="meter full"><i /></div>}
             </div>
             <span className="row-actions">
+              {j.status === 'error' && onRetry && (
+                <button type="button" className="row-retry" aria-label={`Retry ${j.name}`} title="Retry" onClick={() => onRetry(j.id)}>
+                  <IconRetry />
+                </button>
+              )}
               {j.result && (
                 <a className="row-action" href={j.result.url} download={j.result.filename} title={`Download ${j.result.filename}`}>
                   <IconDownload />
@@ -73,9 +86,14 @@ export default function JobList({ jobs, icon, onRemove, onClear }: Props) {
       <div className="results-bar">
         <span className="legend">
           <i className="dot green" /> {done.length} ready
-          {jobs.length - done.length > 0 && (
+          {pending > 0 && (
             <>
-              <i className="dot gray" /> {jobs.length - done.length} in progress or failed
+              <i className="dot gray" /> {pending} in progress
+            </>
+          )}
+          {failed > 0 && (
+            <>
+              <i className="dot red" /> {failed} failed
             </>
           )}
         </span>

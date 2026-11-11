@@ -41,7 +41,7 @@ export default function StripTool() {
       '/api/strip',
       fd,
       {
-        onUpload: (p) => update({ progress: p, message: `Uploading · ${Math.round(p * 100)}%` }),
+        onUpload: (p) => update({ progress: p, message: 'Uploading' }),
         onUploaded: () => update({ progress: null, message: 'Cleaning…' }),
       },
       signal,
@@ -77,7 +77,7 @@ export default function StripTool() {
     }
   };
 
-  const { jobs, add, remove, clear, setPreview } = useJobs(runner);
+  const { jobs, add, remove, retry, clear, setPreview } = useJobs(runner);
 
   const addFiles = (files: FileList | null) => {
     if (!files?.length) return;
@@ -161,7 +161,7 @@ export default function StripTool() {
         />
       </div>
 
-      <JobList jobs={jobs} icon={<IconFile />} onRemove={remove} onClear={clear} />
+      <JobList jobs={jobs} icon={<IconFile />} onRemove={remove} onRetry={retry} onClear={clear} />
     </>
   );
 }

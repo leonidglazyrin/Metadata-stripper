@@ -27,7 +27,7 @@ function runWorker(file: File, ext: string, onStatus: Status): Promise<VideoResu
       if (m.type === 'progress') {
         const secs = (performance.now() - started) / 1000;
         const eta = m.progress > 0.03 ? ` · ~${Math.max(1, Math.round((secs / m.progress) * (1 - m.progress)))}s left` : '';
-        onStatus(`Removing SynthID · ${Math.round(m.progress * 100)}%${eta}`, m.progress);
+        onStatus(`Removing SynthID${eta}`, m.progress);
         return;
       }
       worker.terminate();
