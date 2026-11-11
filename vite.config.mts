@@ -6,6 +6,8 @@ import path from 'node:path';
 
 const webRoot = fileURLToPath(new URL('./web', import.meta.url));
 const RENDER = '/src/landing/render.tsx';
+// Guides and legal pages, rendered into the same template (see web/src/pages).
+const PAGES = '/src/pages/render.tsx';
 
 // Renders the landing page (web/src/landing) to static HTML, once per
 // language: English goes to index.html, every other language to
@@ -16,6 +18,7 @@ const RENDER = '/src/landing/render.tsx';
 // filled in afterwards, using a throwaway Vite server to load the component.
 type Rendered = { lang: string; head: string; body: string };
 type RenderModule = { render: (lang?: string) => Rendered; LANGS: { code: string }[]; langPath: (code: string) => string };
+type PagesModule = { PAGES: { path: string; priority: string }[]; pageFor: (path: string) => unknown; renderPage: (path: string) => Rendered };
 
 const fillPage = (html: string, page: Rendered) =>
   // (Replacer functions, so a "$" in the copy is never read as a pattern.)
@@ -31,8 +34,11 @@ function prerenderLanding(): Plugin {
     async transformIndexHtml(html, ctx) {
       // The server fills in the real origin; in dev, links stay relative.
       if (!dev || !html.includes('<!--landing-->')) return html;
+      const pages = (await dev.ssrLoadModule(PAGES)) as PagesModule;
+      const url = (ctx.originalUrl || '/').split(/[?#]/)[0];
+      if (pages.pageFor(url)) return fillPage(html, pages.renderPage(url)).replaceAll('__SITE_URL__', '').replaceAll('__CONTACT_EMAIL__', 'support@localhost');
       const mod = (await dev.ssrLoadModule(RENDER)) as RenderModule;
-      const code = (ctx.originalUrl || '/').split('/')[1];
+      const code = url.split('/')[1];
       const lang = mod.LANGS.some((l) => l.code === code) ? code : 'en';
       return fillPage(html, mod.render(lang)).replaceAll('__SITE_URL__', '');
     },
@@ -58,6 +64,15 @@ function prerenderLanding(): Plugin {
         // The server reads this for the sitemap.
         const langs = mod.LANGS.map((l) => ({ code: l.code, path: mod.langPath(l.code) }));
         await fs.writeFile(path.join(outDir, 'landing-langs.json'), JSON.stringify(langs));
+
+        const pages = (await server.ssrLoadModule(PAGES)) as PagesModule;
+        for (const { path: p } of pages.PAGES) {
+          const file = path.join(outDir, p, 'index.html');
+          await fs.mkdir(path.dirname(file), { recursive: true });
+          await fs.writeFile(file, fillPage(template, pages.renderPage(p)));
+        }
+        // The server reads this for its routes and the sitemap.
+        await fs.writeFile(path.join(outDir, 'pages.json'), JSON.stringify(pages.PAGES.map(({ path: p, priority }) => ({ path: p, priority }))));
       } finally {
         await server.close();
       }
@@ -70,6 +85,7 @@ function prerenderLanding(): Plugin {
 //   /      → web/index.html      static landing page (English)
 //   /es/ … → dist/es/index.html  the same page in other languages
 //   /app/  → web/app/index.html  the tools (React)
+//   /guides/…, /privacy/, /terms/ → dist/<path>/index.html  static content pages
 export default defineConfig({
   root: 'web',
   plugins: [react(), prerenderLanding()],

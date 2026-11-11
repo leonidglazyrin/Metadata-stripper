@@ -1,0 +1,75 @@
+/* Guides, legal pages and the shared site footer (web/src/pages). */
+
+/* ---------- Site footer ---------- */
+.site-foot { padding: 28px clamp(20px, 4vw, 40px); border-radius: var(--radius); background: #e5eaf1; color: var(--soft); font-size: 13.5px; display: grid; gap: 20px; }
+.foot-cols { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 24px; }
+.foot-cols p + p { margin-top: 8px; }
+.foot-brand b { color: var(--ink); font-size: 15px; }
+.site-foot h2 { font-size: 12.5px; font-weight: 750; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink); margin-bottom: 10px; }
+.site-foot ul { list-style: none; padding: 0; display: grid; gap: 7px; }
+.site-foot a { color: var(--soft); text-decoration: none; }
+.site-foot a:hover { color: var(--blue); text-decoration: underline; }
+.site-foot .foot-cols > div a { color: var(--blue); font-weight: 650; }
+.foot-fine { border-top: 1px solid var(--line-strong); padding-top: 16px; font-size: 12.5px; color: var(--faint); }
+
+/* ---------- Content pages ---------- */
+.doc-head { display: flex; align-items: center; gap: 10px 22px; padding: 18px clamp(18px, 3vw, 28px); }
+.doc-head .nav { margin-left: auto; display: flex; }
+.crumbs ol { list-style: none; padding: 0 8px; display: flex; flex-wrap: wrap; gap: 6px; font-size: 13.5px; color: var(--faint); }
+.crumbs li + li::before { content: '›'; margin-right: 6px; }
+.crumbs a { color: var(--soft); text-decoration: none; }
+.crumbs a:hover { color: var(--blue); }
+
+.doc .display.sm { font-size: clamp(30px, 4.6vw, 48px); line-height: 1.05; }
+.doc-top { display: flex; gap: 20px; align-items: flex-start; }
+.doc-top > :first-child { flex: none; margin-top: 4px; }
+.doc-top .eyebrow { margin-bottom: 10px; }
+.doc-date { margin-top: 12px; font-size: 13px; color: var(--faint); }
+.doc-lede { max-width: 72ch; margin-top: 18px; }
+.doc-lede a, .doc-body a { color: var(--blue); font-weight: 600; }
+
+.doc-steps { margin-top: 30px; padding: 26px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
+.doc-steps h2 { font-size: 20px; font-weight: 780; letter-spacing: -0.02em; }
+.doc-steps .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 18px 0 22px; }
+.doc-steps .steps li { background: var(--card); }
+
+.doc-body { max-width: 74ch; margin-top: 12px; }
+.doc-body section { margin-top: 34px; }
+.doc-body h2 { font-size: clamp(21px, 2.6vw, 26px); font-weight: 780; letter-spacing: -0.025em; line-height: 1.2; margin-bottom: 12px; scroll-margin-top: 16px; }
+.doc-body p, .doc-body li { color: var(--soft); font-size: 15.5px; line-height: 1.65; }
+.doc-body p + p, .doc-body p + ul, .doc-body ul + p, .doc-body p + pre, .doc-body pre + p { margin-top: 12px; }
+.doc-body ul, .doc-body ol { padding-left: 22px; display: grid; gap: 6px; }
+.doc-body b { color: var(--ink); }
+.doc-body code, .doc-lede code, .steps code { font: 0.88em var(--mono); background: var(--chip); padding: 1px 6px; border-radius: 6px; color: var(--ink); overflow-wrap: anywhere; }
+.doc-body pre { background: var(--code); color: var(--code-ink); padding: 16px 18px; border-radius: 16px; overflow-x: auto; font: 13px/1.6 var(--mono); }
+.doc-body pre code { background: none; padding: 0; color: inherit; font: inherit; overflow-wrap: normal; }
+.doc-note { margin-top: 14px; padding: 14px 16px; border-radius: 14px; background: var(--blue-soft); color: var(--ink) !important; font-size: 14.5px !important; }
+.doc-body .faq { margin-top: 4px; }
+.doc-body .faq details p { font-size: 15px; }
+
+.toc { margin-top: 24px; padding: 18px 22px; border-radius: 18px; background: #f8fafc; border: 1px solid var(--line); }
+.toc ol { padding-left: 20px; columns: 2; column-gap: 32px; font-size: 14.5px; }
+.toc li { break-inside: avoid; padding: 3px 0; color: var(--faint); }
+.toc a { color: var(--blue); text-decoration: none; font-weight: 600; }
+.legal .doc-body h2 { font-size: 20px; }
+
+.guide-list { list-style: none; padding: 0; margin-top: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.guide-list a { display: flex; gap: 14px; align-items: flex-start; height: 100%; padding: 18px; border-radius: 20px; background: #f8fafc; border: 1px solid var(--line); text-decoration: none; transition: border-color 0.15s, background 0.15s; }
+.guide-list a:hover { border-color: var(--blue); background: var(--card); }
+.guide-list a > :first-child { flex: none; }
+.guide-list b { display: block; color: var(--ink); font-size: 15.5px; letter-spacing: -0.01em; line-height: 1.3; }
+.guide-list a span span { display: block; margin-top: 6px; color: var(--soft); font-size: 13.5px; }
+
+@media (max-width: 860px) {
+  .foot-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .site-foot { border-radius: 22px; }
+  .foot-cols, .guide-list, .doc-steps .steps { grid-template-columns: minmax(0, 1fr); }
+  .doc-head .nav { display: none; }
+  .doc-head .head-cta { margin-left: auto; }
+  .doc-head .wordmark { font-size: 26px; }
+  .doc-top { flex-direction: column; gap: 14px; }
+  .doc-steps { padding: 18px; }
+  .toc ol { columns: 1; }
+}
