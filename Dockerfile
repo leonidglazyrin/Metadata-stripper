@@ -14,7 +14,7 @@ RUN apt-get update \
   && chmod +x /usr/local/bin/yt-dlp \
   && apt-get purge -y curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-# Stateless: accounts and usage live in Supabase, sessions in signed cookies,
+# Stateless: accounts and usage live in Cloudflare D1, sessions in signed cookies,
 # so no volume is needed and any number of containers can run side by side.
 ENV NODE_ENV=production PORT=3000
 COPY package.json package-lock.json ./

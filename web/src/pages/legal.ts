@@ -67,7 +67,7 @@ export const PRIVACY: LegalDoc = {
           ul: [
             '**Google**, for sign-in.',
             '**Stripe**, for payments, invoices and the subscription portal. Stripe’s own [privacy policy](https://stripe.com/privacy) applies to the payment details you give it.',
-            '**Supabase**, which hosts our database of accounts, subscriptions and usage counts.',
+            '**Cloudflare**, which hosts our database of accounts, subscriptions and usage counts.',
             '**Our hosting provider**, which runs the server and handles network traffic.',
           ],
         },

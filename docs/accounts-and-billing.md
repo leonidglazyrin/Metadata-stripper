@@ -6,7 +6,7 @@ Every visitor signs in with Google. Each account gets, for life:
 - **1 free server strip** (about 4x faster),
 - **1 free video download**.
 
-You can change all three in Supabase without a deploy (see below). After that the tools offer two monthly plans through Stripe:
+You can change all three in the database without a deploy (see below). After that the tools offer two monthly plans through Stripe:
 
 | Plan | Price | Unlimited | Still limited to the free allowance |
 | --- | --- | --- | --- |
@@ -17,8 +17,9 @@ People subscribe with Stripe Checkout. Switching plan (Basic to Pro or back) and
 
 ## How it works
 
-- `server/store.js` keeps users, usage counts and subscription status in **Supabase** (Postgres). The server calls the SQL functions in `supabase/migrations/` over Supabase's REST API with the service role key. Nothing is stored on the container's disk, so it runs fine in throwaway containers and several can run side by side.
-- Sign-in is the server's own Google OAuth flow (not Supabase Auth): it was already working, needs no client-side Supabase library, and keeps every key on the server. Supabase is used as the database only, so you don't need to turn on Supabase's Google provider.
+- `server/store.js` keeps users, usage counts and subscription status in **Cloudflare D1** (SQLite). The server sends SQL to D1's HTTP API with an API token, so it works from any container (Cloudflare Containers, Fly, Railway, ...). The schema is in `migrations/`. Nothing is stored on the container's disk, so it runs fine in throwaway containers and several can run side by side.
+- Every write is a single SQL statement and D1 runs statements one at a time, so two parallel requests can't both take the last free use. Triggers log each use and refund in `usage_events`.
+- Sign-in is the server's own Google OAuth flow. D1 is only the database.
 - `server/account.js` has the routes: Google sign-in, `/api/me`, the quota gate, Checkout, the Portal and the webhook.
 - Sessions are a signed, HttpOnly, SameSite=Lax cookie (30 days), signed with `SESSION_SECRET`. Every container must have the same `SESSION_SECRET`.
 - Limits are enforced on the server before any work starts. Each mode has its own counter (`kind` in `usage_counters`):
@@ -26,22 +27,32 @@ People subscribe with Stripe Checkout. Switching plan (Basic to Pro or back) and
   - **Downloads** (kind `download`, `POST /api/download/:platform/jobs` and the old one-shot routes): checked after the link is validated. A download that fails or is cancelled before it finishes is given back. "Get audio" counts as a download.
   - **On-device strip** (kind `strip`): the file never reaches the server, so the page calls `POST /api/usage/strip` first, which counts the use (no refund). Someone editing the page's JavaScript could skip this; the server-side tools can't be bypassed.
 - The license is the Stripe subscription: statuses `active`, `trialing` and `past_due` (while Stripe retries a card) count as paid, with a day of slack past the period end. The webhook re-reads the subscription from Stripe on every event, so retries and out-of-order deliveries are safe.
-- **Which plan** comes from the subscription's price: the webhook compares it with `STRIPE_PRICE_ID_BASIC` and `STRIPE_PRICE_ID_PRO` and writes `basic` or `pro` into `subscriptions.tier`. A price that matches neither is treated as Pro and logged, so a paying customer is never locked out by a config mistake. The check-and-count in Postgres (`consume_usage`) reads that tier, so the limit can't be raced.
+- **Which plan** comes from the subscription's price: the webhook compares it with `STRIPE_PRICE_ID_BASIC` and `STRIPE_PRICE_ID_PRO` and writes `basic` or `pro` into `subscriptions.tier`. A price that matches neither is treated as Pro and logged, so a paying customer is never locked out by a config mistake. The check-and-count statement in `consume()` reads that tier, so the limit can't be raced.
 - When a tool hits a limit, the server answers 402 with the plan that lifts it (`basic` for on-device strips, `pro` for the rest), and the upgrade dialog highlights that plan.
 
-## 1. Supabase project
+## 1. Cloudflare D1 database
 
-1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard) → **New project**. Pick a region near where your containers run and save the database password somewhere safe (the app doesn't need it).
-2. **SQL Editor → New query**: run each file in [`supabase/migrations/`](../supabase/migrations/) **in order of its name**, once each: paste it, click **Run**, then the next one. They create the tables, turn on row level security and add the functions the server calls.
-   - `20261111000000_accounts.sql`: profiles, subscriptions, usage, settings.
-   - `20261112000000_plans.sql`: the Basic/Pro tier on subscriptions, the separate `server_strip` counter and the `free_server_strips` setting. If you already ran the first file, just run this one; existing subscriptions become Pro (they were all the $20 plan).
-   - Any later file (other features add their own).
+You need Node 22+ and a Cloudflare account. `wrangler` is Cloudflare's CLI; `npx` runs it without installing.
 
-   Running the newest file again is harmless, but don't re-run an older file after a newer one (it would put back the older version of a function). With the Supabase CLI this is handled for you: `supabase link --project-ref <ref>` then `supabase db push` applies only the files not yet applied.
-3. **Project Settings → API** (or **API Keys**):
-   - Copy the **Project URL** into `SUPABASE_URL` (`https://<ref>.supabase.co`).
-   - Copy the **service_role** key (legacy tab, starts with `eyJ`) or create a **secret key** (`sb_secret_…`) and put it in `SUPABASE_SERVICE_ROLE_KEY`. This key bypasses row level security: keep it on the server only, never in the web app or in git.
-4. Check **Table Editor**: you should see `profiles`, `subscriptions`, `usage_counters`, `usage_events` and `app_settings`.
+1. Sign in: `npx wrangler login`.
+2. Create the database (pick the location hint nearest your containers, e.g. `enam` for eastern North America):
+
+   ```bash
+   npx wrangler d1 create sharona --location enam
+   ```
+
+   It prints a `database_id`. Put it in `CLOUDFLARE_D1_DATABASE_ID`.
+3. Create the tables:
+
+   ```bash
+   npx wrangler d1 execute sharona --remote --file migrations/0001_accounts.sql
+   npx wrangler d1 execute sharona --remote --file migrations/0002_download_history.sql
+   ```
+
+   Running them again is harmless. When later features add `migrations/0003_….sql` and so on, run each new file the same way, in order of its name.
+4. Your **account ID** is on the right of the Cloudflare dashboard's *Workers & Pages* overview (or run `npx wrangler whoami`). Put it in `CLOUDFLARE_ACCOUNT_ID`.
+5. Create an API token: **My Profile → API Tokens → Create Token → Custom token**, permission **Account · D1 · Edit**, limited to your account. Put it in `CLOUDFLARE_API_TOKEN`. It can read and change the whole database: keep it on the server only, never in the web app or in git.
+6. Check: `npx wrangler d1 execute sharona --remote --command "SELECT key, value FROM app_settings"` should list the three free allowances.
 
 What the tables hold:
 
@@ -50,21 +61,22 @@ What the tables hold:
 | `profiles` | One row per Google account: Google id, email, name, picture, Stripe customer id |
 | `subscriptions` | Each Stripe subscription (status, `tier` = `basic`/`pro`, price, period end, cancel at period end), written by the Stripe webhook |
 | `usage_counters` | Uses per account and `kind`: `strip` (on-device), `server_strip`, `download` |
-| `usage_events` | Every use (+1) and refund (−1), with a timestamp, for support and stats |
+| `usage_events` | Every use (+1) and refund (−1), with the plan at the time and a timestamp, for support and stats (written by triggers) |
+| `download_history` | Each signed-in account's download rows (link, name, state), so they show on any device. The file itself is still deleted after `DOWNLOAD_TTL_MIN`; rows older than 30 days are pruned hourly |
 | `app_settings` | `free_strips` (on-device), `free_server_strips` and `free_downloads` (all `1`) |
 | `accounts` (view) | Profile + current subscription (with `subscription_tier`) + usage on one row; handy for looking someone up |
 
 ### Changing the free allowance
 
-Edit the `value` of `free_strips` (on-device), `free_server_strips` or `free_downloads` in **Table Editor → app_settings**, or run:
+Edit the `value` of `free_strips` (on-device), `free_server_strips` or `free_downloads` in the Cloudflare dashboard (**Storage & Databases → D1 → sharona → Tables → app_settings**), or run:
 
-```sql
-update public.app_settings set value = '3', updated_at = now() where key = 'free_downloads';
+```bash
+npx wrangler d1 execute sharona --remote --command "UPDATE app_settings SET value = '3', updated_at = unixepoch() WHERE key = 'free_downloads'"
 ```
 
 Running servers pick it up within a minute, no deploy needed. It applies to everyone, including people who already used their free one (someone at 1 of 3 gets 2 more). Set `FREE_STRIPS` / `FREE_SERVER_STRIPS` / `FREE_DOWNLOADS` on the server only if you want the env to override the table.
 
-To give one person more, lower their count: `update public.usage_counters set used = 0 where user_id = '<id>' and kind = 'server_strip';` (find the id in the `accounts` view by email).
+To give one person more, lower their count: `UPDATE usage_counters SET used = 0 WHERE user_id = '<id>' AND kind = 'server_strip'` (find the id with `SELECT id FROM accounts WHERE email = '…'`).
 
 ## 2. Google OAuth client
 
@@ -115,16 +127,41 @@ Go live by switching the dashboard to Live mode and repeating steps 1–5 there 
 
 ## 4. Server settings
 
-Set `SITE_URL`, `SESSION_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO` and `STRIPE_WEBHOOK_SECRET` (see `.env.example`) in your host's environment settings. No volume or persistent disk is needed:
+Set `SITE_URL`, `SESSION_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO` and `STRIPE_WEBHOOK_SECRET` (see `.env.example`) in your host's environment settings. No volume or persistent disk is needed:
 
 ```bash
 docker run -p 3000:3000 --env-file .env sharona
 ```
 
-If the paywall is on and the Supabase variables are missing, the server refuses to start with a message saying so. If Supabase can't be reached while running, sign-in and the tools answer "Accounts are unavailable right now" (HTTP 503) instead of letting work through for free.
+If the paywall is on and the D1 variables are missing, the server refuses to start with a message saying so. If D1 can't be reached while running, sign-in and the tools answer "Accounts are unavailable right now" (HTTP 503) instead of letting work through for free.
 
-On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, billing Stripe, accounts in Supabase (https://….supabase.co), free tier from the app_settings table, plans: basic + pro`. If one of the two price IDs is missing it logs which, and that plan shows "Not available yet" in the dialog.
+On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, billing Stripe, accounts in D1 (<database id>), free tier from the app_settings table, plans: basic + pro`. If one of the two price IDs is missing it logs which, and that plan shows "Not available yet" in the dialog.
+
+## Deploying on Cloudflare Containers
+
+`wrangler.jsonc` and `worker/index.js` deploy the Docker image to [Cloudflare Containers](https://developers.cloudflare.com/containers/) with a small Worker in front. Workers Builds (connected to this repo) runs `npx wrangler deploy` on every push to main; you can also run it yourself with Docker running.
+
+1. Put the D1 database id in both `REPLACE_WITH_D1_DATABASE_ID` spots in `wrangler.jsonc`, and your real address in `SITE_URL` (the `workers.dev` one, or your own domain once you add it under the Worker's **Settings → Domains & Routes**).
+2. Set the secrets once (each command asks for the value):
+
+   ```bash
+   npx wrangler secret put SESSION_SECRET          # openssl rand -hex 32
+   npx wrangler secret put CLOUDFLARE_API_TOKEN    # the D1 token
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   npx wrangler secret put STRIPE_SECRET_KEY
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+   ```
+
+   Put `STRIPE_PRICE_ID_BASIC` and `STRIPE_PRICE_ID_PRO` in `vars` in `wrangler.jsonc` (they aren't secret), or set them as secrets too. The Worker hands every one of these to the server (the list is `PASS` in `worker/index.js`).
+3. Push to main (or run `npx wrangler deploy`).
+
+One container instance (`standard-2`) serves all traffic, because a download job lives in the memory and disk of the container that started it. It sleeps after 15 minutes without requests and wakes in a few seconds on the next one; set `SLEEP_AFTER` in `vars` to change that.
 
 ## Dev mode
 
-There is no local database: point `npm run dev` at a Supabase project too (a second, free "dev" project keeps test accounts out of production). With `NODE_ENV` not `production` and no Google/Stripe variables: **Sign in** logs into a local test account (`/api/auth/dev?email=…` gives you more), **Get Basic** / **Get Pro** turn that plan on at once (and switch between them), and **Cancel plan (dev)** turns it off. In production missing Google/Stripe settings make sign-in and checkout answer "not set up" instead; set `PAYWALL=off` to run without accounts (and without Supabase) until they are configured.
+There is no local database: point `npm run dev` at a D1 database too (a second database, e.g. `npx wrangler d1 create sharona-dev`, keeps test accounts out of production). With `NODE_ENV` not `production` and no Google/Stripe variables: **Sign in** logs into a local test account (`/api/auth/dev?email=…` gives you more), **Get Basic** / **Get Pro** turn that plan on at once (and switch between them), and **Cancel plan (dev)** turns it off. In production missing Google/Stripe settings make sign-in and checkout answer "not set up" instead; set `PAYWALL=off` to run without accounts (and without D1) until they are configured.
+
+## A note on the D1 HTTP API limit
+
+The server talks to D1 through Cloudflare's REST API, which allows about 1,200 requests per 5 minutes per account (roughly 4 a second). Each page load costs one request and each strip or download two or three, which is plenty for launch. If traffic grows past that, put a small Worker with a D1 binding in front of the database and point the store at it: `createStore()` only needs a `query(sql, params)` function, so nothing else changes.

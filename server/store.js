@@ -1,170 +1,198 @@
 'use strict';
 
-// Accounts, paid plans (Basic / Pro) and usage counts, stored in Supabase (Postgres).
+// Accounts, paid plans (Basic / Pro) and usage counts, stored in Cloudflare D1.
 //
-// The server talks to Supabase's REST API (PostgREST) with the service role
-// key, so there is no extra dependency and nothing is kept on local disk.
-// Every read and write goes through the SQL functions in
-// supabase/migrations/, which keep the free-use check atomic. The tables have
-// row level security on with no policies, so only the service role can reach
-// them; never send this key to the browser.
+// The server reaches D1 over Cloudflare's HTTP API, so it works from any
+// container (Cloudflare Containers, Vercel, Fly, ...) with no extra
+// dependency and nothing kept on local disk. The schema is in
+// migrations/0001_accounts.sql. Every write is a single SQL statement, and D1
+// runs statements one at a time, so the free-use check can't be raced.
 
 /** Subscription statuses that count as a paid license. */
 const ACTIVE = new Set(['active', 'trialing', 'past_due']);
+const ACTIVE_SQL = "('active', 'trialing', 'past_due')";
 
 const SETTINGS_TTL_MS = 60_000;
 
 class StoreError extends Error {}
 
 /**
- * @param {{ url: string, key: string, fetchImpl?: typeof fetch, timeoutMs?: number }} opts
+ * A D1 client over the REST API:
+ * POST /accounts/:account/d1/database/:db/query  { sql, params }
  */
-function createSupabaseStore({ url, key, fetchImpl = fetch, timeoutMs = 10_000 }) {
-  if (!url || !key) {
-    throw new StoreError('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see docs/accounts-and-billing.md)');
+function d1Http({ accountId, databaseId, apiToken, fetchImpl = fetch, timeoutMs = 10_000, apiBase = 'https://api.cloudflare.com/client/v4' }) {
+  if (!accountId || !databaseId || !apiToken) {
+    throw new StoreError('CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_D1_DATABASE_ID and CLOUDFLARE_API_TOKEN must be set (see docs/accounts-and-billing.md)');
   }
-  const base = `${url.replace(/\/+$/, '')}/rest/v1`;
-  const headers = {
-    apikey: key,
-    // Legacy service_role keys are JWTs and also go in Authorization; the
-    // newer sb_secret_... keys only go in apikey.
-    ...(key.startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : {}),
-    'Content-Type': 'application/json',
-    Accept: 'application/json',
-  };
-
-  async function rpc(fn, args = {}) {
+  const url = `${apiBase}/accounts/${encodeURIComponent(accountId)}/d1/database/${encodeURIComponent(databaseId)}/query`;
+  return async function query(sql, params = []) {
     let res;
     try {
-      res = await fetchImpl(`${base}/rpc/${fn}`, {
+      res = await fetchImpl(url, {
         method: 'POST',
-        headers,
-        body: JSON.stringify(args),
+        headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql, params }),
         signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (e) {
-      throw new StoreError(`Supabase ${fn}: ${e.message}`);
+      throw new StoreError(`D1: ${e.message}`);
     }
-    const text = await res.text();
-    let data = null;
-    if (text) {
-      try { data = JSON.parse(text); } catch { data = text; }
+    const data = await res.json().catch(() => null);
+    const r = data?.result?.[0];
+    if (!res.ok || !data?.success || !r || r.success === false) {
+      const why = data?.errors?.map((e) => e.message).join('; ') || r?.error || `HTTP ${res.status}`;
+      throw new StoreError(`D1: ${why}`);
     }
-    if (!res.ok) {
-      const why = data?.message || data?.hint || (typeof data === 'string' ? data : '') || `HTTP ${res.status}`;
-      throw new StoreError(`Supabase ${fn}: ${why}`);
-    }
-    return data;
-  }
+    return { rows: r.results || [], changes: r.meta?.changes ?? 0 };
+  };
+}
 
-  const one = (rows) => (Array.isArray(rows) ? rows[0] || null : rows || null);
+// True when the account's current paid plan includes this kind of use
+// (?1 = user id, ?2 = kind). Mirrors PLAN_UNLIMITED below.
+const UNLIMITED_SQL = `EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = ?1 AND s.status IN ${ACTIVE_SQL}
+  AND (s.current_period_end IS NULL OR s.current_period_end > unixepoch() - 86400)
+  AND (s.tier = 'pro' OR (s.tier = 'basic' AND ?2 = 'strip')))`;
+
+/**
+ * @param {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: object[], changes: number }> }} opts
+ */
+function createStore({ query, uuid = () => crypto.randomUUID() }) {
+  const first = async (sql, params) => (await query(sql, params)).rows[0] || null;
   const isUuid = (id) => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const getUser = async (id) => (typeof id === 'string' && id ? first('SELECT * FROM accounts WHERE id = ?1', [id]) : null);
 
   let settings = null;
   let settingsAt = 0;
 
   return {
     /** The account row (see the `accounts` view), or null. */
-    async getUser(id) {
-      if (!isUuid(id)) return null;
-      return one(await rpc('get_account', { p_user_id: id }));
-    },
+    getUser,
 
-    async userByCustomer(customerId) {
-      return one(await rpc('account_by_customer', { p_customer: customerId }));
-    },
+    userByCustomer: (customerId) => first('SELECT * FROM accounts WHERE stripe_customer_id = ?1', [customerId]),
 
     /** Find or create the account for a Google identity, refreshing its profile. */
     async upsertGoogleUser({ sub, email, name, picture }) {
-      return one(await rpc('upsert_google_user', {
-        p_sub: sub, p_email: email ?? null, p_name: name ?? null, p_picture: picture ?? null,
-      }));
+      const row = await first(
+        `INSERT INTO profiles (id, google_sub, email, name, picture, last_login_at) VALUES (?1, ?2, ?3, ?4, ?5, unixepoch())
+         ON CONFLICT (google_sub) DO UPDATE SET email = excluded.email, name = excluded.name,
+           picture = excluded.picture, last_login_at = excluded.last_login_at
+         RETURNING id`,
+        [uuid(), sub, email ?? null, name ?? null, picture ?? null],
+      );
+      return getUser(row.id);
     },
 
     async setCustomer(userId, customerId) {
-      await rpc('set_customer', { p_user_id: userId, p_customer: customerId });
+      await query('UPDATE profiles SET stripe_customer_id = ?2 WHERE id = ?1', [userId, customerId]);
     },
 
     async setSubscription(userId, sub) {
-      await rpc('set_subscription', {
-        p_user_id: userId,
-        p_id: sub.id,
-        p_status: sub.status,
-        p_period_end: sub.periodEnd ?? null,
-        p_cancel_at_period_end: Boolean(sub.cancelAtPeriodEnd),
-        p_price_id: sub.priceId ?? null,
-        p_tier: sub.tier === 'basic' ? 'basic' : 'pro',
-      });
+      await query(
+        `INSERT INTO subscriptions (id, user_id, status, current_period_end, cancel_at_period_end, price_id, tier, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, unixepoch())
+         ON CONFLICT (id) DO UPDATE SET user_id = excluded.user_id, status = excluded.status,
+           current_period_end = excluded.current_period_end, cancel_at_period_end = excluded.cancel_at_period_end,
+           price_id = COALESCE(excluded.price_id, subscriptions.price_id), tier = excluded.tier,
+           updated_at = excluded.updated_at`,
+        [sub.id, userId, sub.status, sub.periodEnd ?? null, sub.cancelAtPeriodEnd ? 1 : 0, sub.priceId ?? null,
+          sub.tier === 'basic' ? 'basic' : 'pro'],
+      );
     },
 
     /**
      * Count one use of `kind` ('strip' = on-device, 'server_strip' or
      * 'download'). Always allowed when the account's plan includes it (see
-     * PLAN_UNLIMITED), otherwise only while under `freeLimit`. Atomic in Postgres.
+     * PLAN_UNLIMITED), otherwise only while under `freeLimit`. One statement,
+     * so two parallel requests can't both take the last free use.
      */
     async consume(userId, kind, freeLimit) {
-      if (!isUuid(userId)) return false;
-      return (await rpc('consume_usage', { p_user_id: userId, p_kind: kind, p_free_limit: freeLimit })) === true;
+      const { changes } = await query(
+        `INSERT INTO usage_counters (user_id, kind, used)
+         SELECT ?1, ?2, 1 WHERE EXISTS (SELECT 1 FROM profiles WHERE id = ?1) AND (${UNLIMITED_SQL} OR ?3 >= 1)
+         ON CONFLICT (user_id, kind) DO UPDATE SET used = used + 1
+         WHERE ${UNLIMITED_SQL} OR usage_counters.used < ?3`,
+        [userId, kind, freeLimit],
+      );
+      return changes === 1;
     },
 
     /** Give back a use that didn't produce a file (failed or cancelled). */
     async refund(userId, kind) {
-      await rpc('refund_usage', { p_user_id: userId, p_kind: kind });
+      await query('UPDATE usage_counters SET used = used - 1 WHERE user_id = ?1 AND kind = ?2 AND used > 0', [userId, kind]);
     },
 
     /** Rows of the app_settings table as { key: value }, cached for a minute. */
     async settings(now = Date.now()) {
       if (settings && now - settingsAt < SETTINGS_TTL_MS) return settings;
       try {
-        settings = (await rpc('get_settings')) || {};
+        const { rows } = await query('SELECT key, value FROM app_settings');
+        const out = {};
+        for (const { key, value } of rows) {
+          try { out[key] = JSON.parse(value); } catch { out[key] = value; }
+        }
+        settings = out;
         settingsAt = now;
       } catch (e) {
         if (!settings) throw e;
-        // Keep serving the last values if Supabase hiccups.
+        // Keep serving the last values if D1 hiccups.
       }
       return settings;
     },
 
-    // --- download rows (supabase/migrations/20261111100000_download_history.sql)
+    // --- download rows (migrations/0002_download_history.sql)
 
     /** The account's newest rows for one platform. */
     async listDownloads(userId, platform, limit = 50) {
-      if (!isUuid(userId)) return [];
-      return (await rpc('list_downloads', { p_user_id: userId, p_platform: platform, p_limit: limit })) || [];
+      const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
+      const { rows } = await query(
+        `SELECT id, user_id, platform, url, mode, name, job_id, status, message, created_at, updated_at
+         FROM download_history WHERE user_id = ?1 AND platform = ?2
+         ORDER BY created_at DESC, rowid DESC LIMIT ?3`,
+        [userId, platform, n],
+      );
+      return rows;
     },
 
-    /** Insert or update a row; fields left out keep their value. */
+    /**
+     * Insert or update a row; fields left out keep their value. A row id that
+     * belongs to another account is left alone.
+     */
     async saveDownload(userId, row) {
       if (!isUuid(userId) || !isUuid(row.id)) return;
-      await rpc('save_download', {
-        p_user_id: userId,
-        p_id: row.id,
-        p_platform: row.platform,
-        p_url: row.url,
-        p_mode: row.mode,
-        p_name: row.name ?? null,
-        p_job_id: row.jobId ?? null,
-        p_status: row.status ?? null,
-        p_message: row.message ?? null,
-      });
+      await query(
+        `INSERT INTO download_history (id, user_id, platform, url, mode, name, job_id, status, message)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, 'pending'), ?9)
+         ON CONFLICT (id) DO UPDATE SET
+           name = COALESCE(excluded.name, download_history.name),
+           job_id = COALESCE(?7, download_history.job_id),
+           status = COALESCE(?8, download_history.status),
+           message = CASE WHEN ?8 IS NULL THEN download_history.message ELSE ?9 END,
+           updated_at = unixepoch()
+         WHERE download_history.user_id = ?2`,
+        [row.id, userId, row.platform, row.url, row.mode, row.name ?? null, row.jobId ?? null, row.status ?? null, row.message ?? null],
+      );
     },
 
     /** Delete rows by id, or all of a platform's when ids is null. Returns their job ids. */
     async deleteDownloads(userId, platform, ids = null) {
-      if (!isUuid(userId)) return [];
       const list = ids && ids.filter(isUuid);
       if (list && !list.length) return [];
-      const out = await rpc('delete_downloads', { p_user_id: userId, p_platform: platform, p_ids: list });
-      return (out || []).filter(Boolean);
+      const { rows } = await query(
+        `DELETE FROM download_history WHERE user_id = ?1 AND platform = ?2
+           AND (?3 IS NULL OR id IN (SELECT value FROM json_each(?3)))
+         RETURNING job_id`,
+        [userId, platform, list ? JSON.stringify(list) : null],
+      );
+      return rows.map((r) => r.job_id).filter(Boolean);
     },
 
     async pruneDownloads(days = 30) {
-      await rpc('prune_downloads', { p_days: days });
+      await query('DELETE FROM download_history WHERE created_at < unixepoch() - ?1 * 86400', [Math.max(1, Number(days) || 30)]);
     },
   };
 }
 
-/** What each paid plan includes without limits. Mirrors tier_unlimited() in SQL. */
+/** What each paid plan includes without limits. Mirrors UNLIMITED_SQL above. */
 const PLAN_UNLIMITED = {
   free: [],
   basic: ['strip'],
@@ -182,4 +210,4 @@ function planOf(user) {
 const isUnlimited = (plan, kind) => PLAN_UNLIMITED[plan]?.includes(kind) ?? false;
 const isPaid = (user) => planOf(user) !== 'free';
 
-module.exports = { createSupabaseStore, planOf, isPaid, isUnlimited, PLAN_UNLIMITED, StoreError };
+module.exports = { createStore, d1Http, planOf, isPaid, isUnlimited, PLAN_UNLIMITED, StoreError };

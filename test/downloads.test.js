@@ -7,8 +7,25 @@ const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const { createDownloadRouter, displayName } = require('../server/downloaders');
-const { createSupabaseStore } = require('../server/store');
-const { fakeSupabase } = require('./fake-supabase');
+const { createStore, d1Http } = require('../server/store');
+const { fakeD1 } = require('./fake-d1');
+
+/** Read the download_history table of a fake D1 database. */
+function historyOf(db) {
+  const get = (id) => {
+    const r = db.db.prepare('SELECT * FROM download_history WHERE id = ?').get(id);
+    return r ? { ...r } : undefined;
+  };
+  return {
+    get,
+    has: (id) => Boolean(get(id)),
+    get size() { return db.db.prepare('SELECT COUNT(*) AS n FROM download_history').get().n; },
+    insert(row) {
+      db.db.prepare(`INSERT INTO download_history (id, user_id, platform, url, mode, name, job_id, status, message)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(row.id, row.user_id, row.platform, row.url, row.mode, row.name, row.job_id, row.status, row.message);
+    },
+  };
+}
 
 test('TikTok rows: account name, no hashtags, then a short bit of the caption', () => {
   assert.equal(displayName('POV: the dog finally gets it #fyp #dogsoftiktok #funny', 'Rex the Dog', 'tiktok'), 'Rex the Dog - POV: the dog finally gets it');
@@ -23,13 +40,14 @@ test('TikTok rows: account name, no hashtags, then a short bit of the caption', 
 });
 
 async function server(t, { user }) {
-  const fake = fakeSupabase();
-  const store = createSupabaseStore({ url: fake.url, key: fake.key, fetchImpl: fake.fetch });
+  const db = fakeD1();
+  const store = createStore({ query: d1Http({ accountId: db.accountId, databaseId: db.databaseId, apiToken: db.apiToken, fetchImpl: db.fetch }) });
+  const fake = { db, history: historyOf(db) };
   const owner = await store.upsertGoogleUser({ sub: 'g-1', email: 'a@example.com' });
   const other = await store.upsertGoogleUser({ sub: 'g-2', email: 'b@example.com' });
   const who = { current: owner };
   const app = express();
-  // An async gate, like the real one (it reads the account from Supabase).
+  // An async gate, like the real one (it reads the account from the database).
   const gate = async (req, _res, next) => {
     await new Promise((ok) => setTimeout(ok, 5));
     req.quota = { refund() {}, refundUnlessSent() {} };
@@ -101,7 +119,7 @@ test('downloads are kept per account and only that account sees them', async (t)
 test('a row whose job the server no longer has comes back as expired', async (t) => {
   const { call, fake, owner } = await server(t, { user: true });
   const id = crypto.randomUUID();
-  fake.history.set(id, { id, user_id: owner.id, platform: 'youtube', url: 'https://youtu.be/x', mode: 'video', name: 'Old - Chan', job_id: crypto.randomUUID(), status: 'ready', message: null, seq: 1 });
+  fake.history.insert({ id, user_id: owner.id, platform: 'youtube', url: 'https://youtu.be/x', mode: 'video', name: 'Old - Chan', job_id: crypto.randomUUID(), status: 'ready', message: null });
   const h = await call('GET', '/history/youtube');
   assert.deepEqual(h.body.rows, [{ id, url: 'https://youtu.be/x', mode: 'video', name: 'Old - Chan', serverId: null, status: 'expired', message: null }]);
   assert.equal((await call('DELETE', '/history/youtube')).status, 204);
@@ -114,4 +132,25 @@ test('signed out: no history, and no rows are written', async (t) => {
   const r = await call('POST', '/x/jobs', { url: 'https://x.com/a/status/1', mode: 'video', rowId: crypto.randomUUID() });
   assert.equal(r.status, 202);
   assert.equal(fake.history.size, 0);
+});
+
+test('D1 download rows: other accounts cannot overwrite, delete by ids, prune old rows', async () => {
+  const db = fakeD1();
+  const store = createStore({ query: d1Http({ accountId: db.accountId, databaseId: db.databaseId, apiToken: db.apiToken, fetchImpl: db.fetch }) });
+  const a = await store.upsertGoogleUser({ sub: 'g-a', email: 'a@x' });
+  const b = await store.upsertGoogleUser({ sub: 'g-b', email: 'b@x' });
+  const [id1, id2] = [crypto.randomUUID(), crypto.randomUUID()];
+  await store.saveDownload(a.id, { id: id1, platform: 'x', url: 'https://x.com/a/status/1', mode: 'video', jobId: 'job1' });
+  await store.saveDownload(a.id, { id: id2, platform: 'x', url: 'https://x.com/a/status/2', mode: 'audio', jobId: 'job2' });
+  await store.saveDownload(a.id, { id: id1, platform: 'x', url: 'https://x.com/a/status/1', mode: 'video', status: 'ready', name: 'Clip - Me' });
+  await store.saveDownload(b.id, { id: id1, platform: 'x', url: 'https://evil', mode: 'video', status: 'error', message: 'nope' });
+  let rows = await store.listDownloads(a.id, 'x');
+  assert.deepEqual(rows.map((r) => [r.id, r.status, r.name, r.job_id]).sort(), [[id1, 'ready', 'Clip - Me', 'job1'], [id2, 'pending', null, 'job2']].sort());
+  assert.deepEqual(await store.listDownloads(b.id, 'x'), []);
+  assert.deepEqual(await store.deleteDownloads(b.id, 'x', [id1]), []);
+  assert.deepEqual(await store.deleteDownloads(a.id, 'x', [id1, 'not-a-uuid']), ['job1']);
+  db.db.exec('UPDATE download_history SET created_at = unixepoch() - 40 * 86400');
+  await store.pruneDownloads(30);
+  rows = await store.listDownloads(a.id, 'x');
+  assert.equal(rows.length, 0);
 });

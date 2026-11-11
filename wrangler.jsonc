@@ -1,0 +1,43 @@
+// Deploys Sharona to Cloudflare Containers: `npx wrangler deploy` builds the
+// Dockerfile (Docker must be running locally; Workers Builds does it for you
+// on push) and puts a small Worker (worker/index.js) in front of it.
+// Secrets are set with `npx wrangler secret put NAME` (see
+// docs/accounts-and-billing.md); plain settings go in "vars" below.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "metadata-stripper",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-11-01",
+  "observability": { "enabled": true },
+
+  "containers": [
+    {
+      "class_name": "SharonaServer",
+      "image": "./Dockerfile",
+      // ffmpeg re-encodes and yt-dlp downloads need real CPU and memory.
+      "instance_type": "standard-2",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "SERVER", "class_name": "SharonaServer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SharonaServer"] }],
+
+  // Lets `npx wrangler d1 execute sharona …` find the database. The server
+  // itself reaches D1 over the HTTP API with the vars/secrets below.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sharona",
+      "database_id": "7c9bd4b8-ee67-4223-bf5f-3022f455dbd1",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "vars": {
+    "SITE_URL": "https://metadata-stripper.synthidstripper.workers.dev",
+    "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
+    "CLOUDFLARE_D1_DATABASE_ID": "7c9bd4b8-ee67-4223-bf5f-3022f455dbd1"
+  }
+}
