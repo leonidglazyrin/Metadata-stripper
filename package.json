@@ -1,10 +1,15 @@
 {
   "name": "metadata-stripper",
   "version": "1.0.0",
-  "description": "Web app that strips metadata (EXIF, GPS, XMP, IPTC, ICC, C2PA, container tags) from photos and videos",
-  "main": "server.js",
+  "description": "Creator tools web app: strip metadata from photos/videos and download from YouTube, X, Instagram and TikTok",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node server.js"
+    "dev": "concurrently -k -n api,web -c blue,green \"node --watch server/index.js\" \"vite\"",
+    "dev:api": "node --watch server/index.js",
+    "dev:web": "vite",
+    "build": "tsc --noEmit -p web && vite build",
+    "start": "node server/index.js",
+    "preview": "npm run build && npm start"
   },
   "repository": {
     "type": "git",
@@ -22,6 +27,19 @@
     "sharp": "^0.35.5"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.19"
+  },
+  "private": true,
+  "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7"
   }
 }
