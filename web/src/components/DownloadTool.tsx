@@ -27,6 +27,10 @@ interface JobStatus {
   state: 'downloading' | 'processing' | 'ready' | 'error';
   progress: number | null;
   title: string | null;
+  /** Channel or account that posted it */
+  author?: string | null;
+  /** "Video title - Channel" */
+  name?: string | null;
   thumbnail: boolean;
   error: string | null;
   /** 'extract' while audio is being pulled from a video already on the server */
@@ -171,7 +175,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         }
         throw e;
       }
-      if (s.title) update({ name: s.title });
+      if (s.name || s.title) update({ name: (s.name || s.title)! });
       if (s.thumbnail && !thumb) {
         const src = apiUrl(`${base}/thumb`);
         thumb = loadImage(src).then((ok) => {
@@ -399,6 +403,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       <JobList
         jobs={jobs}
         icon={<ToolIcon tool={platform} size={26} />}
+        linkOf={(j) => (j.input as Input).url}
         onRemove={onRemove}
         onRetry={onRetry}
         onClear={onClear}

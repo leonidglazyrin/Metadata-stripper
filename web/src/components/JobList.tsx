@@ -12,10 +12,12 @@ interface Props {
   canSwitch?: (job: Job<unknown>) => boolean;
   onSwitch?: (id: string) => void;
   switchLabel?: string;
+  /** The link a row came from, shown small under its name. */
+  linkOf?: (job: Job<unknown>) => string | undefined;
 }
 
 /** Result rows, styled like the playbook's comparison table rows. */
-export default function JobList({ jobs, icon, onRemove, onRetry, onClear, canSwitch, onSwitch, switchLabel }: Props) {
+export default function JobList({ jobs, icon, onRemove, onRetry, onClear, canSwitch, onSwitch, switchLabel, linkOf }: Props) {
   if (!jobs.length) return null;
   const done = jobs.filter((j) => j.result);
   const failed = jobs.filter((j) => j.status === 'error').length;
@@ -35,71 +37,83 @@ export default function JobList({ jobs, icon, onRemove, onRetry, onClear, canSwi
   return (
     <div className="results">
       <ul className="rows">
-        {jobs.map((j) => (
-          <li key={j.id} className={`row is-${j.status}`}>
-            <div className="thumb">
-              {icon}
-              {j.preview && (
-                <img
-                  src={j.preview}
-                  alt=""
-                  onError={(e) => {
-                    e.currentTarget.hidden = true;
-                  }}
-                />
-              )}
-            </div>
-            <div className="row-main">
-              <div className="row-name" title={j.name}>{j.result?.filename ?? j.name}</div>
-              <div className="row-sub" title={j.message}>
-                {j.status === 'done' && <b>Ready</b>}
-                {j.status === 'done' ? (
-                  ` · ${j.message}`
-                ) : j.status === 'error' && j.message.startsWith('Expired · ') ? (
-                  <>
-                    <b>Expired</b>
-                    {j.message.slice('Expired'.length)}
-                  </>
-                ) : (
-                  j.message
+        {jobs.map((j) => {
+          const link = linkOf?.(j);
+          return (
+            <li key={j.id} className={`row is-${j.status}`}>
+              <div className="thumb">
+                {icon}
+                {j.preview && (
+                  <img
+                    src={j.preview}
+                    alt=""
+                    onError={(e) => {
+                      e.currentTarget.hidden = true;
+                    }}
+                  />
                 )}
               </div>
-            </div>
-            <div className="row-meter">
-              {(j.status === 'active' || j.status === 'waiting') && (
-                <>
-                  <div className={`meter ${j.progress == null && j.status === 'active' ? 'busy' : ''}`}>
-                    <i style={{ width: `${(j.progress ?? 0) * 100}%` }} />
-                  </div>
-                  {j.status === 'active' && j.progress != null && (
-                    <span className="pct">{Math.floor(j.progress * 100)}%</span>
+              <div className="row-main">
+                <div className="row-name" title={j.name}>
+                  {link ? j.name : (j.result?.filename ?? j.name)}
+                </div>
+                {link && (
+                  <a className="row-link" href={link} target="_blank" rel="noreferrer noopener" title={link}>
+                    {link.replace(/^https?:\/\/(www\.|m\.)?/, '')}
+                  </a>
+                )}
+                <div className="row-sub" title={j.message}>
+                  {j.status === 'done' && <b>Ready</b>}
+                  {j.status === 'done' ? (
+                    ` · ${j.message}`
+                  ) : j.status === 'error' && j.message.startsWith('Expired · ') ? (
+                    <>
+                      <b>Expired</b>
+                      {j.message.slice('Expired'.length)}
+                    </>
+                  ) : (
+                    j.message
                   )}
-                </>
-              )}
-              {j.status === 'done' && <div className="meter full"><i /></div>}
-            </div>
-            <span className="row-actions">
-              {j.status === 'error' && onRetry && (
-                <button type="button" className="row-retry" aria-label={`Retry ${j.name}`} title="Retry" onClick={() => onRetry(j.id)}>
-                  <IconRetry />
+                </div>
+              </div>
+              <div className="row-meter">
+                {(j.status === 'active' || j.status === 'waiting') && (
+                  <>
+                    <div className={`meter ${j.progress == null && j.status === 'active' ? 'busy' : ''}`}>
+                      <i style={{ width: `${(j.progress ?? 0) * 100}%` }} />
+                    </div>
+                    {j.status === 'active' && j.progress != null && <span className="pct">{Math.floor(j.progress * 100)}%</span>}
+                  </>
+                )}
+                {j.status === 'done' && (
+                  <div className="meter full">
+                    <i />
+                  </div>
+                )}
+              </div>
+              <span className="row-actions">
+                {j.status === 'error' && onRetry && (
+                  <button type="button" className="row-retry" aria-label={`Retry ${j.name}`} title="Retry" onClick={() => onRetry(j.id)}>
+                    <IconRetry />
+                  </button>
+                )}
+                {onSwitch && canSwitch?.(j) && (
+                  <button type="button" className="row-switch" title={`${switchLabel} of this post`} onClick={() => onSwitch(j.id)}>
+                    {switchLabel}
+                  </button>
+                )}
+                {j.result && (
+                  <a className="row-action" href={j.result.url} download={j.result.filename} title={`Download ${j.result.filename}`}>
+                    <IconDownload />
+                  </a>
+                )}
+                <button type="button" className="row-remove" aria-label={`Remove ${j.name}`} title="Remove" onClick={() => onRemove(j.id)}>
+                  <IconClose />
                 </button>
-              )}
-              {onSwitch && canSwitch?.(j) && (
-                <button type="button" className="row-switch" title={`${switchLabel} of this post`} onClick={() => onSwitch(j.id)}>
-                  {switchLabel}
-                </button>
-              )}
-              {j.result && (
-                <a className="row-action" href={j.result.url} download={j.result.filename} title={`Download ${j.result.filename}`}>
-                  <IconDownload />
-                </a>
-              )}
-              <button type="button" className="row-remove" aria-label={`Remove ${j.name}`} title="Remove" onClick={() => onRemove(j.id)}>
-                <IconClose />
-              </button>
-            </span>
-          </li>
-        ))}
+              </span>
+            </li>
+          );
+        })}
       </ul>
       <div className="results-bar">
         <span className="legend">
