@@ -150,6 +150,10 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     };
 
     let thumb: Promise<void> | null = null;
+    // Tracked here, not read back from the rows: a state update made just
+    // before isn't rendered yet, so the rows would say there's no preview and
+    // the video-frame fallback would replace the real thumbnail.
+    let gotThumb = false;
     let first = true;
     let s: JobStatus;
     for (;;) {
@@ -166,7 +170,10 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       if (s.thumbnail && !thumb) {
         const src = apiUrl(`${base}/thumb`);
         thumb = loadImage(src).then((ok) => {
-          if (ok && !signal.aborted) update({ preview: src });
+          if (ok && !signal.aborted) {
+            gotThumb = true;
+            update({ preview: src });
+          }
         });
       }
       if (s.state === 'error') {
@@ -216,7 +223,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     });
     // No usable thumbnail from the platform: fall back to a frame of the video.
     await thumb;
-    if (!jobsRef.current.find((j) => j.id === job.id)?.preview && job.input.mode === 'video') {
+    if (!gotThumb && job.input.mode === 'video') {
       const frame = await videoFrame(res.blob);
       if (frame) update({ preview: frame });
     }
