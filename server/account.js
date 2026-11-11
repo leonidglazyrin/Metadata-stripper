@@ -6,6 +6,9 @@
 //          (configurable in the app_settings table)
 //   Basic  $10/month: unlimited on-device stripping
 //   Pro    $20/month: unlimited everything (server stripping, downloads)
+//   Pack   $2 once: 10 more on-device strips. Can be bought again and again;
+//          the strips add up and are used after the free ones, never while
+//          a plan already makes on-device stripping unlimited.
 //
 //   GET  /api/me                     who is signed in, plan, usage
 //   GET  /api/auth/google            start Google sign-in (?next=/app/#youtube)
@@ -13,8 +16,10 @@
 //   GET  /api/auth/dev               dev only: sign in without Google
 //   POST /api/auth/logout
 //   POST /api/usage/strip            count one on-device strip before it runs
+//   POST /api/usage/strip/refund     { credit } give back a pack credit whose strip failed
 //   POST /api/billing/checkout       { plan } → { url } of Stripe Checkout, or
 //                                    of the Portal's confirm page to switch plan
+//   POST /api/billing/pack           → { url } of Stripe Checkout for one strip pack
 //   POST /api/billing/portal         → { url } of the Stripe Customer Portal
 //   POST /api/billing/webhook        Stripe events: turn the license on / off
 //
@@ -48,6 +53,9 @@ function loadConfig(env = process.env) {
     // STRIPE_PRICE_ID is the older name of the Pro price.
     stripePriceBasic: env.STRIPE_PRICE_ID_BASIC || '',
     stripePricePro: env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || '',
+    // One-time price of the strip pack, and how many on-device strips it adds.
+    stripePricePack: env.STRIPE_PRICE_ID_PACK || '',
+    packStrips: limitFromEnv(env.PACK_STRIPS) || DEFAULT_PACK_STRIPS,
     sessionSecret: env.SESSION_SECRET || '',
     cfAccountId: env.CLOUDFLARE_ACCOUNT_ID || '',
     d1DatabaseId: env.CLOUDFLARE_D1_DATABASE_ID || '',
@@ -62,6 +70,7 @@ function loadConfig(env = process.env) {
     priceLabels: {
       basic: env.PRICE_LABEL_BASIC || '$10',
       pro: env.PRICE_LABEL_PRO || env.PRICE_LABEL || '$20',
+      pack: env.PRICE_LABEL_PACK || '$2',
     },
   };
 }
@@ -73,6 +82,9 @@ function limitFromEnv(v) {
 }
 
 const DEFAULT_FREE = 1;
+const DEFAULT_PACK_STRIPS = 10;
+/** How long after a failed on-device strip its pack credit can be given back. */
+const CREDIT_REFUND_SEC = 3600;
 
 const KINDS = ['strip', 'server_strip', 'download'];
 const PLANS = ['basic', 'pro'];
@@ -147,9 +159,12 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   }
   const google = Boolean(config.googleId && config.googleSecret);
   const priceOf = { basic: config.stripePriceBasic, pro: config.stripePricePro };
-  const stripe = Boolean(config.stripeKey && (priceOf.basic || priceOf.pro));
+  const packPrice = config.stripePricePack;
+  const packStrips = config.packStrips || DEFAULT_PACK_STRIPS;
+  const stripe = Boolean(config.stripeKey && (priceOf.basic || priceOf.pro || packPrice));
   const devAuth = !google && !config.production;
   const devBilling = !stripe && !config.production;
+  const packAvailable = Boolean(stripe && packPrice) || devBilling;
 
   let secret = config.sessionSecret;
   if (!secret) {
@@ -162,10 +177,11 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       + `billing ${stripe ? 'Stripe' : devBilling ? 'DEV (upgrade is free and instant)' : 'NOT CONFIGURED'}, `
       + `accounts in D1 (${config.d1DatabaseId || 'custom store'}), free tier from `
       + `${KINDS.some((k) => config[ENV[k]] !== null) ? 'FREE_* env' : 'the app_settings table'}`
-      + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}` : ''}`);
+      + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}, strip pack: ${packPrice ? `${packStrips} strips` : 'off'}` : ''}`);
     if (stripe && PLANS.some((p) => !priceOf[p])) {
       log.fail('billing', `STRIPE_PRICE_ID_${PLANS.find((p) => !priceOf[p]).toUpperCase()} is not set: that plan can't be bought`);
     }
+    if (stripe && !packPrice) log.fail('billing', 'STRIPE_PRICE_ID_PACK is not set: the strip pack can\'t be bought');
   } else {
     log.info('Accounts: PAYWALL=off, everything is free and no sign-in is needed');
   }
@@ -272,6 +288,8 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         cancelAtPeriodEnd: Boolean(user.cancel_at_period_end),
         manageable: Boolean(user.stripe_customer_id) || devBilling,
       } : null,
+      // On-device strips left from strip packs, and packs bought so far.
+      credits: user ? { strip: Math.max(0, Number(user.strip_credits ?? 0)), packs: Number(user.strip_packs ?? 0) } : null,
       // The free allowance every account starts with (for the sign-in step).
       free: lim,
       plans: PLANS.map((id) => ({
@@ -281,6 +299,8 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         interval: 'month',
         available: Boolean(priceOf[id]) || devBilling,
       })),
+      // The one-time strip pack.
+      pack: { label: config.priceLabels.pack, strips: packStrips, available: packAvailable },
       // Older pages read this: the Pro price.
       price: { label: config.priceLabels.pro, interval: 'month' },
       signIn: google ? 'google' : devAuth ? 'dev' : null,
@@ -307,25 +327,33 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       return res.status(401).json({ error: `Sign in with Google to ${verb[kind]} for free`, code: 'auth_required', kind });
     }
     const n = (await limits())[kind];
-    if (!(await store.consume(user.id, kind, n))) {
+    // Free use or a plan first; then, for on-device strips, a strip pack credit.
+    let credit = null;
+    if (!(await store.consume(user.id, kind, n)) && !(kind === 'strip' && (credit = await store.useCredit(user.id)))) {
       const needs = NEEDS[kind];
       const upgrade = needs === 'basic' ? 'Basic or Pro' : 'Pro';
+      const pack = kind === 'strip' && packAvailable;
+      const orPack = pack ? `, or get ${packStrips} more for ${config.priceLabels.pack}` : '';
       return res.status(402).json({
         error: n === 0
-          ? `Upgrade to ${upgrade} to ${verb[kind]}.`
-          : `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to ${upgrade} for unlimited.`,
+          ? `Upgrade to ${upgrade} to ${verb[kind]}${orPack}.`
+          : `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to ${upgrade} for unlimited${orPack}.`,
         code: 'upgrade_required',
         kind,
         plan: needs,
+        pack,
       });
     }
     let refunded = false;
     const refund = () => {
       if (refunded) return;
       refunded = true;
-      store.refund(user.id, kind).catch((e) => log.fail('account', `refund ${kind} for user ${user.id}: ${e.message}`));
+      const done = credit ? store.refundCredit(user.id, credit, CREDIT_REFUND_SEC) : store.refund(user.id, kind);
+      done.catch((e) => log.fail('account', `refund ${credit ? 'strip credit' : kind} for user ${user.id}: ${e.message}`));
     };
     req.quota = {
+      // The pack credit this use spent, or null when it was free or on a plan.
+      credit,
       refund,
       // For routes whose response *is* the file: give the use back unless
       // the whole file went out with a 200.
@@ -379,10 +407,41 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     return store.getUser(user.id);
   }
 
+  /** Add a paid strip pack to its account. Safe to run twice for one session. */
+  async function grantPack(session) {
+    const meta = session.metadata || {};
+    if (meta.product !== 'strip_pack') return;
+    const userId = String(session.client_reference_id || meta.user_id || '');
+    const user = userId ? await store.getUser(userId) : null;
+    if (!user) {
+      // Throwing makes Stripe retry, which won't help: log it for support.
+      log.fail('billing', `strip pack ${session.id} paid for unknown user ${userId || '(none)'}`);
+      return;
+    }
+    const customer = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+    if (customer && !user.stripe_customer_id) await store.setCustomer(user.id, customer);
+    const n = Number(meta.strips);
+    const strips = Number.isInteger(n) && n > 0 && n <= 1000 ? n : packStrips;
+    const added = await store.grantStripPack(user.id, {
+      id: session.id, strips, amountCents: session.amount_total ?? null, currency: session.currency ?? null,
+    });
+    if (added) log.ok('billing', `user ${user.id} (${user.email}) bought a strip pack: +${strips} on-device strips`);
+    else log.note('billing', `strip pack ${session.id} was already added`);
+  }
+
   async function handleEvent(event) {
     const obj = event.data?.object || {};
     switch (event.type) {
+      case 'checkout.session.async_payment_succeeded':
+        if (obj.mode === 'payment') await grantPack(obj);
+        return;
       case 'checkout.session.completed': {
+        if (obj.mode === 'payment') {
+          // A card payment is 'paid' here; a delayed method (bank debit)
+          // arrives later as checkout.session.async_payment_succeeded.
+          if (obj.payment_status === 'paid' || obj.payment_status === 'no_payment_required') await grantPack(obj);
+          return;
+        }
         if (obj.mode !== 'subscription') return;
         const userId = obj.client_reference_id || null;
         if (userId && obj.customer && await store.getUser(userId)) await store.setCustomer(userId, obj.customer);
@@ -506,7 +565,18 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   // server-side tools are the ones that can't be bypassed.)
   router.post('/usage/strip', gate('strip'), safe(async (req, res) => {
     req._user = undefined;
-    res.json(await account(await currentUser(req)));
+    // `credit` lets the page give a pack credit back if the strip fails.
+    res.json({ ...(await account(await currentUser(req))), credit: req.quota.credit ?? null });
+  }));
+
+  // The on-device strip that used this pack credit failed: give it back.
+  // Only the account's own credit, once, within an hour.
+  router.post('/usage/strip/refund', json, safe(async (req, res) => {
+    const user = await currentUser(req);
+    if (!user) return res.status(401).json({ error: 'Sign in first', code: 'auth_required' });
+    const refunded = config.paywall ? await store.refundCredit(user.id, req.body?.credit, CREDIT_REFUND_SEC) : false;
+    req._user = undefined;
+    res.json({ ...(await account(await currentUser(req))), refunded });
   }));
 
   router.post('/billing/checkout', json, safe(async (req, res) => {
@@ -548,6 +618,44 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       res.json({ url: session.url });
     } catch (e) {
       log.fail('billing', `checkout (${want}) for user ${user.id}: ${e.message}`);
+      res.status(502).json({ error: 'Could not reach Stripe, please try again' });
+    }
+  }));
+
+  // One strip pack: a one-time Stripe Checkout payment. The webhook adds the
+  // strips once Stripe says it's paid. Can be bought any number of times.
+  router.post('/billing/pack', json, safe(async (req, res) => {
+    const user = await currentUser(req);
+    if (!user) return res.status(401).json({ error: 'Sign in first', code: 'auth_required' });
+    const back = safeNext(req.body?.next);
+    const site = baseUrl(req);
+    // ?pack=N: the page waits until the account has N packs.
+    const done = `${site}${withQuery(back, `pack=${Number(user.strip_packs ?? 0) + 1}`)}`;
+
+    if (!stripe) {
+      if (!devBilling) return res.status(503).json({ error: 'Payments are not set up on this server yet' });
+      await store.grantStripPack(user.id, { id: `dev_pack_${crypto.randomUUID()}`, strips: packStrips });
+      log.note('billing', `dev strip pack: user ${user.id} got ${packStrips} on-device strips`);
+      return res.json({ url: done });
+    }
+    if (!packPrice) return res.status(503).json({ error: 'The strip pack isn\'t set up on this server yet' });
+    try {
+      const session = await stripeApi('POST', 'checkout/sessions', {
+        mode: 'payment',
+        line_items: [{ price: packPrice, quantity: 1 }],
+        client_reference_id: String(user.id),
+        ...(user.stripe_customer_id
+          ? { customer: user.stripe_customer_id }
+          : { customer_email: user.email || undefined, customer_creation: 'always' }),
+        metadata: { user_id: String(user.id), product: 'strip_pack', strips: String(packStrips) },
+        payment_intent_data: { metadata: { user_id: String(user.id), product: 'strip_pack', strips: String(packStrips) } },
+        allow_promotion_codes: 'true',
+        success_url: done,
+        cancel_url: `${site}${back}`,
+      });
+      res.json({ url: session.url });
+    } catch (e) {
+      log.fail('billing', `strip pack checkout for user ${user.id}: ${e.message}`);
       res.status(502).json({ error: 'Could not reach Stripe, please try again' });
     }
   }));

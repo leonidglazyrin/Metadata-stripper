@@ -41,12 +41,18 @@ export default function StripTool() {
   const stripOnDevice = async (file: File, update: Update) => {
     // Nothing is uploaded, but the strip still counts against the account.
     update({ message: 'Checking your plan…', progress: null });
-    await requestJson('POST', '/api/usage/strip');
-    const { stripInBrowser } = await import('../lib/strip');
-    const r = await stripInBrowser(file, { synthid: synthRef.current }, (message, progress = null) =>
-      update({ message, progress }),
-    );
-    return { blob: r.blob, filename: r.filename };
+    const { credit } = await requestJson<{ credit?: string | null }>('POST', '/api/usage/strip');
+    try {
+      const { stripInBrowser } = await import('../lib/strip');
+      const r = await stripInBrowser(file, { synthid: synthRef.current }, (message, progress = null) =>
+        update({ message, progress }),
+      );
+      return { blob: r.blob, filename: r.filename };
+    } catch (e) {
+      // The strip failed: give back the strip pack credit it used, if any.
+      if (credit) await requestJson('POST', '/api/usage/strip/refund', { credit }).catch(() => {});
+      throw e;
+    }
   };
 
   const runner: Runner<File> = async (job, update, signal) => {

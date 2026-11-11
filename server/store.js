@@ -121,6 +121,54 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
       await query('UPDATE usage_counters SET used = used - 1 WHERE user_id = ?1 AND kind = ?2 AND used > 0', [userId, kind]);
     },
 
+    // --- strip packs (migrations/0003_strip_packs.sql)
+
+    /**
+     * Add a pack's on-device strips to an account. `id` is the Stripe
+     * Checkout session id, so the same purchase is only counted once.
+     * Returns true when this call added them.
+     */
+    async grantStripPack(userId, { id, strips, amountCents = null, currency = null }) {
+      const { changes } = await query(
+        `INSERT INTO strip_pack_purchases (id, user_id, strips, amount_cents, currency)
+         SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM profiles WHERE id = ?2)
+         ON CONFLICT (id) DO NOTHING`,
+        [id, userId, strips, amountCents, currency],
+      );
+      return changes === 1;
+    },
+
+    /**
+     * Spend one pack credit, if the account has one left. One statement that
+     * checks the balance and records the use, so it can't be raced. Returns
+     * the use's id (to give it back with refundCredit), or null.
+     */
+    async useCredit(userId) {
+      const id = uuid();
+      const { changes } = await query(
+        `INSERT INTO strip_credit_uses (id, user_id)
+         SELECT ?1, ?2
+         WHERE (SELECT COALESCE(SUM(strips), 0) FROM strip_pack_purchases WHERE user_id = ?2)
+             > (SELECT COUNT(*) FROM strip_credit_uses WHERE user_id = ?2 AND refunded_at IS NULL)`,
+        [id, userId],
+      );
+      return changes === 1 ? id : null;
+    },
+
+    /**
+     * Give back a credit whose strip failed. Only the account's own, only
+     * once, and only within `maxAgeSec` of using it. Returns true if given back.
+     */
+    async refundCredit(userId, useId, maxAgeSec = 3600) {
+      if (!isUuid(useId)) return false;
+      const { changes } = await query(
+        `UPDATE strip_credit_uses SET refunded_at = unixepoch()
+         WHERE id = ?1 AND user_id = ?2 AND refunded_at IS NULL AND created_at > unixepoch() - ?3`,
+        [useId, userId, maxAgeSec],
+      );
+      return changes === 1;
+    },
+
     /** Rows of the app_settings table as { key: value }, cached for a minute. */
     async settings(now = Date.now()) {
       if (settings && now - settingsAt < SETTINGS_TTL_MS) return settings;

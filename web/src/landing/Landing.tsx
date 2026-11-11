@@ -179,6 +179,14 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
               );
             })}
           </div>
+          <div className="price-pack">
+            <div>
+              <p className="price-name">{t.pricing.pack.name}</p>
+              <p className="price-pack-text">{t.pricing.pack.text}</p>
+            </div>
+            <p className="price-tag"><b>{PRICES.pack}</b> {t.pricing.pack.once}</p>
+            <a className="cta ghost" href={`${APP}#strip`}>{t.pricing.pack.cta}</a>
+          </div>
           <p className="price-foot">
             {t.pricing.billing}
             <StripeBadge label={t.pricing.stripeLabel} />
@@ -470,19 +478,27 @@ function jsonLd(siteUrl: string, lang: string, t: Dict) {
         description: fill(t.jsonLd.description),
         keywords: t.jsonLd.keywords,
         featureList: t.jsonLd.featureList,
-        offers: (['basic', 'pro'] as const).map((id) => ({
-          '@type': 'Offer',
-          name: t.pricing[id].name,
-          price: priceNumber(PRICES[id]),
-          priceCurrency: 'USD',
-          priceSpecification: {
-            '@type': 'UnitPriceSpecification',
+        offers: [
+          ...(['basic', 'pro'] as const).map((id) => ({
+            '@type': 'Offer',
+            name: t.pricing[id].name,
             price: priceNumber(PRICES[id]),
             priceCurrency: 'USD',
-            unitCode: 'MON',
-            referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
+            priceSpecification: {
+              '@type': 'UnitPriceSpecification',
+              price: priceNumber(PRICES[id]),
+              priceCurrency: 'USD',
+              unitCode: 'MON',
+              referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
+            },
+          })),
+          {
+            '@type': 'Offer',
+            name: t.pricing.pack.name,
+            price: priceNumber(PRICES.pack),
+            priceCurrency: 'USD',
           },
-        })),
+        ],
       },
       {
         '@type': 'FAQPage',
