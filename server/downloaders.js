@@ -436,7 +436,7 @@ async function dirSize(dir) {
   return total;
 }
 
-function createDownloadRouter(workDir) {
+function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota = { refund() {}, refundUnlessSent() {} }; next(); } } = {}) {
   const router = express.Router();
   /** id → download job (see POST /:platform/jobs) */
   const jobs = new Map();
@@ -450,6 +450,8 @@ function createDownloadRouter(workDir) {
     if (!job) return;
     jobs.delete(id);
     job.ctrl.abort();
+    // Cancelled before it produced a file: the user gets the download back.
+    if (job.state !== 'ready') job.quota?.refund();
     const hadFile = Boolean(job.file);
     fs.rm(job.dir, { recursive: true, force: true }).catch(() => {});
     if (reason) log.note('download', `${tag(job)} ${reason}${hadFile && job.size ? `, deleted ${log.size(job.size)}` : ''}`);
@@ -461,6 +463,7 @@ function createDownloadRouter(workDir) {
     if (job.state === 'error') return;
     job.state = 'error';
     job.error = message;
+    job.quota?.refund();
     job.endedAt = Date.now();
     job.expiresAt = job.endedAt + ERROR_TTL_MS;
     job.ctrl.abort();
@@ -496,6 +499,14 @@ function createDownloadRouter(workDir) {
     }
   };
   setInterval(() => { sweep().catch((e) => log.fail('purge', e.message)); }, SWEEP_EVERY_MS).unref();
+
+  // Runs the account gate (sign-in + quota) after the link is validated, so
+  // a mistyped link never costs a free download. False once it answered.
+  const allowed = (req, res) => {
+    let ok = false;
+    gate(req, res, () => { ok = true; });
+    return ok;
+  };
 
   const checkRequest = (req, res) => {
     const { platform } = req.params;
@@ -548,11 +559,12 @@ function createDownloadRouter(workDir) {
   // reload it picks the job up again; the file stays until READY_TTL_MS.
   router.post('/:platform/jobs', express.json({ limit: '4kb' }), async (req, res) => {
     const r = checkRequest(req, res);
-    if (!r) return;
+    if (!r || !allowed(req, res)) return;
     const label = PLATFORMS[r.platform].label;
     const job = {
       id: crypto.randomUUID(),
       ...r,
+      quota: req.quota,
       label,
       dir: path.join(workDir, crypto.randomUUID()),
       ctrl: new AbortController(),
@@ -738,7 +750,8 @@ function createDownloadRouter(workDir) {
   // this; the app uses the job endpoints above for progress.
   router.post('/:platform', express.json({ limit: '4kb' }), async (req, res) => {
     const r = checkRequest(req, res);
-    if (!r) return;
+    if (!r || !allowed(req, res)) return;
+    req.quota.refundUnlessSent(res);
     const { platform, url, mode } = r;
     const dir = path.join(workDir, crypto.randomUUID());
     const cleanup = () => fs.rm(dir, { recursive: true, force: true }).catch(() => {});

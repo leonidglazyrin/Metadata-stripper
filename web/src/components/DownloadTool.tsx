@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { useJobs, type Runner } from '../lib/jobs';
 import { apiUrl, formatSize, getBlob, RequestError, requestJson } from '../lib/request';
+import { gateError, refreshAccount } from '../lib/account';
 import { load, save, useStored } from '../lib/storage';
 import type { Platform, ToolInfo } from '../tools';
 import { IconClose, ToolIcon } from './Icons';
@@ -145,7 +146,12 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     const resumed = Boolean(id);
     if (!id) {
       update({ message: 'Starting on the server…', progress: null });
-      id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, job.input, signal)).id;
+      try {
+        id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, job.input, signal)).id;
+      } catch (e) {
+        throw gateError(e, 'download');
+      }
+      void refreshAccount();
       serverIds.current.set(job.id, id);
       persist();
     } else {

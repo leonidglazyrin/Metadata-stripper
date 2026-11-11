@@ -10,11 +10,14 @@ const path = require('path');
 const crypto = require('crypto');
 const { createDownloadRouter, dirSize } = require('./downloaders');
 const log = require('./log');
+const { createAccounts } = require('./account');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 2048);
 
 const app = express();
+app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
+const accounts = createAccounts();
 const workDir = path.join(os.tmpdir(), 'metadata-stripper');
 
 const upload = multer({
@@ -248,6 +251,7 @@ app.use('/api', (req, res, next) => {
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Expose-Headers', 'X-Strip-Report, Content-Disposition');
@@ -258,7 +262,14 @@ app.use('/api', (req, res, next) => {
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-app.post('/api/strip', upload.single('file'), async (req, res) => {
+// Sign-in, usage and billing (see server/account.js).
+app.use('/api', accounts.router);
+
+// The quota is checked before the upload starts, so nobody uploads a big
+// file just to be told to upgrade. A failed strip gives the use back.
+const stripGate = [accounts.gate('strip'), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
+
+app.post('/api/strip', stripGate, upload.single('file'), async (req, res) => {
   const f = req.file;
   if (!f) return res.status(400).json({ error: 'No file uploaded' });
   const cleanup = [f.path];
@@ -321,7 +332,7 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
 // Link downloaders (YouTube, X, Instagram, TikTok) via yt-dlp
 // ---------------------------------------------------------------------------
 
-const downloads = createDownloadRouter(workDir);
+const downloads = createDownloadRouter(workDir, { gate: accounts.gate('download') });
 app.use('/api/download', downloads);
 // Old endpoint, kept so existing clients keep working.
 app.post('/api/tiktok', (req, res, next) => { req.url = '/tiktok'; downloads(req, res, next); });
