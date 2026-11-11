@@ -23,8 +23,8 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
               <a href="#downloaders">Downloaders</a>
               <a href="#pricing">Pricing</a>
               <a href="#faq">FAQ</a>
-              <a className="pill-btn" href={APP}>Open tools</a>
             </nav>
+            <a className="pill-btn head-cta" href={APP}>Open tools</a>
           </header>
 
           <div className="hero-body">
@@ -78,12 +78,14 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
         <section id="metadata" className="card" aria-labelledby="metadata-h">
           <SectionHead icon={<Tile from="#60a5fa" to="#1d4ed8" size={56}><PhotoGlyph /></Tile>} id="metadata-h" title={['Metadata Remover', 'for photos and videos.']}>
             Photos and videos store where they were taken, the device, its serial number and the editing history.
-            The metadata remover deletes all of it and lists what it removed.
+            The metadata remover deletes all of it, strips the <b className="synth-mark">SynthID</b> watermark, and
+            lists what it removed.
           </SectionHead>
           <div className="split">
             <div>
               <h3>Removed from photos</h3>
               <ul className="tags">
+                <li className="tag-hi">SynthID watermark</li>
                 {['EXIF', 'GPS location', 'XMP', 'IPTC', 'ICC profiles', 'C2PA / Content Credentials', 'Maker notes', 'Thumbnails', 'Text comments'].map((t) => <li key={t}>{t}</li>)}
               </ul>
               <p className="small">JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC comes back as JPEG.</p>
@@ -91,26 +93,10 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
             <div>
               <h3>Removed from videos</h3>
               <ul className="tags">
+                <li className="tag-hi">SynthID watermark</li>
                 {['Global & stream tags', 'Chapter tags', 'GPS & telemetry tracks', 'Timecode', 'Cover art', 'C2PA boxes', 'Encoder strings'].map((t) => <li key={t}>{t}</li>)}
               </ul>
               <p className="small">MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Streams are copied without re-encoding.</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="card" aria-labelledby="where-h">
-          <h2 id="where-h" className="display sm">
-            Server <span className="accent">or this device.</span>
-          </h2>
-          <p className="lede">One switch picks where your files are processed.</p>
-          <div className="split modes">
-            <div className="mode">
-              <h3>Server</h3>
-              <p>Your file is uploaded, cleaned and deleted right after. Works with every format, and strips SynthID from photos and videos.</p>
-            </div>
-            <div className="mode">
-              <h3>This device</h3>
-              <p>Your file stays in your browser. Photos are cleaned losslessly. Videos need a ~30 MB download the first time. SynthID stripping works on photos only.</p>
             </div>
           </div>
         </section>
@@ -152,19 +138,22 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
 
         <section id="pricing" className="card" aria-labelledby="pricing-h">
           <h2 id="pricing-h" className="display sm">
-            One plan. <span className="accent">$30 a month.</span>
+            One plan. <span className="accent">$20 a month.</span>
           </h2>
           <div className="price">
             <div>
-              <p className="price-tag"><b>$30</b> / month</p>
+              <p className="price-tag"><b>$20</b> / month</p>
               <ul className="price-list">
-                <li>SynthID stripper and metadata remover</li>
+                <li><span className="synth-mark">SynthID</span> stripper and metadata remover</li>
                 <li>YouTube, X, TikTok and Instagram downloaders</li>
-                <li>Server and on-device processing</li>
+                <li>Photos and videos in every common format</li>
               </ul>
             </div>
             <div className="price-side">
-              <p>Billed monthly through Stripe. Cancel anytime.</p>
+              <p className="stripe-line">
+                <StripeBadge />
+                Billed monthly through Stripe. Cancel anytime.
+              </p>
               <a className="cta" href={APP}>Open the tools</a>
             </div>
           </div>
@@ -277,6 +266,19 @@ function Downloader({ tool, title, text }: { tool: 'youtube' | 'x' | 'tiktok' | 
   );
 }
 
+// Stripe's "S" mark in its brand colour, with the name beside it.
+const StripeBadge = () => (
+  <span className="stripe-badge" aria-label="Payments by Stripe">
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#fff"
+        d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z"
+      />
+    </svg>
+    <span>Stripe</span>
+  </span>
+);
+
 const PhotoGlyph = () => (
   <g>
     <circle cx="25" cy="25" r="5" fill="#ffd34d" />
@@ -306,6 +308,18 @@ function jsonLd(siteUrl: string) {
           'TikTok downloader',
           'X and Instagram video downloaders',
         ],
+        offers: {
+          '@type': 'Offer',
+          price: '20.00',
+          priceCurrency: 'USD',
+          priceSpecification: {
+            '@type': 'UnitPriceSpecification',
+            price: '20.00',
+            priceCurrency: 'USD',
+            unitCode: 'MON',
+            referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
+          },
+        },
       },
       {
         '@type': 'FAQPage',

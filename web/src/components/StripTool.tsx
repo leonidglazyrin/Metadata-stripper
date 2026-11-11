@@ -139,26 +139,21 @@ export default function StripTool() {
       </label>
 
       <div className="options">
-        <div className="where">
-          <div className="segmented" role="radiogroup" aria-label="Where to clean files">
-            {(['server', 'device'] as const).map((w) => (
-              <button key={w} type="button" role="radio" aria-checked={where === w} onClick={() => setWhere(w)}>
-                {w === 'server' ? 'Server' : 'This device'}
-              </button>
-            ))}
-          </div>
-          <small>
-            {where === 'server'
-              ? 'Uploaded, cleaned, then deleted right away. Handles every format.'
-              : 'Never leaves your device. Photos are lossless; videos load a ~30 MB engine once.'}
-          </small>
-        </div>
         <Switch
+          className="synth-opt"
           checked={synthid}
           onChange={setSynthid}
-          label="Strip SynthID watermarks"
-          hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Disrupts invisible AI watermarks. Near-lossless.'}
+          label={<><span className="synth-badge">SynthID</span> Strip AI watermarks</>}
+          hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Breaks up the invisible watermark in AI photos and videos. Near-lossless.'}
         />
+        {/* Kept for now but deliberately quiet: no explainer copy around it. */}
+        <div className="segmented where-quiet" role="radiogroup" aria-label="Where to clean files">
+          {(['server', 'device'] as const).map((w) => (
+            <button key={w} type="button" role="radio" aria-checked={where === w} onClick={() => setWhere(w)}>
+              {w === 'server' ? 'Server' : 'This device'}
+            </button>
+          ))}
+        </div>
       </div>
 
       <JobList jobs={jobs} icon={<IconFile />} onRemove={remove} onRetry={retry} onClear={clear} />
