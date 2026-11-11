@@ -1,5 +1,7 @@
 import { useRef, useState, type DragEvent } from 'react';
-import { useJobs, type Runner } from '../lib/jobs';
+import { useJobs, type Runner, type Update } from '../lib/jobs';
+
+type Where = 'server' | 'device';
 import { postForBlob, formatSize } from '../lib/request';
 import { useStored } from '../lib/storage';
 import { IconFile, IconPlus } from './Icons';
@@ -24,13 +26,16 @@ export default function StripTool() {
   const [synthid, setSynthid] = useStored('synthid', true);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const [where, setWhere] = useStored<Where>('stripWhere', 'server');
   const synthRef = useRef(synthid);
   synthRef.current = synthid;
+  const whereRef = useRef(where);
+  whereRef.current = where;
 
-  const runner: Runner<File> = async (job, update, signal) => {
+  const stripOnServer = async (file: File, update: Update, signal: AbortSignal) => {
     const fd = new FormData();
     fd.append('synthid', String(synthRef.current));
-    fd.append('file', job.input);
+    fd.append('file', file);
     update({ message: 'Uploading…', progress: 0 });
     const res = await postForBlob(
       '/api/strip',
@@ -42,17 +47,32 @@ export default function StripTool() {
       signal,
     );
     const rep = decodeReport(res.header('X-Strip-Report'));
-    const filename = res.filename ?? job.input.name;
     let message = formatSize(res.blob.size);
     if (rep) {
       const count = rep.before.found.length + Object.keys(rep.before.tags ?? {}).length;
       message = count ? `Removed ${rep.before.found.join(', ') || `${count} tags`}` : 'Nothing found, already clean';
     }
-    update({ status: 'done', progress: 1, message, result: { url: URL.createObjectURL(res.blob), filename } });
+    return { blob: res.blob, filename: res.filename ?? file.name, message };
+  };
+
+  const stripOnDevice = async (file: File, update: Update) => {
+    const { stripInBrowser } = await import('../lib/strip');
+    const r = await stripInBrowser(file, { synthid: synthRef.current }, (message, progress = null) =>
+      update({ message, progress }),
+    );
+    const message = r.removed.length ? `Removed ${r.removed.join(', ')} · on this device` : 'Nothing found, already clean · on this device';
+    return { blob: r.blob, filename: r.filename, message };
+  };
+
+  const runner: Runner<File> = async (job, update, signal) => {
+    const { blob, filename, message } =
+      whereRef.current === 'device' ? await stripOnDevice(job.input, update) : await stripOnServer(job.input, update, signal);
+    if (signal.aborted) return;
+    update({ status: 'done', progress: 1, message, result: { url: URL.createObjectURL(blob), filename } });
     // Show the cleaned file itself: HEIC comes back as a browser-viewable JPEG.
-    if (!job.preview && isImageName(filename)) update({ preview: URL.createObjectURL(res.blob) });
+    if (!job.preview && isImageName(filename)) update({ preview: URL.createObjectURL(blob) });
     if (!job.preview && isVideoName(filename)) {
-      const frame = await videoFrame(res.blob);
+      const frame = await videoFrame(blob);
       if (frame) update({ preview: frame });
     }
   };
@@ -119,11 +139,25 @@ export default function StripTool() {
       </label>
 
       <div className="options">
+        <div className="where">
+          <div className="segmented" role="radiogroup" aria-label="Where to clean files">
+            {(['server', 'device'] as const).map((w) => (
+              <button key={w} type="button" role="radio" aria-checked={where === w} onClick={() => setWhere(w)}>
+                {w === 'server' ? 'Server' : 'This device'}
+              </button>
+            ))}
+          </div>
+          <small>
+            {where === 'server'
+              ? 'Uploaded, cleaned, then deleted right away. Handles every format.'
+              : 'Never leaves your device. Photos are lossless; videos load a ~30 MB engine once.'}
+          </small>
+        </div>
         <Switch
           checked={synthid}
           onChange={setSynthid}
           label="Strip SynthID watermarks"
-          hint="Disrupts invisible AI watermarks. Near-lossless."
+          hint={where === 'device' ? 'Photos only on this device. Videos need Server.' : 'Disrupts invisible AI watermarks. Near-lossless.'}
         />
       </div>
 
