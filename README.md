@@ -101,6 +101,7 @@ docker run -p 3000:3000 sharona
 | `DOWNLOAD_MAX_MIN` | `30` | Hard cap on one download's run time |
 | `YTDLP_PATH` | | Path to yt-dlp if not on `PATH` |
 | `YTDLP_COOKIES` | | Netscape cookies file for Instagram / age-gated content |
+| `YTDLP_IPV6` | | Set to `1` to let yt-dlp use IPv6. By default it's forced to IPv4, because on networks with broken IPv6 yt-dlp hangs for minutes with no output |
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
 | `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately |
 
