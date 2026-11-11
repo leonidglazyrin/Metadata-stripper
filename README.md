@@ -75,6 +75,13 @@ npm run build      # type-check + build the frontend into dist/
 npm start          # API + built frontend on http://localhost:3000
 ```
 
+The terminal running the server logs every download (platform, mode, link, file, size, time) and every strip (file name, mode, size before → after, time, what was removed), plus failures. Set `NO_COLOR=1` to turn off colors.
+
+```
+17:47:35 strip    OK   "photo.jpg" → photo_clean.jpg [image, metadata only, q100] 1.2 KB → 563 B in 22ms · removed: EXIF, ICC color profile
+17:48:02 download OK   YouTube video https://www.youtube.com/watch?v=… → Channel_id.mp4 (24.3 MB) in 6.1s
+```
+
 Or with Docker (ffmpeg and yt-dlp included):
 
 ```bash

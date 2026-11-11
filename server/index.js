@@ -9,6 +9,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { createDownloadRouter } = require('./downloaders');
+const log = require('./log');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 2048);
@@ -261,13 +262,20 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
   const f = req.file;
   if (!f) return res.status(400).json({ error: 'No file uploaded' });
   const cleanup = [f.path];
+  const started = Date.now();
+  const name = f.originalname;
   try {
     const kind = kindOf(f.originalname, f.mimetype);
-    if (!kind) return res.status(415).json({ error: 'Unsupported file type' });
+    if (!kind) {
+      log.fail('strip', `"${name}" (${log.size(f.size)}): unsupported file type`);
+      return res.status(415).json({ error: 'Unsupported file type' });
+    }
     let ext = path.extname(f.originalname).toLowerCase();
     if (!ext) ext = kind === 'image' ? '.jpg' : '.mp4';
     const quality = Math.min(100, Math.max(50, Number(req.body.quality) || 100));
     const synthid = req.body.synthid === 'true' || req.body.synthid === '1';
+    const mode = `${kind}, ${synthid ? 'metadata + SynthID' : 'metadata only'}${kind === 'image' ? `, q${quality}` : ''}`;
+    log.start('strip', `"${name}" (${log.size(f.size)}) [${mode}]`);
 
     let before, after, result;
     if (kind === 'image') {
@@ -295,8 +303,14 @@ app.post('/api/strip', upload.single('file'), async (req, res) => {
     res.setHeader('X-Strip-Report', Buffer.from(JSON.stringify(report)).toString('base64'));
     res.setHeader('Access-Control-Expose-Headers', 'X-Strip-Report, Content-Disposition');
     res.send(data);
+    const removed = before.found.filter((x) => !after.found.includes(x));
+    log.ok('strip', `"${name}" → ${safeBase(name)}_clean${result.outExt} [${mode}] `
+      + `${log.size(f.size)} → ${log.size(data.length)} in ${log.duration(Date.now() - started)}`
+      + (removed.length ? ` · removed: ${removed.join(', ')}` : ' · nothing to remove')
+      + (after.found.length ? ` · still present: ${after.found.join(', ')}` : '')
+      + (before.tags ? ` · tags ${Object.keys(before.tags).length} → ${Object.keys(after.tags).length}` : ''));
   } catch (e) {
-    console.error(e);
+    log.fail('strip', `"${name}" (${log.size(f.size)}) after ${log.duration(Date.now() - started)}: ${e.message}`);
     res.status(500).json({ error: e.message || 'Processing failed' });
   } finally {
     await Promise.all(cleanup.map((p) => fs.rm(p, { force: true })));
@@ -368,8 +382,12 @@ app.get(/^\/(?!api\/).*/, (_req, res) => {
   res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>Not found · Sharona</title><meta name="robots" content="noindex"><p style="font:16px system-ui;padding:40px">Page not found. <a href="/">Go to Sharona</a></p>');
 });
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
+  if (req.path.startsWith('/api/')) log.fail(req.path.replace('/api/', ''), err.code === 'LIMIT_FILE_SIZE' ? `upload over the ${MAX_MB} MB limit` : err.message);
   res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 500).json({ error: err.message });
 });
 
-app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  log.info(`Sharona running on http://localhost:${PORT}  (tools at /app/)`);
+  log.info('Logging every download and strip below.');
+});
