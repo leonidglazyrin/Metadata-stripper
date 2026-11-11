@@ -182,7 +182,9 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
     // --print implies --quiet; --progress brings the progress lines back.
     '--progress', '--newline',
     '--progress-template', `download:${PROG}%(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s`,
-    '--print', `before_dl:${INFO}%(.{title,thumbnail,format_id})j`,
+    // thumbnails too: the single "thumbnail" yt-dlp picks is often a URL that
+    // doesn't exist (YouTube's maxresdefault.jpg 404s on many videos).
+    '--print', `before_dl:${INFO}%(.{id,title,thumbnail,thumbnails,format_id})j`,
     '--print', `after_move:${FILE}%(filepath)s`,
     '--socket-timeout', '30', '--retries', '3',
     '--max-filesize', `${MAX_DOWNLOAD_MB}M`,
@@ -210,7 +212,7 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
       let info = {};
       try { info = JSON.parse(line.slice(INFO.length)); } catch (_) { /* ignore */ }
       parts = Math.max(1, String(info.format_id || '').split('+').length);
-      onEvent({ type: 'info', title: info.title || null, thumbnail: info.thumbnail || null, format: info.format_id || null, parts });
+      onEvent({ type: 'info', title: info.title || null, thumbnails: thumbCandidates(platform, info), format: info.format_id || null, parts });
     } else if (line.startsWith(PROG)) {
       const [done, total, estimate] = line.slice(PROG.length).split(' ').map(Number);
       const size = total > 0 ? total : estimate;
@@ -220,6 +222,12 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
       last = p;
       onEvent({ type: 'progress', progress: Math.min(1, (part + p) / parts) });
       if (p >= 1 && part === parts - 1) onEvent({ type: 'processing' });
+    } else if (/^\[download\]\s+[\d.]+%/.test(line)) {
+      // yt-dlp's own progress line, in case the template wasn't applied.
+      const p = Math.min(1, Number(line.match(/([\d.]+)%/)[1]) / 100);
+      if (p + 0.2 < last && part < parts - 1) part++;
+      last = p;
+      onEvent({ type: 'progress', progress: Math.min(1, (part + p) / parts) });
     } else if (line.startsWith(FILE)) {
       printed = line.slice(FILE.length).trim();
     } else if (/^\[(Merger|ExtractAudio|FixupM3u8|VideoConvertor|VideoRemuxer)\]/.test(line)) {
@@ -280,6 +288,33 @@ function thumbAllowed(raw) {
   } catch (_) {
     return false;
   }
+}
+
+// Thumbnail URLs to try, best first. yt-dlp lists thumbnails worst → best
+// by preference, and doesn't check they exist; YouTube's hqdefault.jpg
+// always does, so it goes last as the safe fallback.
+function thumbCandidates(platform, info) {
+  const list = [];
+  if (info.thumbnail) list.push(info.thumbnail);
+  const thumbs = Array.isArray(info.thumbnails) ? info.thumbnails : [];
+  for (const t of [...thumbs].reverse()) if (t && typeof t.url === 'string') list.push(t.url);
+  if (platform === 'youtube' && /^[\w-]{11}$/.test(info.id || '')) list.push(`https://i.ytimg.com/vi/${info.id}/hqdefault.jpg`);
+  // Browsers show JPEG/PNG/WebP; skip other formats and duplicates.
+  const seen = new Set();
+  return list.filter((u) => {
+    if (seen.has(u) || !thumbAllowed(u) || /\.(avif|heic)(\?|$)/i.test(u)) return false;
+    seen.add(u);
+    return true;
+  }).slice(0, 6);
+}
+
+// Try candidates in order; the first that is really an image wins.
+async function fetchFirstThumb(urls) {
+  let last = null;
+  for (const url of urls) {
+    try { return await fetchThumb(url); } catch (e) { last = e; }
+  }
+  throw last || new Error('no thumbnail');
 }
 
 async function fetchThumb(url) {
@@ -442,6 +477,7 @@ function createDownloadRouter(workDir) {
       title: null,
       thumbnail: null,
       thumb: null,
+      thumbOk: false,
       error: null,
       file: null,
       filename: null,
@@ -462,7 +498,13 @@ function createDownloadRouter(workDir) {
           if (/^WARNING\b/.test(ev.line)) log.note('download', `${tag(job)} yt-dlp ${ev.line.slice(0, 300)}`);
         } else if (ev.type === 'info') {
           job.title = ev.title;
-          if (ev.thumbnail && thumbAllowed(ev.thumbnail)) job.thumbnail = ev.thumbnail;
+          if (ev.thumbnails.length) {
+            job.thumbnail = ev.thumbnails;
+            // Fetch it now, so the page gets it as soon as it asks.
+            job.thumb = fetchFirstThumb(job.thumbnail);
+            job.thumb.then(() => { job.thumbOk = true; },
+              (e) => log.note('download', `${tag(job)} no thumbnail (tried ${job.thumbnail.length}): ${e.message}`));
+          }
           log.note('download', `${tag(job)} resolved "${(ev.title || '?').slice(0, 80)}" format ${ev.format || '?'}`);
         } else if (ev.type === 'progress') {
           job.progress = ev.progress;
@@ -477,6 +519,10 @@ function createDownloadRouter(workDir) {
         }
       }, job.ctrl.signal);
       if (!jobs.has(job.id) || job.state === 'error') { fs.rm(job.dir, { recursive: true, force: true }).catch(() => {}); return; }
+      // Give the thumbnail a moment to arrive, so the page still shows it
+      // when a short download finishes before the image was fetched.
+      if (job.thumb) await Promise.race([job.thumb.catch(() => {}), new Promise((ok) => setTimeout(ok, 5000))]);
+      if (!jobs.has(job.id) || job.state === 'error') return;
       const name = path.basename(file);
       const ext = path.extname(name).toLowerCase() || (r.mode === 'audio' ? '.m4a' : '.mp4');
       job.file = file;
@@ -501,7 +547,8 @@ function createDownloadRouter(workDir) {
       state: job.state,
       progress: job.progress,
       title: job.title,
-      thumbnail: Boolean(job.thumbnail),
+      // Only once the server has a working image, so the page never shows a broken one.
+      thumbnail: Boolean(job.thumbOk),
       error: job.error,
       url: job.url,
       mode: job.mode,
@@ -515,7 +562,7 @@ function createDownloadRouter(workDir) {
     const job = jobs.get(req.params.id);
     if (!job || !job.thumbnail) return res.sendStatus(404);
     try {
-      job.thumb = job.thumb || fetchThumb(job.thumbnail);
+      job.thumb = job.thumb || fetchFirstThumb(job.thumbnail);
       const { type, body } = await job.thumb;
       res.setHeader('Content-Type', type);
       res.setHeader('Cache-Control', 'private, max-age=3600');
@@ -584,4 +631,4 @@ function createDownloadRouter(workDir) {
   return router;
 }
 
-module.exports = { createDownloadRouter, download, parseUrl, PLATFORMS, stderrSummary, dirSize };
+module.exports = { createDownloadRouter, download, parseUrl, PLATFORMS, stderrSummary, dirSize, thumbCandidates };
