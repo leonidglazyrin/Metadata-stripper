@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { HeroArt, Tile, ToolIcon } from '../components/Icons';
 import { AI_SOURCES, PRICE, SITE_NAME } from './content';
 import { getDict, langPath, LANGS, type Dict } from './i18n';
+import { SiteFooter } from '../pages/Pages';
 import type { Faq } from './i18n/en';
 
 const APP = '/app/';
@@ -154,13 +155,11 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
         <FaqSection id="faq" title={t.faq.title} items={t.faq.items} />
         <FaqSection id="downloaders-faq" title={t.downloaderFaq.title} items={t.downloaderFaq.items} />
 
-        <footer className="foot">
-          <p>
-            <b>{SITE_NAME}</b> · {t.footer.tagline}{' '}
-            <a href={APP}>{t.footer.open}</a>
-          </p>
-          <p>{fill(t.footer.disclaimer)}</p>
-        </footer>
+        <SiteFooter
+          tagline={t.footer.tagline}
+          openLabel={t.footer.open}
+          disclaimer={fill(t.footer.disclaimer)}
+        />
 
         <aside className="badges" aria-label={t.footer.badges}>
           <a href="https://macbase.app/apps/ghosthand?ref=badge" target="_blank" rel="noopener">
