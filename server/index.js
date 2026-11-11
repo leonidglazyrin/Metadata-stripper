@@ -331,6 +331,7 @@ app.post('/api/tiktok', (req, res, next) => { req.url = '/tiktok'; downloads(req
 // ---------------------------------------------------------------------------
 
 //   /        static landing page (dist/index.html)
+//   /es/ …   the landing page in other languages (dist/es/index.html)
 //   /app/    the tools (dist/app/index.html)
 // The pages carry __SITE_URL__ placeholders for canonical, Open Graph and
 // JSON-LD links. Set SITE_URL (e.g. https://example.com) in production;
@@ -364,18 +365,47 @@ app.use('/assets', express.static(path.join(distDir, 'assets'), { immutable: tru
 app.use(express.static(distDir, { index: false, redirect: false }));
 
 app.get('/', (req, res, next) => sendPage(req, res, next, 'index.html'));
+// The landing page in other languages: /es/, /fr/ ... (built to dist/<code>/).
+// Unknown codes fall through to the 404 page.
+app.get(/^\/([a-z]{2})(\/?)$/, (req, res, next) => {
+  const [, code, slash] = req.path.match(/^\/([a-z]{2})(\/?)$/);
+  if (!slash) return res.redirect(301, `/${code}/`);
+  sendPage(req, res, next, `${code}/index.html`);
+});
 app.get('/app', (req, res, next) => (req.originalUrl.split('?')[0] === '/app' ? res.redirect(301, '/app/') : next()));
 app.get(/^\/app\/.*/, (req, res, next) => sendPage(req, res, next, 'app/index.html'));
 
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${siteUrl(req)}/sitemap.xml\n`);
 });
-app.get('/sitemap.xml', (req, res) => {
+// Languages of the landing page, written by the build (see vite.config.mts).
+let landingLangs;
+async function getLandingLangs() {
+  if (!landingLangs || process.env.NODE_ENV !== 'production') {
+    try {
+      landingLangs = JSON.parse(await fs.readFile(path.join(distDir, 'landing-langs.json'), 'utf8'));
+    } catch {
+      landingLangs = [{ code: 'en', path: '/' }];
+    }
+  }
+  return landingLangs;
+}
+
+app.get('/sitemap.xml', async (req, res) => {
   const base = siteUrl(req);
-  const urls = [['/', '1.0'], ['/app/', '0.8']]
-    .map(([loc, priority]) => `  <url><loc>${base}${loc}</loc><priority>${priority}</priority></url>`)
-    .join('\n');
-  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`);
+  const langs = await getLandingLangs();
+  // Each language version lists every other one (and x-default) as an alternate.
+  const alternates = [
+    ...langs.map((l) => `    <xhtml:link rel="alternate" hreflang="${l.code}" href="${base}${l.path}"/>`),
+    `    <xhtml:link rel="alternate" hreflang="x-default" href="${base}/"/>`,
+  ].join('\n');
+  const urls = [
+    ...langs.map((l) => `  <url>\n    <loc>${base}${l.path}</loc>\n    <priority>${l.path === '/' ? '1.0' : '0.9'}</priority>\n${alternates}\n  </url>`),
+    `  <url>\n    <loc>${base}/app/</loc>\n    <priority>0.8</priority>\n  </url>`,
+  ].join('\n');
+  res
+    .type('application/xml')
+    .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls}\n</urlset>\n`);
 });
 
 app.get(/^\/(?!api\/).*/, (_req, res) => {

@@ -4,45 +4,46 @@
 
 import type { ReactNode } from 'react';
 import { HeroArt, Tile, ToolIcon } from '../components/Icons';
-import { DOWNLOADER_FAQ, FAQ, SITE_NAME, type Faq } from './content';
+import { PRICE, SITE_NAME } from './content';
+import { getDict, langPath, LANGS, type Dict } from './i18n';
+import type { Faq } from './i18n/en';
 
 const APP = '/app/';
 
-export default function Landing({ siteUrl }: { siteUrl: string }) {
+export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: string }) {
+  const t = getDict(lang);
   return (
     <>
       <div className="page">
         <section className="card hero" aria-labelledby="top">
           <header className="card-head">
-            <a className="wordmark" href="/" aria-label={`${SITE_NAME} home`}>
+            <a className="wordmark" href={langPath(lang)} aria-label={fill(t.nav.home)}>
               sharona
             </a>
-            <nav className="nav" aria-label="Main">
-              <a href="#synthid">SynthID</a>
-              <a href="#metadata">Metadata</a>
-              <a href="#downloaders">Downloaders</a>
-              <a href="#pricing">Pricing</a>
-              <a href="#faq">FAQ</a>
-              <a className="pill-btn" href={APP}>Open tools</a>
+            <nav className="nav" aria-label={t.nav.label}>
+              <a href="#synthid">{t.nav.synthid}</a>
+              <a href="#metadata">{t.nav.metadata}</a>
+              <a href="#downloaders">{t.nav.downloaders}</a>
+              <a href="#pricing">{t.nav.pricing}</a>
+              <a href="#faq">{t.nav.faq}</a>
+              <a className="pill-btn" href={APP}>{t.nav.openTools}</a>
             </nav>
+            <LangSwitch lang={lang} label={t.nav.language} />
           </header>
 
           <div className="hero-body">
             <div className="hero-copy">
-              <p className="eyebrow">SynthID stripping · metadata removal · video downloads</p>
+              <p className="eyebrow">{t.hero.eyebrow}</p>
               <h1 id="top" className="display">
-                SynthID Stripper <span className="accent">&amp; Metadata Remover.</span>
+                <Pair p={t.hero.title} />
               </h1>
-              <p className="lede">
-                Drop in a photo or video and download a copy with EXIF, GPS and C2PA tags removed and the SynthID
-                watermark disrupted. It runs on our server or in your browser.
-              </p>
+              <p className="lede">{fill(t.hero.lede)}</p>
               <div className="cta-row">
-                <a className="cta" href={`${APP}#strip`}>Strip a file</a>
-                <a className="cta ghost" href={`${APP}#youtube`}>Download a video</a>
+                <a className="cta" href={`${APP}#strip`}>{t.hero.ctaStrip}</a>
+                <a className="cta ghost" href={`${APP}#youtube`}>{t.hero.ctaDownload}</a>
               </div>
-              <ul className="chips" aria-label="Tools">
-                <ToolChip href="#strip" tool="strip">SynthID &amp; metadata</ToolChip>
+              <ul className="chips" aria-label={t.hero.toolsLabel}>
+                <ToolChip href="#strip" tool="strip">{t.hero.chipStrip}</ToolChip>
                 <ToolChip href="#youtube" tool="youtube">YouTube</ToolChip>
                 <ToolChip href="#tiktok" tool="tiktok">TikTok</ToolChip>
                 <ToolChip href="#x" tool="x">X</ToolChip>
@@ -54,137 +55,106 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
         </section>
 
         <section id="synthid" className="card" aria-labelledby="synthid-h">
-          <SectionHead icon={<ToolIcon tool="strip" size={56} />} id="synthid-h" title={['SynthID Remover', 'that keeps the look.']}>
-            SynthID is an invisible watermark Google adds to the pixels of AI images and videos. Sharona changes those
-            pixels slightly to break up the pattern. The file looks and plays the same.
+          <SectionHead icon={<ToolIcon tool="strip" size={56} />} id="synthid-h" title={t.synthid.title}>
+            {fill(t.synthid.lede)}
           </SectionHead>
           <div className="grid3">
-            <Feature title="Photos">
-              A slight resample and sharpen changes every pixel, then the image is saved again at high quality.
-            </Feature>
-            <Feature title="Videos">
-              A high-quality re-encode (CRF 18) with a light blur, a matching sharpen and a little noise between frames.
-            </Feature>
-            <Feature title="No guarantees">
-              SynthID is built to survive edits, so no tool can promise a detector will miss it. Sharona disrupts the
-              watermark; it can’t guarantee it’s gone.
-            </Feature>
+            <Feature title={t.synthid.photos.title}>{fill(t.synthid.photos.text)}</Feature>
+            <Feature title={t.synthid.videos.title}>{fill(t.synthid.videos.text)}</Feature>
+            <Feature title={t.synthid.caveat.title}>{fill(t.synthid.caveat.text)}</Feature>
           </div>
           <div className="card-cta">
-            <a className="cta" href={`${APP}#strip`}>Open the SynthID stripper</a>
+            <a className="cta" href={`${APP}#strip`}>{t.synthid.cta}</a>
           </div>
         </section>
 
         <section id="metadata" className="card" aria-labelledby="metadata-h">
-          <SectionHead icon={<Tile from="#60a5fa" to="#1d4ed8" size={56}><PhotoGlyph /></Tile>} id="metadata-h" title={['Metadata Remover', 'for photos and videos.']}>
-            Photos and videos store where they were taken, the device, its serial number and the editing history.
-            The metadata remover deletes all of it and lists what it removed.
+          <SectionHead icon={<Tile from="#60a5fa" to="#1d4ed8" size={56}><PhotoGlyph /></Tile>} id="metadata-h" title={t.metadata.title}>
+            {fill(t.metadata.lede)}
           </SectionHead>
           <div className="split">
             <div>
-              <h3>Removed from photos</h3>
+              <h3>{t.metadata.photosTitle}</h3>
               <ul className="tags">
-                {['EXIF', 'GPS location', 'XMP', 'IPTC', 'ICC profiles', 'C2PA / Content Credentials', 'Maker notes', 'Thumbnails', 'Text comments'].map((t) => <li key={t}>{t}</li>)}
+                {t.metadata.photoTags.map((tag) => <li key={tag}>{tag}</li>)}
               </ul>
-              <p className="small">JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC comes back as JPEG.</p>
+              <p className="small">{t.metadata.photoFormats}</p>
             </div>
             <div>
-              <h3>Removed from videos</h3>
+              <h3>{t.metadata.videosTitle}</h3>
               <ul className="tags">
-                {['Global & stream tags', 'Chapter tags', 'GPS & telemetry tracks', 'Timecode', 'Cover art', 'C2PA boxes', 'Encoder strings'].map((t) => <li key={t}>{t}</li>)}
+                {t.metadata.videoTags.map((tag) => <li key={tag}>{tag}</li>)}
               </ul>
-              <p className="small">MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Streams are copied without re-encoding.</p>
+              <p className="small">{t.metadata.videoFormats}</p>
             </div>
           </div>
         </section>
 
         <section className="card" aria-labelledby="where-h">
           <h2 id="where-h" className="display sm">
-            Server <span className="accent">or this device.</span>
+            <Pair p={t.where.title} />
           </h2>
-          <p className="lede">One switch picks where your files are processed.</p>
+          <p className="lede">{t.where.lede}</p>
           <div className="split modes">
             <div className="mode">
-              <h3>Server</h3>
-              <p>Your file is uploaded, cleaned and deleted right after. Works with every format, and strips SynthID from photos and videos.</p>
+              <h3>{t.where.server.title}</h3>
+              <p>{fill(t.where.server.text)}</p>
             </div>
             <div className="mode">
-              <h3>This device</h3>
-              <p>Your file stays in your browser. Photos are cleaned losslessly. Videos need a ~30 MB download the first time. SynthID stripping works on photos only.</p>
+              <h3>{t.where.device.title}</h3>
+              <p>{fill(t.where.device.text)}</p>
             </div>
           </div>
         </section>
 
-        <section id="downloaders" className="dl-grid" aria-label="Video downloaders">
-          <Downloader
-            tool="youtube"
-            title={['YouTube', 'Downloader']}
-            text="Paste YouTube video or Shorts links. Get an MP4 up to 1080p, or the audio as M4A."
-          />
-          <Downloader
-            tool="x"
-            title={['X', 'Downloader']}
-            text="Paste an x.com or twitter.com post link and get the video from that post as MP4."
-          />
-          <Downloader
-            tool="tiktok"
-            title={['TikTok', 'Downloader']}
-            text="Paste tiktok.com links, including vm. and vt. short links. Get the video as MP4 or the sound as M4A."
-          />
-          <Downloader
-            tool="instagram"
-            title={['Instagram', 'Downloader']}
-            text="Paste a Reel or video post link. Public posts work; private ones need a logged-in session."
-          />
+        <section id="downloaders" className="dl-grid" aria-label={t.downloaders.label}>
+          {(['youtube', 'x', 'tiktok', 'instagram'] as const).map((tool) => (
+            <Downloader key={tool} tool={tool} {...t.downloaders[tool]} />
+          ))}
         </section>
 
         <section className="card" aria-labelledby="how-h">
           <h2 id="how-h" className="display sm">
-            How to remove SynthID <span className="accent">and metadata.</span>
+            <Pair p={t.how.title} />
           </h2>
           <ol className="steps">
-            <li><b>Add your files.</b> Photos or videos, as many as you like.</li>
-            <li><b>Pick the options.</b> Server or this device, SynthID stripping on or off.</li>
-            <li><b>Download the clean copies.</b> Each file lists what was removed.</li>
+            {t.how.steps.map(([lead, rest]) => (
+              <li key={lead}><b>{lead}</b> {rest}</li>
+            ))}
           </ol>
-          <a className="cta" href={`${APP}#strip`}>Open the SynthID stripper</a>
+          <a className="cta" href={`${APP}#strip`}>{t.how.cta}</a>
         </section>
 
         <section id="pricing" className="card" aria-labelledby="pricing-h">
           <h2 id="pricing-h" className="display sm">
-            One plan. <span className="accent">$30 a month.</span>
+            <Pair p={[fill(t.pricing.title[0]), fill(t.pricing.title[1])]} />
           </h2>
           <div className="price">
             <div>
-              <p className="price-tag"><b>$30</b> / month</p>
+              <p className="price-tag"><b>{PRICE}</b> {t.pricing.perMonth}</p>
               <ul className="price-list">
-                <li>SynthID stripper and metadata remover</li>
-                <li>YouTube, X, TikTok and Instagram downloaders</li>
-                <li>Server and on-device processing</li>
+                {t.pricing.features.map((f) => <li key={f}>{f}</li>)}
               </ul>
             </div>
             <div className="price-side">
-              <p>Billed monthly through Stripe. Cancel anytime.</p>
-              <a className="cta" href={APP}>Open the tools</a>
+              <p>{t.pricing.billing}</p>
+              <a className="cta" href={APP}>{t.pricing.cta}</a>
             </div>
           </div>
         </section>
 
-        <FaqSection id="faq" title={['SynthID stripping', 'FAQ.']} items={FAQ} />
-        <FaqSection id="downloaders-faq" title={['Downloaders', 'FAQ.']} items={DOWNLOADER_FAQ} />
+        <FaqSection id="faq" title={t.faq.title} items={t.faq.items} />
+        <FaqSection id="downloaders-faq" title={t.downloaderFaq.title} items={t.downloaderFaq.items} />
 
         <footer className="foot">
           <p>
-            <b>{SITE_NAME}</b> · SynthID stripper, metadata remover, and YouTube, X, TikTok and Instagram downloaders.{' '}
-            <a href={APP}>Open the tools</a>
+            <b>{SITE_NAME}</b> · {t.footer.tagline}{' '}
+            <a href={APP}>{t.footer.open}</a>
           </p>
-          <p>
-            Only process and download content you own or have permission to use, and label AI-generated content where
-            the rules require it. {SITE_NAME} is not affiliated with Google, YouTube, TikTok, X or Instagram.
-          </p>
+          <p>{fill(t.footer.disclaimer)}</p>
         </footer>
 
-        <aside className="badges" aria-label="Featured on">
+        <aside className="badges" aria-label={t.footer.badges}>
           <a href="https://macbase.app/apps/ghosthand?ref=badge" target="_blank" rel="noopener">
             <img src="https://macbase.app/badge/featured-on-macbase-dark.svg"
                  alt="Ghosthand is featured on MacBase"
@@ -206,8 +176,43 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
           </a>
         </aside>
       </div>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(siteUrl) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(siteUrl, lang, t) }} />
     </>
+  );
+}
+
+// Japanese runs words together, so a heading split across the accent colour
+// gets no space there; every other language gets one.
+const NO_SPACE = /[\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]/;
+function Pair({ p: [a, b] }: { p: [string, string] }) {
+  const gap = NO_SPACE.test(a.slice(-1)) || NO_SPACE.test(b[0]) ? '' : ' ';
+  return <>{a}{gap}<span className="accent">{b}</span></>;
+}
+
+/** Fills {site} and {price} in a dictionary string. */
+const fill = (s: string) => s.replaceAll('{site}', SITE_NAME).replaceAll('{price}', PRICE);
+
+// A plain <details> menu, so the page still ships no JavaScript.
+function LangSwitch({ lang, label }: { lang: string; label: string }) {
+  return (
+    <details className="lang">
+      <summary aria-label={label} title={label}>
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" />
+        </svg>
+        {lang.toUpperCase()}
+      </summary>
+      <ul className="lang-menu">
+        {LANGS.map((l) => (
+          <li key={l.code}>
+            <a href={langPath(l.code)} hrefLang={l.code} lang={l.code} aria-current={l.code === lang ? 'page' : undefined}>
+              {l.name}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -228,7 +233,7 @@ function SectionHead({ icon, id, title, children }: { icon: ReactNode; id: strin
       {icon}
       <div>
         <h2 id={id} className="display sm">
-          {title[0]} <span className="accent">{title[1]}</span>
+          <Pair p={title} />
         </h2>
         <p className="lede">{children}</p>
       </div>
@@ -249,13 +254,13 @@ function FaqSection({ id, title, items }: { id: string; title: [string, string];
   return (
     <section id={id} className="card" aria-labelledby={`${id}-h`}>
       <h2 id={`${id}-h`} className="display sm">
-        {title[0]} <span className="accent">{title[1]}</span>
+        <Pair p={title} />
       </h2>
       <div className="faq">
         {items.map((f) => (
           <details key={f.q}>
-            <summary><h3>{f.q}</h3></summary>
-            <p>{f.a}</p>
+            <summary><h3>{fill(f.q)}</h3></summary>
+            <p>{fill(f.a)}</p>
           </details>
         ))}
       </div>
@@ -263,16 +268,15 @@ function FaqSection({ id, title, items }: { id: string; title: [string, string];
   );
 }
 
-function Downloader({ tool, title, text }: { tool: 'youtube' | 'x' | 'tiktok' | 'instagram'; title: [string, string]; text: string }) {
-  const href = `${APP}#${tool}`;
+function Downloader({ tool, title, text, cta }: { tool: 'youtube' | 'x' | 'tiktok' | 'instagram'; title: [string, string]; text: string; cta: string }) {
   return (
     <div className="card dl" aria-labelledby={`${tool}-h`}>
       <ToolIcon tool={tool} size={56} />
       <h2 id={`${tool}-h`} className="display xs">
-        {title[0]} <span className="accent">{title[1]}</span>
+        <Pair p={title} />
       </h2>
       <p>{text}</p>
-      <a className="cta" href={href}>Open the {title.join(' ')}</a>
+      <a className="cta" href={`${APP}#${tool}`}>{cta}</a>
     </div>
   );
 }
@@ -284,36 +288,32 @@ const PhotoGlyph = () => (
   </g>
 );
 
-function jsonLd(siteUrl: string) {
+function jsonLd(siteUrl: string, lang: string, t: Dict) {
+  const url = `${siteUrl}${langPath(lang)}`;
   const data = {
     '@context': 'https://schema.org',
     '@graph': [
       {
         '@type': 'WebApplication',
-        name: `${SITE_NAME}: SynthID Stripper & Metadata Remover`,
-        alternateName: ['SynthID Remover', 'Metadata Remover', 'YouTube Downloader', 'X Video Downloader', 'TikTok Downloader', 'Instagram Downloader'],
-        url: `${siteUrl}/`,
+        name: fill(t.jsonLd.name),
+        alternateName: t.jsonLd.alternateName,
+        url,
+        inLanguage: lang,
         applicationCategory: 'MultimediaApplication',
-        operatingSystem: 'Any (web browser)',
-        browserRequirements: 'Requires a modern web browser with JavaScript.',
-        description:
-          'Remove EXIF, GPS, XMP, IPTC and C2PA metadata from photos and videos and disrupt SynthID watermarks, on a server or on your device. Includes YouTube, TikTok, X and Instagram downloaders.',
-        featureList: [
-          'SynthID stripping for photos and videos',
-          'Metadata remover for EXIF, GPS, XMP, IPTC, ICC and C2PA',
-          'On-device processing option',
-          'YouTube downloader (MP4 up to 1080p or M4A audio)',
-          'TikTok downloader',
-          'X and Instagram video downloaders',
-        ],
+        operatingSystem: t.jsonLd.operatingSystem,
+        browserRequirements: t.jsonLd.browserRequirements,
+        description: fill(t.jsonLd.description),
+        featureList: t.jsonLd.featureList,
       },
       {
         '@type': 'FAQPage',
+        url,
+        inLanguage: lang,
         // Google expects one FAQPage per page, so both lists go in it.
-        mainEntity: [...FAQ, ...DOWNLOADER_FAQ].map((f) => ({
+        mainEntity: [...t.faq.items, ...t.downloaderFaq.items].map((f) => ({
           '@type': 'Question',
-          name: f.q,
-          acceptedAnswer: { '@type': 'Answer', text: f.a },
+          name: fill(f.q),
+          acceptedAnswer: { '@type': 'Answer', text: fill(f.a) },
         })),
       },
     ],
