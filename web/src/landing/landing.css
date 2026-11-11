@@ -112,3 +112,205 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
   .nav .pill-btn { margin-left: 0; }
   .cta-row .cta { flex: 1; justify-content: center; }
 }
+
+.sources { margin-top: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.sources h3 { font-size: 14px; color: var(--soft); }
+.grid3 { margin-top: 18px; }
+
+/* ---------- How it works animation ----------
+   One 9 s loop: upload (0–33%), strip (33–66%), download (66–100%).
+   The base styles are the finished state, so when animations are off
+   (prefers-reduced-motion) the card shows the clean result. */
+.flow, .flow-steps { --t: 9s; }
+.flow {
+  margin-top: 26px;
+  padding: clamp(18px, 4vw, 34px);
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 15% 0%, var(--blue-soft), transparent 55%),
+    radial-gradient(circle at 90% 100%, #e7f8ec, transparent 50%),
+    #f8fafc;
+  display: grid;
+  place-items: center;
+}
+.flow-file {
+  position: relative;
+  width: min(100%, 520px);
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 16px 16px 28px;
+  border-radius: 22px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  animation: flow-file var(--t) ease-in-out infinite;
+}
+.flow-thumb {
+  position: relative;
+  height: 96px;
+  border-radius: 16px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #7c3aed, #1a6dff 55%, #22d3ee);
+}
+.flow-play { position: relative; z-index: 1; }
+/* The watermark: a faint dot lattice over the frame. */
+.flow-wm {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.9) 1.2px, transparent 1.6px);
+  background-size: 9px 9px;
+  opacity: 0.08;
+  animation: flow-wm var(--t) ease-in-out infinite;
+}
+.flow-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 26px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  opacity: 0;
+  animation: flow-scan var(--t) linear infinite;
+}
+.flow-badge {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  top: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--green);
+  box-shadow: 0 2px 6px rgba(21, 128, 61, 0.4);
+  animation: flow-pop var(--t) ease-out infinite;
+}
+.flow-meta { min-width: 0; display: grid; gap: 8px; }
+.flow-name, .flow-status { display: grid; }
+.flow-name > span, .flow-status > span { grid-area: 1 / 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flow-name { font-weight: 750; font-size: 15.5px; letter-spacing: -0.01em; }
+.flow-status { font-size: 13px; color: var(--soft); }
+.flow-status .s3 { color: var(--green-ink); font-weight: 700; }
+.n1, .s1, .s2 { opacity: 0; }
+.n1 { animation: flow-a var(--t) infinite; }
+.n2 { animation: flow-b var(--t) infinite; }
+.s1 { animation: flow-p1 var(--t) infinite; }
+.s2 { animation: flow-p2 var(--t) infinite; }
+.s3 { animation: flow-b var(--t) infinite; }
+.flow-bar { height: 6px; border-radius: 99px; background: var(--chip); overflow: hidden; }
+.flow-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transform-origin: left;
+  animation: flow-bar var(--t) ease-in-out infinite;
+}
+.flow-tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.flow-tags li {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--mono);
+  background: #fdecec;
+  color: var(--red);
+  text-decoration: line-through;
+  opacity: 0.4;
+}
+.flow-tags li:nth-child(1) { animation: flow-tag1 var(--t) infinite; }
+.flow-tags li:nth-child(2) { animation: flow-tag2 var(--t) infinite; }
+.flow-tags li:nth-child(3) { animation: flow-tag3 var(--t) infinite; }
+.flow-tags li:nth-child(4) { animation: flow-tag4 var(--t) infinite; }
+.flow-dl {
+  position: absolute;
+  right: 16px;
+  bottom: -16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  animation: flow-dl var(--t) ease-out infinite;
+}
+
+/* Upload, strip, download: the step cards light up in turn. */
+.flow-steps li:nth-child(1) { animation: flow-step1 var(--t) infinite; }
+.flow-steps li:nth-child(2) { animation: flow-step2 var(--t) infinite; }
+.flow-steps li:nth-child(3) { animation: flow-step3 var(--t) infinite; }
+
+@keyframes flow-file {
+  0% { opacity: 0; translate: 0 -18px; }
+  6%, 90% { opacity: 1; translate: 0 0; }
+  97%, 100% { opacity: 0; translate: 0 10px; }
+}
+@keyframes flow-bar {
+  0%, 4% { transform: scaleX(0); background: var(--blue); }
+  30% { transform: scaleX(1); background: var(--blue); }
+  33% { transform: scaleX(0); background: var(--green); }
+  62%, 100% { transform: scaleX(1); background: var(--green); }
+}
+@keyframes flow-wm {
+  0%, 36% { opacity: 0.6; }
+  62%, 100% { opacity: 0.08; }
+}
+@keyframes flow-scan {
+  0%, 34% { opacity: 0; left: -30px; }
+  36% { opacity: 1; }
+  60% { opacity: 1; left: 100%; }
+  62%, 100% { opacity: 0; left: 100%; }
+}
+@keyframes flow-pop {
+  0%, 65% { opacity: 0; scale: 0.3; }
+  69% { opacity: 1; scale: 1.15; }
+  72%, 90% { opacity: 1; scale: 1; }
+  100% { opacity: 1; scale: 1; }
+}
+@keyframes flow-dl {
+  0%, 70% { opacity: 0; translate: 0 8px; }
+  74% { opacity: 1; translate: 0 0; }
+  80% { translate: 0 -4px; }
+  84%, 100% { opacity: 1; translate: 0 0; }
+}
+/* Crossfades: a = shown until strip ends, b = shown from download on,
+   p1 / p2 = shown during upload / strip only. */
+@keyframes flow-a { 0%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
+@keyframes flow-b { 0%, 64% { opacity: 0; } 66%, 100% { opacity: 1; } }
+@keyframes flow-p1 { 0%, 31% { opacity: 1; } 33%, 100% { opacity: 0; } }
+@keyframes flow-p2 { 0%, 31% { opacity: 0; } 33%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
+/* Tags start as live metadata and get struck through one by one. */
+@keyframes flow-tag1 { 0%, 38% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 41%, 100% { opacity: 0.4; } }
+@keyframes flow-tag2 { 0%, 44% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 47%, 100% { opacity: 0.4; } }
+@keyframes flow-tag3 { 0%, 50% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 53%, 100% { opacity: 0.4; } }
+@keyframes flow-tag4 { 0%, 56% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 59%, 100% { opacity: 0.4; } }
+@keyframes flow-step1 {
+  0%, 31% { border-color: var(--blue); background: var(--card); box-shadow: var(--shadow); }
+  34%, 100% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+}
+@keyframes flow-step2 {
+  0%, 31% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+  34%, 64% { border-color: var(--blue); background: var(--card); box-shadow: var(--shadow); }
+  67%, 100% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+}
+@keyframes flow-step3 {
+  0%, 64% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+  67%, 97% { border-color: var(--green); background: var(--card); box-shadow: var(--shadow); }
+  100% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+}
+
+@media (max-width: 560px) {
+  .flow-file { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 12px 12px 30px; }
+  .flow-thumb { height: 120px; }
+}

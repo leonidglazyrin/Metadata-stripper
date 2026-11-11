@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react';
 import { HeroArt, Tile, ToolIcon } from '../components/Icons';
-import { DOWNLOADER_FAQ, FAQ, SITE_NAME, type Faq } from './content';
+import { AI_SOURCES, DOWNLOADER_FAQ, FAQ, SITE_NAME, type Faq } from './content';
 
 const APP = '/app/';
 
@@ -29,13 +29,14 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
 
           <div className="hero-body">
             <div className="hero-copy">
-              <p className="eyebrow">SynthID stripping · metadata removal · video downloads</p>
+              <p className="eyebrow">Remove SynthID &amp; metadata from AI videos and photos</p>
               <h1 id="top" className="display">
                 SynthID Stripper <span className="accent">&amp; Metadata Remover.</span>
               </h1>
               <p className="lede">
-                Drop in a photo or video and download a copy with EXIF, GPS and C2PA tags removed and the SynthID
-                watermark disrupted. It runs on our server or in your browser.
+                Drop in a video or photo from Google Veo, Gemini, Sora, ChatGPT, Higgsfield or any other AI generator.
+                Download a copy with EXIF, GPS and C2PA Content Credentials removed and the SynthID watermark disrupted.
+                It runs on our server or in your browser.
               </p>
               <div className="cta-row">
                 <a className="cta" href={`${APP}#strip`}>Strip a file</a>
@@ -54,10 +55,16 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
         </section>
 
         <section id="synthid" className="card" aria-labelledby="synthid-h">
-          <SectionHead icon={<ToolIcon tool="strip" size={56} />} id="synthid-h" title={['SynthID Remover', 'that keeps the look.']}>
-            SynthID is an invisible watermark Google adds to the pixels of AI images and videos. Sharona changes those
-            pixels slightly to break up the pattern. The file looks and plays the same.
+          <SectionHead icon={<ToolIcon tool="strip" size={56} />} id="synthid-h" title={['Remove SynthID from AI videos', 'and keep the look.']}>
+            SynthID is an invisible watermark Google adds to the pixels of images and videos made with Veo, Gemini and
+            Imagen. Sharona changes those pixels slightly to weaken the pattern, and the file looks and plays the same.
           </SectionHead>
+          <div className="sources">
+            <h3>Clean files from</h3>
+            <ul className="tags" aria-label="AI generators">
+              {AI_SOURCES.map((t) => <li key={t}>{t}</li>)}
+            </ul>
+          </div>
           <div className="grid3">
             <Feature title="Photos">
               A slight resample and sharpen changes every pixel, then the image is saved again at high quality.
@@ -66,8 +73,8 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
               A high-quality re-encode (CRF 18) with a light blur, a matching sharpen and a little noise between frames.
             </Feature>
             <Feature title="No guarantees">
-              SynthID is built to survive edits, so no tool can promise a detector will miss it. Sharona disrupts the
-              watermark; it can’t guarantee it’s gone.
+              SynthID is built to survive edits, so no tool can promise a detector will miss it. Sharona weakens the
+              watermark; it can’t guarantee it’s gone, or that a platform won’t label the file as AI.
             </Feature>
           </div>
           <div className="card-cta">
@@ -142,10 +149,11 @@ export default function Landing({ siteUrl }: { siteUrl: string }) {
           <h2 id="how-h" className="display sm">
             How to remove SynthID <span className="accent">and metadata.</span>
           </h2>
-          <ol className="steps">
-            <li><b>Add your files.</b> Photos or videos, as many as you like.</li>
-            <li><b>Pick the options.</b> Server or this device, SynthID stripping on or off.</li>
-            <li><b>Download the clean copies.</b> Each file lists what was removed.</li>
+          <ProcessAnimation />
+          <ol className="steps flow-steps">
+            <li><b>Upload your file.</b> AI videos or photos, as many as you like. Server or this device.</li>
+            <li><b>Sharona strips it.</b> EXIF, GPS and C2PA tags are removed and the SynthID watermark is weakened.</li>
+            <li><b>Download the clean copy.</b> Each file lists what was removed.</li>
           </ol>
           <a className="cta" href={`${APP}#strip`}>Open the SynthID stripper</a>
         </section>
@@ -277,6 +285,56 @@ function Downloader({ tool, title, text }: { tool: 'youtube' | 'x' | 'tiktok' | 
   );
 }
 
+// A CSS-only loop of the three steps: a file is uploaded, its tags are
+// stripped while a scan line weakens the watermark pattern, and a clean copy
+// is offered for download. The base styles are the finished state, so with
+// reduced motion (which turns animations off) it shows the end result.
+function ProcessAnimation() {
+  return (
+    <div className="flow" aria-hidden="true">
+      <div className="flow-file">
+        <div className="flow-thumb">
+          <span className="flow-wm" />
+          <svg className="flow-play" width="44" height="44" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="rgba(255,255,255,0.22)" />
+            <path d="M26 20.5v23l18-11.5z" fill="#fff" />
+          </svg>
+          <span className="flow-scan" />
+          <span className="flow-badge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m5 12.5 4.5 4.5L19 7.5" />
+            </svg>
+          </span>
+        </div>
+        <div className="flow-meta">
+          <p className="flow-name">
+            <span className="n1">veo-clip.mp4</span>
+            <span className="n2">veo-clip-clean.mp4</span>
+          </p>
+          <p className="flow-status">
+            <span className="s1">Uploading…</span>
+            <span className="s2">Removing metadata · weakening SynthID…</span>
+            <span className="s3">Clean · 4 items removed</span>
+          </p>
+          <div className="flow-bar"><i /></div>
+          <ul className="flow-tags">
+            <li>EXIF</li>
+            <li>GPS</li>
+            <li>C2PA</li>
+            <li>SynthID</li>
+          </ul>
+        </div>
+        <span className="flow-dl">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" />
+          </svg>
+          Download
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const PhotoGlyph = () => (
   <g>
     <circle cx="25" cy="25" r="5" fill="#ffd34d" />
@@ -291,13 +349,14 @@ function jsonLd(siteUrl: string) {
       {
         '@type': 'WebApplication',
         name: `${SITE_NAME}: SynthID Stripper & Metadata Remover`,
-        alternateName: ['SynthID Remover', 'Metadata Remover', 'YouTube Downloader', 'X Video Downloader', 'TikTok Downloader', 'Instagram Downloader'],
+        alternateName: ['SynthID Remover', 'SynthID Remover for AI Videos', 'Metadata Remover', 'YouTube Downloader', 'X Video Downloader', 'TikTok Downloader', 'Instagram Downloader'],
         url: `${siteUrl}/`,
         applicationCategory: 'MultimediaApplication',
         operatingSystem: 'Any (web browser)',
         browserRequirements: 'Requires a modern web browser with JavaScript.',
         description:
-          'Remove EXIF, GPS, XMP, IPTC and C2PA metadata from photos and videos and disrupt SynthID watermarks, on a server or on your device. Includes YouTube, TikTok, X and Instagram downloaders.',
+          'Remove EXIF, GPS, XMP, IPTC and C2PA metadata from AI videos and photos (Google Veo, Gemini, Sora, ChatGPT, Higgsfield and more) and disrupt SynthID watermarks, on a server or on your device. Results are not guaranteed. Includes YouTube, TikTok, X and Instagram downloaders.',
+        keywords: 'remove SynthID, SynthID remover, remove SynthID from AI videos, SynthID stripper, remove C2PA, metadata remover, Veo, Gemini, Sora, ChatGPT, Higgsfield',
         featureList: [
           'SynthID stripping for photos and videos',
           'Metadata remover for EXIF, GPS, XMP, IPTC, ICC and C2PA',
