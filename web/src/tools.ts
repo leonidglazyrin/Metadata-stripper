@@ -14,9 +14,9 @@ export interface ToolInfo {
 export const TOOLS: ToolInfo[] = [
   {
     id: 'strip',
-    chip: 'Strip metadata',
+    chip: 'SynthID & metadata',
     title: ['Your files.', 'No trace.'],
-    blurb: 'Drop photos or videos. We remove EXIF, GPS, XMP, C2PA and container tags, then hand back a clean copy.',
+    blurb: 'Drop photos or videos. We strip the SynthID watermark and remove EXIF, GPS, XMP, C2PA and container tags, then hand back a clean copy.',
   },
   {
     id: 'youtube',
