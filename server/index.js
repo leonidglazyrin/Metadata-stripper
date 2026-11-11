@@ -371,6 +371,10 @@ function siteUrl(req) {
   return `${proto}://${host}`;
 }
 
+// Shown on the Privacy Policy and Terms. Set CONTACT_EMAIL in production.
+const CONTACT_EMAIL = /^[^\s@<>"]+@[^\s@<>"]+$/.test(process.env.CONTACT_EMAIL || '') ? process.env.CONTACT_EMAIL : '';
+const contactEmail = (site) => CONTACT_EMAIL || `support@${new URL(site).hostname.replace(/^www\./, '')}`;
+
 const pageCache = new Map();
 async function sendPage(req, res, next, file, status = 200) {
   try {
@@ -379,7 +383,12 @@ async function sendPage(req, res, next, file, status = 200) {
       html = await fs.readFile(path.join(distDir, file), 'utf8');
       if (process.env.NODE_ENV === 'production') pageCache.set(file, html);
     }
-    res.status(status).type('html').set('Cache-Control', 'no-cache').send(html.replaceAll('__SITE_URL__', siteUrl(req)));
+    const site = siteUrl(req);
+    res
+      .status(status)
+      .type('html')
+      .set('Cache-Control', 'no-cache')
+      .send(html.replaceAll('__SITE_URL__', site).replaceAll('__CONTACT_EMAIL__', contactEmail(site)));
   } catch (e) {
     next(e.code === 'ENOENT' ? undefined : e);
   }
@@ -396,6 +405,25 @@ app.get(/^\/([a-z]{2})(\/?)$/, (req, res, next) => {
   const [, code, slash] = req.path.match(/^\/([a-z]{2})(\/?)$/);
   if (!slash) return res.redirect(301, `/${code}/`);
   sendPage(req, res, next, `${code}/index.html`);
+});
+// Guides and legal pages (built to dist/<path>/index.html, listed in pages.json).
+let contentPages;
+async function getContentPages() {
+  if (!contentPages || process.env.NODE_ENV !== 'production') {
+    try {
+      contentPages = JSON.parse(await fs.readFile(path.join(distDir, 'pages.json'), 'utf8'));
+    } catch {
+      contentPages = [];
+    }
+  }
+  return contentPages;
+}
+app.get(/^\/(guides|privacy|terms)(\/[a-z0-9-]*)*\/?$/, async (req, res, next) => {
+  const p = req.path.endsWith('/') ? req.path : `${req.path}/`;
+  const page = (await getContentPages()).find((x) => x.path === p);
+  if (!page) return next();
+  if (p !== req.path) return res.redirect(301, p);
+  sendPage(req, res, next, `${p.slice(1)}index.html`);
 });
 app.get('/app', (req, res, next) => (req.originalUrl.split('?')[0] === '/app' ? res.redirect(301, '/app/') : next()));
 app.get(/^\/app\/.*/, (req, res, next) => sendPage(req, res, next, 'app/index.html'));
@@ -427,6 +455,7 @@ app.get('/sitemap.xml', async (req, res) => {
   const urls = [
     ...langs.map((l) => `  <url>\n    <loc>${base}${l.path}</loc>\n    <priority>${l.path === '/' ? '1.0' : '0.9'}</priority>\n${alternates}\n  </url>`),
     `  <url>\n    <loc>${base}/app/</loc>\n    <priority>0.8</priority>\n  </url>`,
+    ...(await getContentPages()).map((p) => `  <url>\n    <loc>${base}${p.path}</loc>\n    <priority>${p.priority}</priority>\n  </url>`),
   ].join('\n');
   res
     .type('application/xml')

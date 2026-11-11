@@ -12,9 +12,9 @@ type Downloader = { title: Pair; text: string; cta: string };
 
 export const en = {
   meta: {
-    title: 'SynthID Remover & Metadata Stripper for AI Videos · {site}',
+    title: 'Remove SynthID & C2PA from AI Images and Videos · {site}',
     description:
-      'Remove SynthID and metadata from AI videos and photos made with Google Veo, Gemini, Sora, ChatGPT or Higgsfield. Strips EXIF, GPS and C2PA tags and disrupts the SynthID watermark. Plus YouTube, X, TikTok and Instagram downloaders.',
+      'Remove C2PA Content Credentials and metadata from AI images and videos made with Google Veo, Gemini, Sora, ChatGPT or Higgsfield, and disrupt the SynthID watermark. Strips EXIF, GPS and XMP too. Plus YouTube, X, TikTok and Instagram downloaders.',
     ogDescription:
       'Remove SynthID and hidden metadata from AI videos and photos from Veo, Gemini, Sora, ChatGPT and Higgsfield, on our server or on your device.',
     twitterDescription:
@@ -35,10 +35,10 @@ export const en = {
     mobileLabel: 'Main (mobile)',
   },
   hero: {
-    eyebrow: 'Remove SynthID & metadata from AI videos and photos',
-    title: ['SynthID Stripper', '& Metadata Remover.'] as Pair,
+    eyebrow: 'SynthID, C2PA & metadata remover',
+    title: ['Remove SynthID & C2PA', 'from AI images and videos.'] as Pair,
     lede:
-      'Drop in a video or photo from Google Veo, Gemini, Sora, ChatGPT, Higgsfield or any other AI generator. Download a copy with EXIF, GPS and C2PA Content Credentials removed and the SynthID watermark disrupted. It runs on our server or in your browser.',
+      'Drop in a photo or video from Google Veo, Gemini, Sora, ChatGPT, Higgsfield or any other AI tool. Download a copy with the C2PA Content Credentials and every other metadata tag (EXIF, GPS, XMP) deleted, and the SynthID watermark disrupted. It runs on our server or in your browser.',
     ctaStrip: 'Strip a file',
     ctaDownload: 'Download a video',
     toolsLabel: 'Tools',
