@@ -65,7 +65,7 @@ export default function JobList({ jobs, icon, onRemove, onRetry, onClear, canSwi
                 <div className="row-sub" title={j.message}>
                   {j.status === 'done' && <b>Ready</b>}
                   {j.status === 'done' ? (
-                    ` · ${j.message}`
+                    j.message && ` · ${j.message}`
                   ) : j.status === 'error' && j.message.startsWith('Expired · ') ? (
                     <>
                       <b>Expired</b>

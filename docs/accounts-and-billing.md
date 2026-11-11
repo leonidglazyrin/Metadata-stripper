@@ -17,7 +17,7 @@ Every visitor signs in with Google. Each account gets **1 free strip** and **1 f
 ## 1. Supabase project
 
 1. Create a project at [supabase.com/dashboard](https://supabase.com/dashboard) → **New project**. Pick a region near where your containers run and save the database password somewhere safe (the app doesn't need it).
-2. **SQL Editor → New query**: paste all of [`supabase/migrations/20261111000000_accounts.sql`](../supabase/migrations/20261111000000_accounts.sql) and click **Run**. It creates the tables, turns on row level security and adds the functions the server calls. Running it again is harmless. (With the Supabase CLI: `supabase link --project-ref <ref>` then `supabase db push`.)
+2. **SQL Editor → New query**: paste all of [`supabase/migrations/20261111000000_accounts.sql`](../supabase/migrations/20261111000000_accounts.sql) and click **Run**. It creates the tables, turns on row level security and adds the functions the server calls. Then do the same with [`supabase/migrations/20261111100000_download_history.sql`](../supabase/migrations/20261111100000_download_history.sql), which keeps each account's download rows so they show on every device. Running them again is harmless. (With the Supabase CLI: `supabase link --project-ref <ref>` then `supabase db push`.)
 3. **Project Settings → API** (or **API Keys**):
    - Copy the **Project URL** into `SUPABASE_URL` (`https://<ref>.supabase.co`).
    - Copy the **service_role** key (legacy tab, starts with `eyJ`) or create a **secret key** (`sb_secret_…`) and put it in `SUPABASE_SERVICE_ROLE_KEY`. This key bypasses row level security: keep it on the server only, never in the web app or in git.

@@ -79,7 +79,7 @@ export const fr: Translation = {
     },
     instagram: {
       title: ['Téléchargeur', 'Instagram'],
-      text: 'Collez le lien d’un Reel ou d’un post vidéo. Les posts publics fonctionnent ; les privés demandent une session connectée.',
+      text: 'Collez le lien d’un Reel ou d’un post vidéo public. Les vidéos privées ne sont pas disponibles.',
       cta: 'Ouvrir le téléchargeur Instagram',
     },
   },
@@ -168,7 +168,7 @@ export const fr: Translation = {
       },
       {
         q: 'Pourquoi un lien Instagram ou X échoue-t-il ?',
-        a: 'Les posts privés et certains posts publics demandent une session connectée. Si un post est privé ou si la plateforme demande une connexion, le téléchargement échoue avec un message qui l’indique.',
+        a: 'Seules les vidéos publiques peuvent être téléchargées. Les vidéos privées ne sont pas disponibles dans l’outil, et si une plateforme demande une connexion, le téléchargement échoue avec un message qui l’indique.',
       },
       {
         q: 'Puis-je télécharger uniquement l’audio ?',

@@ -215,6 +215,8 @@ async function stripVideo(input, ext, { forceMkv = false, synthid = false } = {}
     args.push(
       '-vf', 'gblur=sigma=0.3,noise=c0s=2:c0f=t,unsharp=3:3:0.4:3:3:0',
       '-c:v', 'libx264', '-crf', '18', '-preset', 'medium',
+      // x264 writes its version and settings into an SEI message; drop it.
+      '-bsf:v', 'filter_units=remove_types=6',
       '-c:a', 'aac', '-b:a', '256k', '-af', 'aresample=async=1',
     );
   } else {
@@ -339,7 +341,12 @@ app.post('/api/strip', stripGate, upload.single('file'), async (req, res) => {
 // Link downloaders (YouTube, X, Instagram, TikTok) via yt-dlp
 // ---------------------------------------------------------------------------
 
-const downloads = createDownloadRouter(workDir, { gate: accounts.gate('download') });
+const downloads = createDownloadRouter(workDir, {
+  gate: accounts.gate('download'),
+  currentUser: accounts.currentUser,
+  // Each account's download rows, so they show on every device it signs in on.
+  history: accounts.store && typeof accounts.store.listDownloads === 'function' ? accounts.store : null,
+});
 app.use('/api/download', downloads);
 // Old endpoint, kept so existing clients keep working.
 app.post('/api/tiktok', (req, res, next) => { req.url = '/tiktok'; downloads(req, res, next); });

@@ -120,6 +120,8 @@ export async function stripVideoInBrowser(
           args.push(
             '-vf', 'gblur=sigma=0.3,noise=c0s=2:c0f=t,unsharp=3:3:0.4:3:3:0',
             '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast', '-pix_fmt', 'yuv420p',
+            // x264 writes its version and settings into an SEI message; drop it.
+            '-bsf:v', 'filter_units=remove_types=6',
             '-c:a', 'aac', '-b:a', '256k', '-af', 'aresample=async=1',
           );
         } else {

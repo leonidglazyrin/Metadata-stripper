@@ -201,8 +201,7 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
     '-o', '%(uploader,channel,id).50s_%(id)s.%(ext)s',
   ];
   if (!audio) args.push('--merge-output-format', 'mp4');
-  // Instagram (and sometimes X / age-gated YouTube) need a logged-in session.
-  if (process.env.YTDLP_COOKIES) args.push('--cookies', process.env.YTDLP_COOKIES);
+  // No cookies or logged-in session on purpose: only public posts work.
   args.push('--', url);
 
   // A "137+140" format downloads video and audio one after the other, each
@@ -313,9 +312,10 @@ async function extractAudio(src, dir, onEvent = () => {}, signal) {
 }
 
 function friendlyError(platform, msg) {
-  if (/login|log in|sign in|cookies|rate-limit|private/i.test(msg)) {
-    return `${PLATFORMS[platform].label} wants a logged-in session for this post. Set YTDLP_COOKIES on the server, or the post may be private.`;
+  if (/login|log in|sign in|cookies|private/i.test(msg)) {
+    return `This ${PLATFORMS[platform].label} post is private or needs a login. Only public videos can be downloaded.`;
   }
+  if (/rate-limit/i.test(msg)) return `${PLATFORMS[platform].label} is limiting requests right now, please try again in a few minutes`;
   if (/no video could be found|no video formats/i.test(msg)) return 'This post has no video to download';
   return msg;
 }
@@ -323,12 +323,33 @@ function friendlyError(platform, msg) {
 // "Video title - Channel", the name a row and its file get. Skips the
 // channel when the title already carries it (X titles start with the
 // poster's name) or when there's no title.
-function displayName(title, author) {
+// TikTok is the other way round: "account - start of the caption", with the
+// hashtags taken out (the caption is mostly tags).
+function displayName(title, author, platform) {
+  if (platform === 'tiktok') return tiktokName(title, author);
   const t = clean(title);
   const a = clean(author);
   if (!t) return a || null;
   if (!a || t.toLowerCase().includes(a.toLowerCase())) return t;
   return `${t} - ${a}`;
+}
+
+const SNIPPET_CHARS = 60;
+
+function tiktokName(title, author) {
+  const a = clean(author);
+  let t = clean(title);
+  // yt-dlp's placeholder when a post has no caption.
+  if (/^tiktok video #\d+$/i.test(t)) t = '';
+  t = t.replace(/(^|\s)[#＃][^\s#＃]*/gu, ' ').replace(/\s+/g, ' ').trim().replace(/^[-–—|:·,.\s]+|[-–—|:·,\s]+$/g, '');
+  const chars = [...t];
+  if (chars.length > SNIPPET_CHARS) {
+    const cut = chars.slice(0, SNIPPET_CHARS).join('');
+    const space = cut.lastIndexOf(' ');
+    t = `${(space > SNIPPET_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[-–—|:·,.\s]+$/, '')}…`;
+  }
+  if (!a) return t || null;
+  return t ? `${a} - ${t}` : a;
 }
 
 function clean(s) {
@@ -436,10 +457,50 @@ async function dirSize(dir) {
   return total;
 }
 
-function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota = { refund() {}, refundUnlessSent() {} }; next(); } } = {}) {
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Options:
+ *   gate          account middleware (sign-in + quota), may be async
+ *   currentUser   async (req) => the signed-in account or null; jobs started
+ *                 while signed in belong to that account and only it can
+ *                 see, fetch or delete them
+ *   history       store with listDownloads / saveDownload / deleteDownloads
+ *                 (server/store.js): keeps each account's rows so they show
+ *                 on every device. Files still expire as below.
+ */
+function createDownloadRouter(workDir, {
+  gate = (req, _res, next) => { req.quota = { refund() {}, refundUnlessSent() {} }; next(); },
+  currentUser = null,
+  history = null,
+} = {}) {
   const router = express.Router();
   /** id → download job (see POST /:platform/jobs) */
   const jobs = new Map();
+
+  // The signed-in account, null when signed out, undefined when the account
+  // store can't be reached (treated as "not the owner").
+  const userOf = async (req) => {
+    if (!currentUser) return null;
+    try { return await currentUser(req); } catch (e) {
+      log.fail('download', `could not read the account: ${e.message}`);
+      return undefined;
+    }
+  };
+  // A job started while signed in is only visible to that account.
+  const ownJob = async (req, id) => {
+    const job = jobs.get(id);
+    if (!job) return null;
+    if (!job.owner) return job;
+    const user = await userOf(req);
+    return user && user.id === job.owner ? job : null;
+  };
+  // Write a job's row to the account's history; never fails the download.
+  const record = (job, fields) => {
+    if (!history || !job.owner) return;
+    history.saveDownload(job.owner, { id: job.rowId, platform: job.platform, url: job.url, mode: job.mode, jobId: job.id, ...fields })
+      .catch((e) => log.fail('download', `${tag(job)} history not saved: ${e.message}`));
+  };
 
   const tag = (job) => `${shortId(job.id)} ${job.label} ${job.mode}`;
   const age = (job) => log.duration(Date.now() - job.started);
@@ -468,6 +529,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
     job.expiresAt = job.endedAt + ERROR_TTL_MS;
     job.ctrl.abort();
     fs.rm(job.dir, { recursive: true, force: true }).catch(() => {});
+    record(job, { status: 'error', message });
     log.fail('download', `${tag(job)} ${job.url} after ${age(job)}: ${message}${detail && detail !== message ? `\n         ↳ ${detail}` : ''}`);
   };
 
@@ -499,14 +561,26 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
     }
   };
   setInterval(() => { sweep().catch((e) => log.fail('purge', e.message)); }, SWEEP_EVERY_MS).unref();
+  // Rows older than 30 days leave the account history.
+  if (history?.pruneDownloads) {
+    setInterval(() => {
+      history.pruneDownloads(30).catch((e) => log.fail('purge', `history prune: ${e.message}`));
+    }, 60 * 60 * 1000).unref();
+  }
 
   // Runs the account gate (sign-in + quota) after the link is validated, so
-  // a mistyped link never costs a free download. False once it answered.
-  const allowed = (req, res) => {
+  // a mistyped link never costs a free download. Resolves false once the
+  // gate answered the request itself (401 / 402 / 503). The gate may be
+  // async (it reads the account from the store).
+  const allowed = (req, res) => new Promise((resolve) => {
     let ok = false;
-    gate(req, res, () => { ok = true; });
-    return ok;
-  };
+    const done = () => resolve(ok);
+    try {
+      Promise.resolve(gate(req, res, () => { ok = true; resolve(true); })).then(done, done);
+    } catch (_) {
+      done();
+    }
+  });
 
   const checkRequest = (req, res) => {
     const { platform } = req.params;
@@ -521,7 +595,8 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
       return null;
     }
     const from = typeof req.body.from === 'string' ? req.body.from : null;
-    return { platform, url, mode: req.body.mode === 'audio' ? 'audio' : 'video', from };
+    const rowId = typeof req.body.rowId === 'string' && UUID.test(req.body.rowId) ? req.body.rowId : null;
+    return { platform, url, mode: req.body.mode === 'audio' ? 'audio' : 'video', from, rowId };
   };
 
   // Stream a downloaded file to the browser; onClose(finished) runs once it's gone.
@@ -559,11 +634,15 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
   // reload it picks the job up again; the file stays until READY_TTL_MS.
   router.post('/:platform/jobs', express.json({ limit: '4kb' }), async (req, res) => {
     const r = checkRequest(req, res);
-    if (!r || !allowed(req, res)) return;
+    if (!r || !(await allowed(req, res))) return;
     const label = PLATFORMS[r.platform].label;
+    const owner = (await userOf(req))?.id ?? null;
+    const id = crypto.randomUUID();
     const job = {
-      id: crypto.randomUUID(),
+      id,
       ...r,
+      rowId: r.rowId || id,
+      owner,
       quota: req.quota,
       label,
       dir: path.join(workDir, crypto.randomUUID()),
@@ -588,6 +667,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
       sent: 0,
     };
     jobs.set(job.id, job);
+    record(job, { status: 'pending' });
     log.start('download', `${tag(job)} ${r.url} (started, ${jobs.size} job${jobs.size === 1 ? '' : 's'} on the server)`);
     res.status(202).json({ id: job.id });
 
@@ -595,6 +675,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
     // file instead of downloading again (falls back to yt-dlp if it's gone).
     const source = r.from && jobs.get(r.from);
     const reuse = r.mode === 'audio' && source && source.id !== job.id && source.state === 'ready'
+      && (!source.owner || source.owner === job.owner)
       && source.mode === 'video' && source.url === r.url && source.file;
     delete job.from;
 
@@ -605,6 +686,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
         job.title = source.title;
         job.author = source.author;
         job.name = source.name;
+        record(job, { name: job.name });
         job.thumbnail = source.thumbnail;
         job.thumb = source.thumb;
         job.thumbOk = source.thumbOk;
@@ -640,7 +722,8 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
         } else if (ev.type === 'info') {
           job.title = ev.title;
           job.author = ev.author;
-          job.name = displayName(ev.title, ev.author);
+          job.name = displayName(ev.title, ev.author, r.platform);
+          record(job, { name: job.name });
           if (ev.thumbnails.length) {
             job.thumbnail = ev.thumbnails;
             // Fetch it now, so the page gets it as soon as it asks.
@@ -673,6 +756,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
       job.progress = 1;
       job.endedAt = Date.now();
       job.expiresAt = job.endedAt + READY_TTL_MS;
+      record(job, { status: 'ready' });
       log.ok('download', `${tag(job)} ${r.url} → ${job.filename} (${log.size(job.size)}) ready on the server in ${age(job)}, kept ${log.duration(READY_TTL_MS)}`);
     } catch (e) {
       if (!jobs.has(job.id) || job.state === 'error') return; // cancelled, or already failed by the sweeper
@@ -680,8 +764,8 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
     }
   });
 
-  router.get('/jobs/:id', (req, res) => {
-    const job = jobs.get(req.params.id);
+  router.get('/jobs/:id', async (req, res) => {
+    const job = await ownJob(req, req.params.id);
     res.setHeader('Cache-Control', 'no-store');
     if (!job) return res.status(404).json({ error: 'Expired: the server no longer has this download', expired: true });
     res.json({
@@ -704,7 +788,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
   });
 
   router.get('/jobs/:id/thumb', async (req, res) => {
-    const job = jobs.get(req.params.id);
+    const job = await ownJob(req, req.params.id);
     if (!job || !job.thumbnail) return res.sendStatus(404);
     try {
       job.thumb = job.thumb || fetchFirstThumb(job.thumbnail);
@@ -720,7 +804,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
   });
 
   router.get('/jobs/:id/file', async (req, res) => {
-    const job = jobs.get(req.params.id);
+    const job = await ownJob(req, req.params.id);
     if (!job) return res.status(404).json({ error: 'Expired: the server no longer has this download', expired: true });
     if (job.state !== 'ready') return res.status(409).json({ error: job.error || 'Not ready yet' });
     try {
@@ -740,17 +824,73 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
     }
   });
 
-  router.delete('/jobs/:id', (req, res) => {
-    const job = jobs.get(req.params.id);
+  router.delete('/jobs/:id', async (req, res) => {
+    const job = await ownJob(req, req.params.id);
     if (job) dropJob(job.id, job.state === 'ready' || job.state === 'error' ? 'removed by the user' : `cancelled by the user after ${age(job)}`);
     res.sendStatus(204);
+  });
+
+  // The signed-in account's rows for one platform, newest first. A row whose
+  // job the server no longer has (expired, or the server restarted) comes
+  // back as 'expired'.
+  router.get('/history/:platform', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const { platform } = req.params;
+    if (!Object.hasOwn(PLATFORMS, platform)) return res.status(404).json({ error: 'Unknown platform' });
+    if (!history) return res.json({ enabled: false, rows: [] });
+    const user = await userOf(req);
+    if (user === undefined) return res.status(503).json({ error: 'Accounts are unavailable right now, please try again' });
+    if (!user) return res.json({ enabled: false, rows: [] });
+    try {
+      const rows = await history.listDownloads(user.id, platform, 50);
+      res.json({
+        enabled: true,
+        rows: rows.map((d) => {
+          const job = d.job_id && jobs.get(d.job_id);
+          const live = job && job.owner === user.id ? job : null;
+          return {
+            id: d.id,
+            url: d.url,
+            mode: d.mode,
+            name: d.name || null,
+            serverId: live ? live.id : null,
+            status: live ? (live.state === 'error' ? 'error' : live.state === 'ready' ? 'ready' : 'pending')
+              : d.status === 'error' ? 'error' : 'expired',
+            message: d.status === 'error' ? d.message : null,
+          };
+        }),
+      });
+    } catch (e) {
+      log.fail('download', `history for user ${user.id}: ${e.message}`);
+      res.status(503).json({ error: 'Could not load your downloads, please try again' });
+    }
+  });
+
+  // Delete one row (and its file), or all of a platform's rows.
+  router.delete(['/history/:platform', '/history/:platform/:rowId'], async (req, res) => {
+    const { platform, rowId } = req.params;
+    if (!Object.hasOwn(PLATFORMS, platform)) return res.status(404).json({ error: 'Unknown platform' });
+    if (!history) return res.sendStatus(204);
+    const user = await userOf(req);
+    if (!user) return res.sendStatus(user === undefined ? 503 : 401);
+    try {
+      const jobIds = await history.deleteDownloads(user.id, platform, rowId ? [rowId] : null);
+      for (const id of jobIds) {
+        const job = jobs.get(id);
+        if (job && job.owner === user.id) dropJob(id, 'removed by the user');
+      }
+      res.sendStatus(204);
+    } catch (e) {
+      log.fail('download', `history delete for user ${user.id}: ${e.message}`);
+      res.status(503).json({ error: 'Could not delete, please try again' });
+    }
   });
 
   // One-shot download: the response is the file itself. Older clients use
   // this; the app uses the job endpoints above for progress.
   router.post('/:platform', express.json({ limit: '4kb' }), async (req, res) => {
     const r = checkRequest(req, res);
-    if (!r || !allowed(req, res)) return;
+    if (!r || !(await allowed(req, res))) return;
     req.quota.refundUnlessSent(res);
     const { platform, url, mode } = r;
     const dir = path.join(workDir, crypto.randomUUID());
@@ -762,7 +902,7 @@ function createDownloadRouter(workDir, { gate = (req, _res, next) => { req.quota
       await fs.mkdir(dir, { recursive: true });
       let name = null;
       const file = await download(platform, url, dir, mode, (ev) => {
-        if (ev.type === 'info') name = displayName(ev.title, ev.author);
+        if (ev.type === 'info') name = displayName(ev.title, ev.author, platform);
       });
       await sendFile(res, file, mode, fileNameFor(file, mode, name), (finished, filename, size) => {
         const took = log.duration(Date.now() - started);

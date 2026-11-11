@@ -263,5 +263,14 @@ export async function reencode(
     ctx.drawImage(bmp, 0, 0);
   }
   bmp.close();
-  return canvas.convertToBlob({ type, quality });
+  const out = await canvas.convertToBlob({ type, quality });
+  // Chrome tags canvas JPEG / WebP output with its own sRGB ICC profile
+  // ("Google Inc. 2016"). Drop it too, so the file carries no metadata at all.
+  if (type === 'image/png') return out;
+  const bytes = new Uint8Array(await out.arrayBuffer());
+  try {
+    return new Blob([type === 'image/jpeg' ? stripJpeg(bytes) : stripWebp(bytes)], { type });
+  } catch {
+    return out;
+  }
 }
