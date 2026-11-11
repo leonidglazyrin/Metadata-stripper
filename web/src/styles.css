@@ -334,6 +334,21 @@ button, input { font: inherit; color: inherit; }
   transition: opacity 0.15s;
 }
 .row-retry:hover { opacity: 0.85; }
+.row-switch {
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--chip);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.row-switch:hover { background: var(--line); }
 
 .results-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
 .legend { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--soft); font-weight: 500; }

@@ -8,10 +8,14 @@ interface Props {
   onRemove: (id: string) => void;
   onRetry?: (id: string) => void;
   onClear: () => void;
+  /** Offer this row in the other format (e.g. the audio of a finished video). */
+  canSwitch?: (job: Job<unknown>) => boolean;
+  onSwitch?: (id: string) => void;
+  switchLabel?: string;
 }
 
 /** Result rows, styled like the playbook's comparison table rows. */
-export default function JobList({ jobs, icon, onRemove, onRetry, onClear }: Props) {
+export default function JobList({ jobs, icon, onRemove, onRetry, onClear, canSwitch, onSwitch, switchLabel }: Props) {
   if (!jobs.length) return null;
   const done = jobs.filter((j) => j.result);
   const failed = jobs.filter((j) => j.status === 'error').length;
@@ -78,6 +82,11 @@ export default function JobList({ jobs, icon, onRemove, onRetry, onClear }: Prop
               {j.status === 'error' && onRetry && (
                 <button type="button" className="row-retry" aria-label={`Retry ${j.name}`} title="Retry" onClick={() => onRetry(j.id)}>
                   <IconRetry />
+                </button>
+              )}
+              {onSwitch && canSwitch?.(j) && (
+                <button type="button" className="row-switch" title={`${switchLabel} of this post`} onClick={() => onSwitch(j.id)}>
+                  {switchLabel}
                 </button>
               )}
               {j.result && (

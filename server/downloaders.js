@@ -123,8 +123,8 @@ function spawnLines(cmd, args, onLine, signal) {
       if (code === 0) return resolve(stdout);
       const aborted = Boolean(signal && signal.aborted);
       const err = new Error(aborted ? 'Cancelled'
-        : timedOut ? `yt-dlp killed after ${log.duration(MAX_RUN_MS)}`
-          : `yt-dlp exited with code ${code}${sig ? ` (${sig})` : ''}`);
+        : timedOut ? `${path.basename(cmd)} killed after ${log.duration(MAX_RUN_MS)}`
+          : `${path.basename(cmd)} exited with code ${code}${sig ? ` (${sig})` : ''}`);
       Object.assign(err, { stderr, stdout, exitCode: code, exitSignal: sig, timedOut, aborted });
       reject(err);
     });
@@ -252,6 +252,51 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
   const err = new Error(`Nothing was downloaded${tail ? ` (yt-dlp: ${tail.slice(0, 200)})` : ''}`);
   err.detail = `yt-dlp exited 0 but left no file; stdout: ${tail ? tail.slice(0, 300) : '(empty)'}`;
   throw err;
+}
+
+// Pull the audio track out of a video the server already downloaded, so
+// switching a finished row to audio doesn't fetch the post again. AAC is
+// copied as is (instant, lossless); anything else is encoded to AAC.
+// onEvent gets { type: 'progress', progress } (0..1) and { type: 'line' }.
+async function probeAudio(file) {
+  const out = await spawnLines('ffprobe', ['-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name:format=duration', '-of', 'json', file], () => {});
+  const info = JSON.parse(out || '{}');
+  return { codec: info.streams?.[0]?.codec_name || null, duration: Number(info.format?.duration) || 0 };
+}
+
+async function extractAudio(src, dir, onEvent = () => {}, signal) {
+  let probe;
+  try {
+    probe = await probeAudio(src);
+  } catch (e) {
+    if (e.code === 'ENOENT') throw new Error('ffmpeg is not installed on the server');
+    throw new Error('Could not read the downloaded video');
+  }
+  if (!probe.codec) throw new Error('This video has no audio track');
+  const copy = probe.codec === 'aac';
+  const output = path.join(dir, `${safeBase(path.basename(src))}.m4a`);
+  const args = [
+    '-hide_banner', '-loglevel', 'error', '-nostats', '-y',
+    '-i', src, '-map', '0:a:0', '-vn', '-sn', '-dn', '-map_metadata', '-1',
+    ...(copy ? ['-c:a', 'copy'] : ['-c:a', 'aac', '-b:a', '192k']),
+    '-movflags', '+faststart', '-progress', 'pipe:1', output,
+  ];
+  const durUs = probe.duration * 1e6;
+  try {
+    await spawnLines('ffmpeg', args, (line) => {
+      onEvent({ type: 'line', line });
+      const m = /^out_time_(?:us|ms)=(\d+)/.exec(line);
+      if (m && durUs > 0) onEvent({ type: 'progress', progress: Math.min(1, Number(m[1]) / durUs) });
+    }, signal);
+  } catch (e) {
+    if (e.aborted) throw e;
+    if (e.code === 'ENOENT') throw new Error('ffmpeg is not installed on the server');
+    const err = new Error('Could not extract the audio');
+    err.detail = `ffmpeg: ${stderrSummary(e.stderr) || e.message}`;
+    throw err;
+  }
+  onEvent({ type: 'progress', progress: 1 });
+  return { file: output, copied: copy, codec: probe.codec };
 }
 
 function friendlyError(platform, msg) {
@@ -393,7 +438,8 @@ function createDownloadRouter(workDir) {
       res.status(400).json({ error: `Not a ${PLATFORMS[platform].label} link` });
       return null;
     }
-    return { platform, url, mode: req.body.mode === 'audio' ? 'audio' : 'video' };
+    const from = typeof req.body.from === 'string' ? req.body.from : null;
+    return { platform, url, mode: req.body.mode === 'audio' ? 'audio' : 'video', from };
   };
 
   // Stream a downloaded file to the browser; onClose(finished) runs once it's gone.
@@ -453,9 +499,45 @@ function createDownloadRouter(workDir) {
     log.start('download', `${tag(job)} ${r.url} (started, ${jobs.size} job${jobs.size === 1 ? '' : 's'} on the server)`);
     res.status(202).json({ id: job.id });
 
+    // Audio of a post this server already has as video: take it from that
+    // file instead of downloading again (falls back to yt-dlp if it's gone).
+    const source = r.from && jobs.get(r.from);
+    const reuse = r.mode === 'audio' && source && source.id !== job.id && source.state === 'ready'
+      && source.mode === 'video' && source.url === r.url && source.file;
+    delete job.from;
+
     try {
       await fs.mkdir(job.dir, { recursive: true });
-      const file = await download(r.platform, r.url, job.dir, r.mode, (ev) => {
+      let file = null;
+      if (reuse && await fs.access(source.file).then(() => true, () => false)) {
+        job.title = source.title;
+        job.thumbnail = source.thumbnail;
+        job.thumb = source.thumb;
+        job.state = 'processing';
+        job.step = 'extract';
+        job.progress = 0;
+        // Keep the video around while we read it.
+        source.expiresAt = Math.max(source.expiresAt || 0, Date.now() + READY_TTL_MS);
+        log.note('download', `${tag(job)} extracting audio from ${shortId(source.id)} ${source.filename}, no new download`);
+        try {
+          const x = await extractAudio(source.file, job.dir, (ev) => {
+            job.lastActivity = Date.now();
+            if (ev.type === 'progress') job.progress = ev.progress;
+          }, job.ctrl.signal);
+          file = x.file;
+          log.note('download', `${tag(job)} audio ${x.copied ? 'copied' : `re-encoded from ${x.codec}`} in ${age(job)}`);
+        } catch (e) {
+          if (e.aborted || !jobs.has(job.id) || job.state === 'error') throw e;
+          if (e.message === 'This video has no audio track') throw e;
+          log.note('download', `${tag(job)} extraction failed (${e.detail || e.message}), downloading the audio instead`);
+          await fs.rm(job.dir, { recursive: true, force: true });
+          await fs.mkdir(job.dir, { recursive: true });
+          job.state = 'downloading';
+          job.step = null;
+          job.progress = null;
+        }
+      }
+      if (!file) file = await download(r.platform, r.url, job.dir, r.mode, (ev) => {
         if (ev.type === 'line') {
           job.lastActivity = Date.now();
           if (!ev.line.startsWith('MSPROG ')) job.lastLine = ev.line.slice(0, 200);
@@ -501,6 +583,7 @@ function createDownloadRouter(workDir) {
       state: job.state,
       progress: job.progress,
       title: job.title,
+      step: job.step || null,
       thumbnail: Boolean(job.thumbnail),
       error: job.error,
       url: job.url,
@@ -584,4 +667,4 @@ function createDownloadRouter(workDir) {
   return router;
 }
 
-module.exports = { createDownloadRouter, download, parseUrl, PLATFORMS, stderrSummary, dirSize };
+module.exports = { createDownloadRouter, download, extractAudio, parseUrl, PLATFORMS, stderrSummary, dirSize };
