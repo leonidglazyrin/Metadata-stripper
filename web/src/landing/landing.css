@@ -1,0 +1,99 @@
+@import '@fontsource-variable/plus-jakarta-sans';
+@import '../styles.css';
+
+/* Landing-only additions on top of the app's styles. */
+
+html { scroll-behavior: smooth; }
+a { color: inherit; }
+.page { gap: 16px; }
+section[id] { scroll-margin-top: 16px; }
+
+.wordmark { text-decoration: none; }
+.nav { display: flex; align-items: center; gap: 4px 18px; flex-wrap: wrap; justify-content: flex-end; font-weight: 650; font-size: 14.5px; }
+.nav a { text-decoration: none; color: var(--soft); }
+.nav a:hover { color: var(--ink); }
+.nav .pill-btn { color: #fff; margin-left: 6px; text-decoration: none; }
+
+.eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--green-ink); margin-bottom: 16px; }
+.hero .display { font-size: clamp(40px, 6.6vw, 76px); }
+
+.cta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+.cta {
+  display: inline-flex;
+  align-items: center;
+  height: 50px;
+  padding: 0 24px;
+  border-radius: 15px;
+  background: var(--ink);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.cta:hover { opacity: 0.88; }
+.cta:active { transform: scale(0.98); }
+.cta.ghost { background: var(--chip); color: var(--ink); }
+
+.chips { list-style: none; padding: 0; }
+.chip { text-decoration: none; }
+
+h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
+.display.xs { font-size: clamp(28px, 4vw, 40px); letter-spacing: -0.045em; margin-top: 18px; }
+.card .display.sm + .lede { margin-bottom: 4px; }
+
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.feature, .mode { padding: 22px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
+.feature p, .mode p { color: var(--soft); margin-top: 8px; font-size: 14.5px; }
+
+.split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.split h3 { margin-bottom: 12px; }
+.modes { margin-top: 24px; }
+.mode h3::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: var(--green); margin-right: 8px; vertical-align: 2px; }
+.mode:first-child h3::before { background: var(--blue); }
+
+.tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.tags li { padding: 6px 13px; border-radius: 999px; background: var(--chip); font-size: 13.5px; font-weight: 600; }
+.small { color: var(--faint); font-size: 13px; margin-top: 12px; }
+
+.dl p { color: var(--soft); margin: 10px 0 22px; max-width: 46ch; }
+.also { text-align: center; color: var(--soft); font-size: 14.5px; padding: 0 16px; }
+.also a { color: var(--blue); font-weight: 650; text-decoration: none; }
+.also a:hover { text-decoration: underline; }
+
+.steps { list-style: none; padding: 0; counter-reset: s; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 26px 0 26px; }
+.steps li { counter-increment: s; padding: 22px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); color: var(--soft); font-size: 14.5px; }
+.steps li::before {
+  content: counter(s);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 800;
+  background: radial-gradient(circle at 32% 22%, #6aa5ff, var(--blue) 55%, #0f4fd1);
+}
+.steps b { display: block; color: var(--ink); font-size: 16px; margin-bottom: 2px; }
+
+.faq { margin-top: 22px; display: grid; gap: 8px; }
+.faq details { border: 1px solid var(--line); border-radius: 18px; background: var(--card); }
+.faq summary { list-style: none; cursor: pointer; padding: 16px 52px 16px 20px; position: relative; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: '+'; position: absolute; right: 20px; top: 50%; translate: 0 -50%; font-size: 22px; font-weight: 500; color: var(--faint); }
+.faq details[open] summary::after { content: '–'; }
+.faq summary h3 { font-size: 16px; display: inline; }
+.faq details p { padding: 0 20px 18px; color: var(--soft); max-width: 75ch; }
+
+.foot a { color: var(--blue); font-weight: 650; }
+
+@media (max-width: 860px) {
+  .grid3, .steps { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .card-head { flex-direction: column; align-items: flex-start; }
+  .nav { justify-content: flex-start; }
+  .nav .pill-btn { margin-left: 0; }
+  .cta-row .cta { flex: 1; justify-content: center; }
+}
