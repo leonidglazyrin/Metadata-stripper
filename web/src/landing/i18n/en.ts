@@ -12,13 +12,13 @@ type Downloader = { title: Pair; text: string; cta: string };
 
 export const en = {
   meta: {
-    title: 'SynthID Stripper & Metadata Remover · {site}',
+    title: 'SynthID Remover & Metadata Stripper for AI Videos · {site}',
     description:
-      '{site} is a SynthID stripper and metadata remover for photos and videos. Remove EXIF, GPS and C2PA tags and disrupt SynthID watermarks, on our server or on your device. Plus YouTube, X, TikTok and Instagram downloaders.',
+      'Remove SynthID and metadata from AI videos and photos made with Google Veo, Gemini, Sora, ChatGPT or Higgsfield. Strips EXIF, GPS and C2PA tags and disrupts the SynthID watermark. Plus YouTube, X, TikTok and Instagram downloaders.',
     ogDescription:
-      'Strip SynthID watermarks and hidden metadata from photos and videos, on our server or on your device. Plus YouTube, X, TikTok and Instagram downloaders.',
+      'Remove SynthID and hidden metadata from AI videos and photos from Veo, Gemini, Sora, ChatGPT and Higgsfield, on our server or on your device.',
     twitterDescription:
-      'Strip SynthID watermarks and hidden metadata from photos and videos. Plus YouTube, X, TikTok and Instagram downloaders.',
+      'Remove SynthID and hidden metadata from AI videos and photos from Veo, Gemini, Sora, ChatGPT and Higgsfield.',
     ogImageAlt: '{site}: SynthID stripper and metadata remover',
   },
   nav: {
@@ -31,51 +31,44 @@ export const en = {
     faq: 'FAQ',
     openTools: 'Open tools',
     language: 'Language',
+    menu: 'Menu',
+    mobileLabel: 'Main (mobile)',
   },
   hero: {
-    eyebrow: 'SynthID stripping · metadata removal · video downloads',
+    eyebrow: 'Remove SynthID & metadata from AI videos and photos',
     title: ['SynthID Stripper', '& Metadata Remover.'] as Pair,
     lede:
-      'Drop in a photo or video and download a copy with EXIF, GPS and C2PA tags removed and the SynthID watermark disrupted. It runs on our server or in your browser.',
+      'Drop in a video or photo from Google Veo, Gemini, Sora, ChatGPT, Higgsfield or any other AI generator. Download a copy with EXIF, GPS and C2PA Content Credentials removed and the SynthID watermark disrupted. It runs on our server or in your browser.',
     ctaStrip: 'Strip a file',
     ctaDownload: 'Download a video',
     toolsLabel: 'Tools',
     chipStrip: 'SynthID & metadata',
   },
   synthid: {
-    title: ['SynthID Remover', 'that keeps the look.'] as Pair,
+    title: ['Remove SynthID from AI videos', 'and keep the look.'] as Pair,
     lede:
-      'SynthID is an invisible watermark Google adds to the pixels of AI images and videos. {site} changes those pixels slightly to break up the pattern. The file looks and plays the same.',
+      'SynthID is an invisible watermark Google adds to the pixels of images and videos made with Veo, Gemini and Imagen. {site} changes those pixels slightly to weaken the pattern, and the file looks and plays the same.',
+    sourcesTitle: 'Clean files from',
+    sourcesLabel: 'AI generators',
     photos: { title: 'Photos', text: 'A slight resample and sharpen changes every pixel, then the image is saved again at high quality.' },
     videos: { title: 'Videos', text: 'A high-quality re-encode (CRF 18) with a light blur, a matching sharpen and a little noise between frames.' },
     caveat: {
       title: 'No guarantees',
-      text: 'SynthID is built to survive edits, so no tool can promise a detector will miss it. {site} disrupts the watermark; it can’t guarantee it’s gone.',
+      text: 'SynthID is built to survive edits, so no tool can promise a detector will miss it. {site} weakens the watermark; it can’t guarantee it’s gone, or that a platform won’t label the file as AI.',
     },
     cta: 'Open the SynthID stripper',
   },
   metadata: {
     title: ['Metadata Remover', 'for photos and videos.'] as Pair,
     lede:
-      'Photos and videos store where they were taken, the device, its serial number and the editing history. The metadata remover deletes all of it and lists what it removed.',
+      'Photos and videos store where they were taken, the device, its serial number and the editing history. The metadata remover deletes all of it, strips the SynthID watermark, and lists what it removed.',
+    synthidTag: 'SynthID watermark',
     photosTitle: 'Removed from photos',
     photoTags: ['EXIF', 'GPS location', 'XMP', 'IPTC', 'ICC profiles', 'C2PA / Content Credentials', 'Maker notes', 'Thumbnails', 'Text comments'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC comes back as JPEG.',
     videosTitle: 'Removed from videos',
     videoTags: ['Global & stream tags', 'Chapter tags', 'GPS & telemetry tracks', 'Timecode', 'Cover art', 'C2PA boxes', 'Encoder strings'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Streams are copied without re-encoding.',
-  },
-  where: {
-    title: ['Server', 'or this device.'] as Pair,
-    lede: 'One switch picks where your files are processed.',
-    server: {
-      title: 'Server',
-      text: 'Your file is uploaded, cleaned and deleted right after. Works with every format, and strips SynthID from photos and videos.',
-    },
-    device: {
-      title: 'This device',
-      text: 'Your file stays in your browser. Photos are cleaned losslessly. Videos need a ~30 MB download the first time. SynthID stripping works on photos only.',
-    },
   },
   downloaders: {
     label: 'Video downloaders',
@@ -104,17 +97,25 @@ export const en = {
     title: ['How to remove SynthID', 'and metadata.'] as Pair,
     // Each step: [bold lead-in, rest of the sentence].
     steps: [
-      ['Add your files.', 'Photos or videos, as many as you like.'],
-      ['Pick the options.', 'Server or this device, SynthID stripping on or off.'],
-      ['Download the clean copies.', 'Each file lists what was removed.'],
+      ['Upload your file.', 'AI videos or photos, as many as you like. Server or this device.'],
+      ['{site} strips it.', 'EXIF, GPS and C2PA tags are removed and the SynthID watermark is weakened.'],
+      ['Download the clean copy.', 'Each file lists what was removed.'],
     ] as Pair[],
+    // Labels in the looping how-it-works animation.
+    flow: {
+      uploading: 'Uploading…',
+      stripping: 'Removing metadata · weakening SynthID…',
+      clean: 'Clean · 4 items removed',
+      download: 'Download',
+    },
     cta: 'Open the SynthID stripper',
   },
   pricing: {
     title: ['One plan.', '{price} a month.'] as Pair,
     perMonth: '/ month',
-    features: ['SynthID stripper and metadata remover', 'YouTube, X, TikTok and Instagram downloaders', 'Server and on-device processing'],
+    features: ['SynthID stripper and metadata remover', 'YouTube, X, TikTok and Instagram downloaders', 'Photos and videos in every common format'],
     billing: 'Billed monthly through Stripe. Cancel anytime.',
+    stripeLabel: 'Payments by Stripe',
     cta: 'Open the tools',
   },
   faq: {
@@ -123,6 +124,18 @@ export const en = {
       {
         q: 'What is a SynthID stripper?',
         a: 'SynthID is an invisible watermark Google adds to images and videos made with its AI models. A SynthID stripper changes the pixels slightly to break up that pattern. {site} resamples and sharpens photos, and re-encodes videos at high quality, so the file looks the same.',
+      },
+      {
+        q: 'How do I remove SynthID from AI videos?',
+        a: 'Open the SynthID stripper, add your video, leave SynthID stripping on and pick Server. {site} removes the metadata, re-encodes the video at high quality with small pixel changes that weaken the watermark, and gives you a clean MP4 to download. Videos from Google Veo and Gemini carry SynthID; the same steps also clear metadata from other generators.',
+      },
+      {
+        q: 'Which AI generators does it work with?',
+        a: 'Any. Videos and photos from Google Veo, Gemini and Imagen carry a SynthID watermark. Files from Sora, ChatGPT and many other tools carry C2PA Content Credentials in the metadata. Higgsfield runs several models, including Veo, so its files can carry either. {site} removes the metadata from all of them and disrupts SynthID where it is present. It does not remove visible watermarks or logos.',
+      },
+      {
+        q: 'Will TikTok or other platforms still label my video as AI?',
+        a: 'They might. Some platforms, including TikTok, read C2PA Content Credentials to label AI content, and {site} removes those. But platforms can also use watermark detectors, their own classifiers and disclosure rules, and we have not tested how any platform labels the output. {site} does not guarantee a file will go undetected or unlabeled. Follow each platform’s rules on disclosing AI-generated content.',
       },
       {
         q: 'Does the SynthID remover always work?',
@@ -192,11 +205,13 @@ export const en = {
   },
   jsonLd: {
     name: '{site}: SynthID Stripper & Metadata Remover',
-    alternateName: ['SynthID Remover', 'Metadata Remover', 'YouTube Downloader', 'X Video Downloader', 'TikTok Downloader', 'Instagram Downloader'],
+    alternateName: ['SynthID Remover', 'SynthID Remover for AI Videos', 'Metadata Remover', 'YouTube Downloader', 'X Video Downloader', 'TikTok Downloader', 'Instagram Downloader'],
     browserRequirements: 'Requires a modern web browser with JavaScript.',
     operatingSystem: 'Any (web browser)',
     description:
-      'Remove EXIF, GPS, XMP, IPTC and C2PA metadata from photos and videos and disrupt SynthID watermarks, on a server or on your device. Includes YouTube, TikTok, X and Instagram downloaders.',
+      'Remove EXIF, GPS, XMP, IPTC and C2PA metadata from AI videos and photos (Google Veo, Gemini, Sora, ChatGPT, Higgsfield and more) and disrupt SynthID watermarks, on a server or on your device. Results are not guaranteed. Includes YouTube, TikTok, X and Instagram downloaders.',
+    keywords:
+      'remove SynthID, SynthID remover, remove SynthID from AI videos, SynthID stripper, remove C2PA, metadata remover, Veo, Gemini, Sora, ChatGPT, Higgsfield',
     featureList: [
       'SynthID stripping for photos and videos',
       'Metadata remover for EXIF, GPS, XMP, IPTC, ICC and C2PA',

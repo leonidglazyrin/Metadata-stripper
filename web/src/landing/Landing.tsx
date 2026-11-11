@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react';
 import { HeroArt, Tile, ToolIcon } from '../components/Icons';
-import { PRICE, SITE_NAME } from './content';
+import { AI_SOURCES, PRICE, SITE_NAME } from './content';
 import { getDict, langPath, LANGS, type Dict } from './i18n';
 import type { Faq } from './i18n/en';
 
@@ -21,14 +21,27 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
               sharona
             </a>
             <nav className="nav" aria-label={t.nav.label}>
-              <a href="#synthid">{t.nav.synthid}</a>
-              <a href="#metadata">{t.nav.metadata}</a>
-              <a href="#downloaders">{t.nav.downloaders}</a>
-              <a href="#pricing">{t.nav.pricing}</a>
-              <a href="#faq">{t.nav.faq}</a>
-              <a className="pill-btn" href={APP}>{t.nav.openTools}</a>
+              <NavLinks t={t} />
             </nav>
             <LangSwitch lang={lang} label={t.nav.language} />
+            <a className="pill-btn head-cta" href={APP}>{t.nav.openTools}</a>
+            {/* Mobile: the links fold into a burger menu. <details> needs no JS. */}
+            <details className="menu">
+              <summary aria-label={t.nav.menu}>
+                <span className="burger" aria-hidden="true"><i /><i /><i /></span>
+              </summary>
+              <nav className="menu-panel" aria-label={t.nav.mobileLabel}>
+                <NavLinks t={t} />
+                <div className="menu-langs" aria-label={t.nav.language} role="group">
+                  {LANGS.map((l) => (
+                    <a key={l.code} href={langPath(l.code)} hrefLang={l.code} lang={l.code} title={l.name}
+                       aria-current={l.code === lang ? 'page' : undefined}>
+                      {l.code.toUpperCase()}
+                    </a>
+                  ))}
+                </div>
+              </nav>
+            </details>
           </header>
 
           <div className="hero-body">
@@ -58,6 +71,12 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
           <SectionHead icon={<ToolIcon tool="strip" size={56} />} id="synthid-h" title={t.synthid.title}>
             {fill(t.synthid.lede)}
           </SectionHead>
+          <div className="sources">
+            <h3>{t.synthid.sourcesTitle}</h3>
+            <ul className="tags" aria-label={t.synthid.sourcesLabel}>
+              {AI_SOURCES.map((s) => <li key={s}>{s}</li>)}
+            </ul>
+          </div>
           <div className="grid3">
             <Feature title={t.synthid.photos.title}>{fill(t.synthid.photos.text)}</Feature>
             <Feature title={t.synthid.videos.title}>{fill(t.synthid.videos.text)}</Feature>
@@ -70,12 +89,13 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
 
         <section id="metadata" className="card" aria-labelledby="metadata-h">
           <SectionHead icon={<Tile from="#60a5fa" to="#1d4ed8" size={56}><PhotoGlyph /></Tile>} id="metadata-h" title={t.metadata.title}>
-            {fill(t.metadata.lede)}
+            <Mark s={fill(t.metadata.lede)} />
           </SectionHead>
           <div className="split">
             <div>
               <h3>{t.metadata.photosTitle}</h3>
               <ul className="tags">
+                <li className="tag-hi">{t.metadata.synthidTag}</li>
                 {t.metadata.photoTags.map((tag) => <li key={tag}>{tag}</li>)}
               </ul>
               <p className="small">{t.metadata.photoFormats}</p>
@@ -83,26 +103,10 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
             <div>
               <h3>{t.metadata.videosTitle}</h3>
               <ul className="tags">
+                <li className="tag-hi">{t.metadata.synthidTag}</li>
                 {t.metadata.videoTags.map((tag) => <li key={tag}>{tag}</li>)}
               </ul>
               <p className="small">{t.metadata.videoFormats}</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="card" aria-labelledby="where-h">
-          <h2 id="where-h" className="display sm">
-            <Pair p={t.where.title} />
-          </h2>
-          <p className="lede">{t.where.lede}</p>
-          <div className="split modes">
-            <div className="mode">
-              <h3>{t.where.server.title}</h3>
-              <p>{fill(t.where.server.text)}</p>
-            </div>
-            <div className="mode">
-              <h3>{t.where.device.title}</h3>
-              <p>{fill(t.where.device.text)}</p>
             </div>
           </div>
         </section>
@@ -117,9 +121,10 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
           <h2 id="how-h" className="display sm">
             <Pair p={t.how.title} />
           </h2>
-          <ol className="steps">
+          <ProcessAnimation f={t.how.flow} />
+          <ol className="steps flow-steps">
             {t.how.steps.map(([lead, rest]) => (
-              <li key={lead}><b>{lead}</b> {rest}</li>
+              <li key={lead}><b>{fill(lead)}</b> {fill(rest)}</li>
             ))}
           </ol>
           <a className="cta" href={`${APP}#strip`}>{t.how.cta}</a>
@@ -133,11 +138,14 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
             <div>
               <p className="price-tag"><b>{PRICE}</b> {t.pricing.perMonth}</p>
               <ul className="price-list">
-                {t.pricing.features.map((f) => <li key={f}>{f}</li>)}
+                {t.pricing.features.map((f, i) => <li key={f}>{i === 0 ? <Mark s={f} /> : f}</li>)}
               </ul>
             </div>
             <div className="price-side">
-              <p>{t.pricing.billing}</p>
+              <p className="stripe-line">
+                <StripeBadge label={t.pricing.stripeLabel} />
+                {t.pricing.billing}
+              </p>
               <a className="cta" href={APP}>{t.pricing.cta}</a>
             </div>
           </div>
@@ -176,9 +184,33 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
           </a>
         </aside>
       </div>
+      {/* Close the mobile menu once a link in it is tapped. */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: "document.querySelectorAll('.menu-panel a').forEach(function(a){a.addEventListener('click',function(){a.closest('details').open=false})})",
+        }}
+      />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd(siteUrl, lang, t) }} />
     </>
   );
+}
+
+function NavLinks({ t }: { t: Dict }) {
+  return (
+    <>
+      <a href="#synthid">{t.nav.synthid}</a>
+      <a href="#metadata">{t.nav.metadata}</a>
+      <a href="#downloaders">{t.nav.downloaders}</a>
+      <a href="#pricing">{t.nav.pricing}</a>
+      <a href="#faq">{t.nav.faq}</a>
+    </>
+  );
+}
+
+/** Draws the word "SynthID" in a string with the highlight mark. */
+function Mark({ s }: { s: string }) {
+  const parts = s.split('SynthID');
+  return <>{parts.map((p, i) => (i === 0 ? p : <span key={i}><b className="synth-mark">SynthID</b>{p}</span>))}</>;
 }
 
 // Japanese runs words together, so a heading split across the accent colour
@@ -281,12 +313,78 @@ function Downloader({ tool, title, text, cta }: { tool: 'youtube' | 'x' | 'tikto
   );
 }
 
+// A CSS-only loop of the three steps: a file is uploaded, its tags are
+// stripped while a scan line weakens the watermark pattern, and a clean copy
+// is offered for download. The base styles are the finished state, so with
+// reduced motion (which turns animations off) it shows the end result.
+function ProcessAnimation({ f }: { f: Dict['how']['flow'] }) {
+  return (
+    <div className="flow" aria-hidden="true">
+      <div className="flow-file">
+        <div className="flow-thumb">
+          <span className="flow-wm" />
+          <svg className="flow-play" width="44" height="44" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="rgba(255,255,255,0.22)" />
+            <path d="M26 20.5v23l18-11.5z" fill="#fff" />
+          </svg>
+          <span className="flow-scan" />
+          <span className="flow-badge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m5 12.5 4.5 4.5L19 7.5" />
+            </svg>
+          </span>
+        </div>
+        <div className="flow-meta">
+          <p className="flow-name">
+            <span className="n1">veo-clip.mp4</span>
+            <span className="n2">veo-clip-clean.mp4</span>
+          </p>
+          <p className="flow-status">
+            <span className="s1">{f.uploading}</span>
+            <span className="s2">{f.stripping}</span>
+            <span className="s3">{f.clean}</span>
+          </p>
+          <div className="flow-bar"><i /></div>
+          <ul className="flow-tags">
+            <li>EXIF</li>
+            <li>GPS</li>
+            <li>C2PA</li>
+            <li>SynthID</li>
+          </ul>
+        </div>
+        <span className="flow-dl">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 4v12m0 0-5-5m5 5 5-5M5 20h14" />
+          </svg>
+          {f.download}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Stripe's "S" mark in its brand colour, with the name beside it.
+const StripeBadge = ({ label }: { label: string }) => (
+  <span className="stripe-badge" aria-label={label}>
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#fff"
+        d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z"
+      />
+    </svg>
+    <span>Stripe</span>
+  </span>
+);
+
 const PhotoGlyph = () => (
   <g>
     <circle cx="25" cy="25" r="5" fill="#ffd34d" />
     <path d="M14 46 27 32l8 8 6-6 9 12z" fill="#fff" />
   </g>
 );
+
+// "$20" -> "20.00" for structured data.
+const PRICE_NUMBER = Number(PRICE.replace(/[^0-9.]/g, '')).toFixed(2);
 
 function jsonLd(siteUrl: string, lang: string, t: Dict) {
   const url = `${siteUrl}${langPath(lang)}`;
@@ -303,7 +401,20 @@ function jsonLd(siteUrl: string, lang: string, t: Dict) {
         operatingSystem: t.jsonLd.operatingSystem,
         browserRequirements: t.jsonLd.browserRequirements,
         description: fill(t.jsonLd.description),
+        keywords: t.jsonLd.keywords,
         featureList: t.jsonLd.featureList,
+        offers: {
+          '@type': 'Offer',
+          price: PRICE_NUMBER,
+          priceCurrency: 'USD',
+          priceSpecification: {
+            '@type': 'UnitPriceSpecification',
+            price: PRICE_NUMBER,
+            priceCurrency: 'USD',
+            unitCode: 'MON',
+            referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
+          },
+        },
       },
       {
         '@type': 'FAQPage',

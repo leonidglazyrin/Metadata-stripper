@@ -21,6 +21,8 @@ export const ko: Translation = {
     faq: 'FAQ',
     openTools: '도구 열기',
     language: '언어',
+    menu: '메뉴',
+    mobileLabel: '주 메뉴(모바일)',
   },
   hero: {
     eyebrow: 'SynthID 제거 · 메타데이터 삭제 · 동영상 다운로드',
@@ -36,6 +38,8 @@ export const ko: Translation = {
     title: ['보이는 그대로,', 'SynthID 제거.'],
     lede:
       'SynthID는 Google이 AI 이미지와 동영상의 픽셀에 넣는 보이지 않는 워터마크입니다. {site}는 픽셀을 아주 조금 바꿔 그 패턴을 깨뜨립니다. 파일은 보기에도, 재생에도 똑같습니다.',
+    sourcesTitle: '지원하는 생성 도구',
+    sourcesLabel: 'AI 생성 도구',
     photos: { title: '사진', text: '약간의 리샘플링과 선명화로 모든 픽셀을 바꾼 뒤 고화질로 다시 저장합니다.' },
     videos: { title: '동영상', text: '고화질 재인코딩(CRF 18)에 가벼운 블러, 이를 보정하는 선명화, 프레임 간의 약간의 노이즈를 더합니다.' },
     caveat: {
@@ -48,24 +52,13 @@ export const ko: Translation = {
     title: ['사진과 동영상의', '메타데이터 제거.'],
     lede:
       '사진과 동영상에는 촬영 장소, 기기, 일련번호, 편집 기록이 저장됩니다. 메타데이터 제거 도구는 이 모든 것을 지우고 무엇을 지웠는지 보여 줍니다.',
+    synthidTag: 'SynthID 워터마크',
     photosTitle: '사진에서 제거',
     photoTags: ['EXIF', 'GPS 위치', 'XMP', 'IPTC', 'ICC 프로필', 'C2PA / 콘텐츠 자격 증명', '제조사 정보', '썸네일', '텍스트 주석'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC는 JPEG로 저장됩니다.',
     videosTitle: '동영상에서 제거',
     videoTags: ['전역 및 스트림 태그', '챕터 태그', 'GPS 및 텔레메트리 트랙', '타임코드', '커버 이미지', 'C2PA 박스', '인코더 정보'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. 스트림은 재인코딩 없이 복사됩니다.',
-  },
-  where: {
-    title: ['서버 또는', '이 기기.'],
-    lede: '스위치 하나로 파일을 처리할 곳을 고릅니다.',
-    server: {
-      title: '서버',
-      text: '파일을 업로드해 정리한 뒤 바로 삭제합니다. 모든 형식을 지원하며 사진과 동영상 모두에서 SynthID를 제거합니다.',
-    },
-    device: {
-      title: '이 기기',
-      text: '파일이 브라우저 밖으로 나가지 않습니다. 사진은 무손실로 정리됩니다. 동영상은 처음 한 번 약 30MB를 내려받아야 합니다. SynthID 제거는 사진만 지원합니다.',
-    },
   },
   downloaders: {
     label: '동영상 다운로더',
@@ -93,17 +86,24 @@ export const ko: Translation = {
   how: {
     title: ['SynthID와 메타데이터를', '제거하는 방법.'],
     steps: [
-      ['파일을 추가하세요.', '사진이든 동영상이든 원하는 만큼.'],
-      ['옵션을 고르세요.', '서버 또는 이 기기, SynthID 제거 켜기 또는 끄기.'],
-      ['정리된 사본을 내려받으세요.', '파일마다 제거된 항목이 표시됩니다.'],
+      ['파일을 업로드하세요.', 'AI 동영상이나 사진을 원하는 만큼. 서버 또는 이 기기에서.'],
+      ['{site}가 제거합니다.', 'EXIF, GPS, C2PA 태그를 지우고 SynthID 워터마크를 약화합니다.'],
+      ['깨끗한 사본을 내려받으세요.', '파일마다 제거된 항목이 표시됩니다.'],
     ],
+    flow: {
+      uploading: '업로드 중…',
+      stripping: '메타데이터 제거 중 · SynthID 약화 중…',
+      clean: '완료 · 4개 항목 제거',
+      download: '다운로드',
+    },
     cta: 'SynthID 제거 도구 열기',
   },
   pricing: {
     title: ['요금제는 하나.', '월 {price}.'],
     perMonth: '/ 월',
-    features: ['SynthID 제거 및 메타데이터 제거', 'YouTube, X, TikTok, Instagram 다운로더', '서버 처리와 기기 내 처리'],
+    features: ['SynthID 제거 및 메타데이터 제거', 'YouTube, X, TikTok, Instagram 다운로더', '모든 일반 형식의 사진과 동영상'],
     billing: 'Stripe로 매월 결제됩니다. 언제든 해지할 수 있습니다.',
+    stripeLabel: 'Stripe 결제',
     cta: '도구 열기',
   },
   faq: {
@@ -112,6 +112,18 @@ export const ko: Translation = {
       {
         q: 'SynthID 제거 도구란 무엇인가요?',
         a: 'SynthID는 Google의 AI 모델로 만든 이미지와 동영상에 들어가는 보이지 않는 워터마크입니다. SynthID 제거 도구는 픽셀을 아주 조금 바꿔 그 패턴을 깨뜨립니다. {site}는 사진을 리샘플링하고 선명하게 하며, 동영상은 고화질로 재인코딩하므로 파일은 똑같아 보입니다.',
+      },
+      {
+        q: 'AI 동영상에서 SynthID를 어떻게 제거하나요?',
+        a: 'SynthID 제거 도구를 열고 동영상을 추가한 다음, SynthID 제거를 켠 채 서버를 선택하세요. {site}가 메타데이터를 지우고, 워터마크를 약화하는 작은 픽셀 변화를 더해 동영상을 고화질로 다시 인코딩한 뒤 깨끗한 MP4를 내려받을 수 있게 합니다. Google Veo와 Gemini 동영상에는 SynthID가 들어 있으며, 같은 방법으로 다른 생성 도구의 메타데이터도 지울 수 있습니다.',
+      },
+      {
+        q: '어떤 AI 생성 도구에서 작동하나요?',
+        a: '모두 작동합니다. Google Veo, Gemini, Imagen의 동영상과 사진에는 SynthID 워터마크가 있습니다. Sora, ChatGPT 등 많은 도구의 파일에는 메타데이터에 C2PA Content Credentials가 들어 있습니다. Higgsfield는 Veo를 포함한 여러 모델을 쓰기 때문에 둘 중 하나가 들어 있을 수 있습니다. {site}는 모든 파일의 메타데이터를 지우고, SynthID가 있으면 교란합니다. 눈에 보이는 워터마크나 로고는 제거하지 않습니다.',
+      },
+      {
+        q: 'TikTok 같은 플랫폼에서 여전히 AI로 표시되나요?',
+        a: '그럴 수 있습니다. TikTok 등 일부 플랫폼은 C2PA Content Credentials를 읽어 AI 콘텐츠를 표시하는데, {site}는 이를 제거합니다. 하지만 플랫폼은 워터마크 탐지기, 자체 분류기, 공개 규칙도 사용할 수 있으며, 저희는 어떤 플랫폼이 결과물을 어떻게 표시하는지 테스트하지 않았습니다. {site}는 파일이 탐지되거나 표시되지 않는다고 보장하지 않습니다. AI 생성 콘텐츠 공개에 관한 각 플랫폼의 규칙을 따르세요.',
       },
       {
         q: 'SynthID 제거가 항상 되나요?',

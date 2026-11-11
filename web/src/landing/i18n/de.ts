@@ -21,6 +21,8 @@ export const de: Translation = {
     faq: 'FAQ',
     openTools: 'Tools öffnen',
     language: 'Sprache',
+    menu: 'Menü',
+    mobileLabel: 'Hauptmenü (mobil)',
   },
   hero: {
     eyebrow: 'SynthID entfernen · Metadaten löschen · Videos herunterladen',
@@ -36,6 +38,8 @@ export const de: Translation = {
     title: ['SynthID entfernen,', 'ohne dass man es sieht.'],
     lede:
       'SynthID ist ein unsichtbares Wasserzeichen, das Google in die Pixel von KI-Bildern und -Videos einfügt. {site} verändert diese Pixel minimal, um das Muster aufzubrechen. Die Datei sieht genauso aus und läuft genauso ab.',
+    sourcesTitle: 'Bereinigt Dateien aus',
+    sourcesLabel: 'KI-Generatoren',
     photos: { title: 'Fotos', text: 'Leichtes Neuberechnen und Nachschärfen verändert jedes Pixel, danach wird das Bild in hoher Qualität neu gespeichert.' },
     videos: { title: 'Videos', text: 'Eine hochwertige Neukodierung (CRF 18) mit leichter Unschärfe, passendem Nachschärfen und etwas Rauschen zwischen den Frames.' },
     caveat: {
@@ -48,24 +52,13 @@ export const de: Translation = {
     title: ['Metadaten entfernen', 'aus Fotos und Videos.'],
     lede:
       'Fotos und Videos speichern, wo sie aufgenommen wurden, das Gerät, seine Seriennummer und den Bearbeitungsverlauf. Der Metadaten-Entferner löscht all das und zeigt an, was entfernt wurde.',
+    synthidTag: 'SynthID-Wasserzeichen',
     photosTitle: 'Aus Fotos entfernt',
     photoTags: ['EXIF', 'GPS-Standort', 'XMP', 'IPTC', 'ICC-Profile', 'C2PA / Content Credentials', 'Herstellerdaten', 'Vorschaubilder', 'Textkommentare'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC wird als JPEG zurückgegeben.',
     videosTitle: 'Aus Videos entfernt',
     videoTags: ['Globale und Spur-Tags', 'Kapitel-Tags', 'GPS- und Telemetriespuren', 'Timecode', 'Cover', 'C2PA-Boxen', 'Encoder-Angaben'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Die Spuren werden ohne Neukodierung kopiert.',
-  },
-  where: {
-    title: ['Server', 'oder dieses Gerät.'],
-    lede: 'Ein Schalter legt fest, wo Ihre Dateien verarbeitet werden.',
-    server: {
-      title: 'Server',
-      text: 'Ihre Datei wird hochgeladen, bereinigt und sofort gelöscht. Funktioniert mit allen Formaten und entfernt SynthID aus Fotos und Videos.',
-    },
-    device: {
-      title: 'Dieses Gerät',
-      text: 'Ihre Datei bleibt in Ihrem Browser. Fotos werden verlustfrei bereinigt. Für Videos ist beim ersten Mal ein Download von ca. 30 MB nötig. SynthID-Entfernung funktioniert hier nur bei Fotos.',
-    },
   },
   downloaders: {
     label: 'Video-Downloader',
@@ -93,17 +86,24 @@ export const de: Translation = {
   how: {
     title: ['So entfernen Sie SynthID', 'und Metadaten.'],
     steps: [
-      ['Dateien hinzufügen.', 'Fotos oder Videos, so viele Sie möchten.'],
-      ['Optionen wählen.', 'Server oder dieses Gerät, SynthID-Entfernung an oder aus.'],
-      ['Bereinigte Kopien herunterladen.', 'Jede Datei zeigt, was entfernt wurde.'],
+      ['Datei hochladen.', 'KI-Videos oder -Fotos, so viele du willst. Auf dem Server oder auf diesem Gerät.'],
+      ['{site} bereinigt sie.', 'EXIF-, GPS- und C2PA-Tags werden entfernt und das SynthID-Wasserzeichen wird geschwächt.'],
+      ['Saubere Kopie herunterladen.', 'Zu jeder Datei siehst du, was entfernt wurde.'],
     ],
+    flow: {
+      uploading: 'Wird hochgeladen…',
+      stripping: 'Metadaten werden entfernt · SynthID wird geschwächt…',
+      clean: 'Sauber · 4 Einträge entfernt',
+      download: 'Herunterladen',
+    },
     cta: 'SynthID-Entferner öffnen',
   },
   pricing: {
     title: ['Ein Tarif.', '{price} im Monat.'],
     perMonth: '/ Monat',
-    features: ['SynthID- und Metadaten-Entferner', 'Downloader für YouTube, X, TikTok und Instagram', 'Verarbeitung auf dem Server und auf dem Gerät'],
+    features: ['SynthID- und Metadaten-Entferner', 'Downloader für YouTube, X, TikTok und Instagram', 'Fotos und Videos in allen gängigen Formaten'],
     billing: 'Monatliche Abrechnung über Stripe. Jederzeit kündbar.',
+    stripeLabel: 'Zahlungen über Stripe',
     cta: 'Tools öffnen',
   },
   faq: {
@@ -112,6 +112,18 @@ export const de: Translation = {
       {
         q: 'Was ist ein SynthID-Entferner?',
         a: 'SynthID ist ein unsichtbares Wasserzeichen, das Google in Bilder und Videos einfügt, die mit seinen KI-Modellen erstellt wurden. Ein SynthID-Entferner verändert die Pixel minimal, um dieses Muster aufzubrechen. {site} berechnet Fotos neu und schärft sie nach und kodiert Videos in hoher Qualität neu, sodass die Datei gleich aussieht.',
+      },
+      {
+        q: 'Wie entferne ich SynthID aus KI-Videos?',
+        a: 'Öffne den SynthID-Entferner, füge dein Video hinzu, lass SynthID-Entfernung an und wähle Server. {site} entfernt die Metadaten, kodiert das Video in hoher Qualität neu – mit kleinen Pixeländerungen, die das Wasserzeichen schwächen – und gibt dir ein sauberes MP4 zum Herunterladen. Videos aus Google Veo und Gemini tragen SynthID; dieselben Schritte bereinigen auch die Metadaten anderer Generatoren.',
+      },
+      {
+        q: 'Mit welchen KI-Generatoren funktioniert es?',
+        a: 'Mit allen. Videos und Fotos aus Google Veo, Gemini und Imagen tragen ein SynthID-Wasserzeichen. Dateien aus Sora, ChatGPT und vielen anderen Tools tragen C2PA Content Credentials in den Metadaten. Higgsfield nutzt mehrere Modelle, darunter Veo, daher können seine Dateien beides tragen. {site} entfernt bei allen die Metadaten und stört SynthID, wo es vorhanden ist. Sichtbare Wasserzeichen oder Logos entfernt es nicht.',
+      },
+      {
+        q: 'Kennzeichnen TikTok oder andere Plattformen mein Video trotzdem als KI?',
+        a: 'Möglicherweise. Einige Plattformen, darunter TikTok, lesen C2PA Content Credentials, um KI-Inhalte zu kennzeichnen, und {site} entfernt diese. Plattformen können aber auch Wasserzeichen-Detektoren, eigene Klassifikatoren und Offenlegungsregeln nutzen, und wir haben nicht getestet, wie eine Plattform das Ergebnis kennzeichnet. {site} garantiert nicht, dass eine Datei unerkannt oder ungekennzeichnet bleibt. Halte dich an die Regeln jeder Plattform zur Offenlegung von KI-generierten Inhalten.',
       },
       {
         q: 'Funktioniert die SynthID-Entfernung immer?',

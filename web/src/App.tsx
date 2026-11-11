@@ -56,7 +56,7 @@ export default function App() {
             <h1 className="display">
               Clean files. <span className="accent">Save clips.</span> Post&nbsp;faster.
             </h1>
-            <p className="lede">Strip hidden metadata from your photos and videos, and grab clips from YouTube, X, Instagram and TikTok.</p>
+            <p className="lede">Strip SynthID watermarks and hidden metadata from your photos and videos, and grab clips from YouTube, X, Instagram and TikTok.</p>
 
             <div className="chips" role="tablist" aria-label="Tools">
               {TOOLS.map((t, i) => (

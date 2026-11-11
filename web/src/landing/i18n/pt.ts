@@ -21,6 +21,8 @@ export const pt: Translation = {
     faq: 'Perguntas',
     openTools: 'Abrir ferramentas',
     language: 'Idioma',
+    menu: 'Menu',
+    mobileLabel: 'Principal (celular)',
   },
   hero: {
     eyebrow: 'Remover SynthID · apagar metadados · baixar vídeos',
@@ -36,6 +38,8 @@ export const pt: Translation = {
     title: ['Remova o SynthID', 'sem mudar a aparência.'],
     lede:
       'SynthID é uma marca d’água invisível que o Google adiciona aos pixels de imagens e vídeos feitos com IA. O {site} altera levemente esses pixels para quebrar o padrão. O arquivo continua com a mesma aparência.',
+    sourcesTitle: 'Limpe arquivos de',
+    sourcesLabel: 'Geradores de IA',
     photos: { title: 'Fotos', text: 'Um leve redimensionamento e nitidez muda cada pixel, e a imagem é salva de novo em alta qualidade.' },
     videos: { title: 'Vídeos', text: 'Uma recodificação de alta qualidade (CRF 18) com um leve desfoque, nitidez equivalente e um pouco de ruído entre os quadros.' },
     caveat: {
@@ -48,24 +52,13 @@ export const pt: Translation = {
     title: ['Removedor de metadados', 'para fotos e vídeos.'],
     lede:
       'Fotos e vídeos guardam onde foram feitos, o aparelho, o número de série e o histórico de edição. O removedor de metadados apaga tudo isso e mostra o que foi removido.',
+    synthidTag: 'Marca d’água SynthID',
     photosTitle: 'Removido das fotos',
     photoTags: ['EXIF', 'Localização GPS', 'XMP', 'IPTC', 'Perfis ICC', 'C2PA / Content Credentials', 'Notas do fabricante', 'Miniaturas', 'Comentários de texto'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC volta como JPEG.',
     videosTitle: 'Removido dos vídeos',
     videoTags: ['Tags globais e de faixa', 'Tags de capítulo', 'Faixas de GPS e telemetria', 'Timecode', 'Capa', 'Caixas C2PA', 'Dados do codificador'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. As faixas são copiadas sem recodificar.',
-  },
-  where: {
-    title: ['Servidor', 'ou este dispositivo.'],
-    lede: 'Um botão escolhe onde seus arquivos são processados.',
-    server: {
-      title: 'Servidor',
-      text: 'Seu arquivo é enviado, limpo e apagado logo em seguida. Funciona com todos os formatos e remove o SynthID de fotos e vídeos.',
-    },
-    device: {
-      title: 'Este dispositivo',
-      text: 'Seu arquivo fica no seu navegador. As fotos são limpas sem perda. Vídeos precisam de um download de cerca de 30 MB na primeira vez. A remoção do SynthID funciona só com fotos.',
-    },
   },
   downloaders: {
     label: 'Downloaders de vídeo',
@@ -93,17 +86,24 @@ export const pt: Translation = {
   how: {
     title: ['Como remover o SynthID', 'e os metadados.'],
     steps: [
-      ['Adicione seus arquivos.', 'Fotos ou vídeos, quantos quiser.'],
-      ['Escolha as opções.', 'Servidor ou este dispositivo, com ou sem remoção do SynthID.'],
-      ['Baixe as cópias limpas.', 'Cada arquivo mostra o que foi removido.'],
+      ['Envie seu arquivo.', 'Vídeos ou fotos de IA, quantos quiser. No servidor ou neste dispositivo.'],
+      ['O {site} limpa.', 'As tags EXIF, GPS e C2PA são removidas e a marca d’água SynthID é enfraquecida.'],
+      ['Baixe a cópia limpa.', 'Cada arquivo mostra o que foi removido.'],
     ],
+    flow: {
+      uploading: 'Enviando…',
+      stripping: 'Removendo metadados · enfraquecendo o SynthID…',
+      clean: 'Limpo · 4 itens removidos',
+      download: 'Baixar',
+    },
     cta: 'Abrir o removedor de SynthID',
   },
   pricing: {
     title: ['Um só plano.', '{price} por mês.'],
     perMonth: '/ mês',
-    features: ['Removedor de SynthID e de metadados', 'Downloaders de YouTube, X, TikTok e Instagram', 'Processamento no servidor e no dispositivo'],
+    features: ['Removedor de SynthID e de metadados', 'Downloaders de YouTube, X, TikTok e Instagram', 'Fotos e vídeos em todos os formatos comuns'],
     billing: 'Cobrança mensal pelo Stripe. Cancele quando quiser.',
+    stripeLabel: 'Pagamentos pela Stripe',
     cta: 'Abrir as ferramentas',
   },
   faq: {
@@ -112,6 +112,18 @@ export const pt: Translation = {
       {
         q: 'O que é um removedor de SynthID?',
         a: 'SynthID é uma marca d’água invisível que o Google adiciona a imagens e vídeos feitos com seus modelos de IA. Um removedor de SynthID altera levemente os pixels para quebrar esse padrão. O {site} redimensiona e aplica nitidez nas fotos e recodifica os vídeos em alta qualidade, então o arquivo continua com a mesma aparência.',
+      },
+      {
+        q: 'Como removo o SynthID de vídeos de IA?',
+        a: 'Abra o removedor de SynthID, adicione seu vídeo, deixe a remoção de SynthID ligada e escolha Servidor. O {site} remove os metadados, recodifica o vídeo em alta qualidade com pequenas mudanças de pixels que enfraquecem a marca d’água e entrega um MP4 limpo para baixar. Vídeos do Google Veo e do Gemini têm SynthID; os mesmos passos também limpam os metadados de outros geradores.',
+      },
+      {
+        q: 'Com quais geradores de IA funciona?',
+        a: 'Com todos. Vídeos e fotos do Google Veo, Gemini e Imagen têm a marca d’água SynthID. Arquivos do Sora, ChatGPT e de muitas outras ferramentas têm C2PA Content Credentials nos metadados. O Higgsfield usa vários modelos, incluindo o Veo, então seus arquivos podem ter qualquer um dos dois. O {site} remove os metadados de todos e altera o SynthID quando ele existe. Ele não remove marcas d’água visíveis nem logotipos.',
+      },
+      {
+        q: 'O TikTok ou outras plataformas ainda vão marcar meu vídeo como IA?',
+        a: 'Talvez. Algumas plataformas, incluindo o TikTok, leem as C2PA Content Credentials para marcar conteúdo de IA, e o {site} remove essas informações. Mas as plataformas também podem usar detectores de marca d’água, seus próprios classificadores e regras de divulgação, e não testamos como nenhuma plataforma marca o resultado. O {site} não garante que um arquivo passe sem ser detectado ou marcado. Siga as regras de cada plataforma sobre a divulgação de conteúdo gerado por IA.',
       },
       {
         q: 'O removedor de SynthID sempre funciona?',

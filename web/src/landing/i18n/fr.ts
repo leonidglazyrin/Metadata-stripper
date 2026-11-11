@@ -21,6 +21,8 @@ export const fr: Translation = {
     faq: 'FAQ',
     openTools: 'Ouvrir les outils',
     language: 'Langue',
+    menu: 'Menu',
+    mobileLabel: 'Principal (mobile)',
   },
   hero: {
     eyebrow: 'Retrait de SynthID · suppression des métadonnées · téléchargement de vidéos',
@@ -36,6 +38,8 @@ export const fr: Translation = {
     title: ['Retirez SynthID', 'sans changer le rendu.'],
     lede:
       'SynthID est un filigrane invisible que Google ajoute aux pixels des images et vidéos générées par IA. {site} modifie légèrement ces pixels pour casser le motif. Le fichier garde le même aspect.',
+    sourcesTitle: 'Nettoyez les fichiers de',
+    sourcesLabel: 'Générateurs d’IA',
     photos: { title: 'Photos', text: 'Un léger rééchantillonnage suivi d’une accentuation modifie chaque pixel, puis l’image est réenregistrée en haute qualité.' },
     videos: { title: 'Vidéos', text: 'Un réencodage haute qualité (CRF 18) avec un léger flou, une accentuation équivalente et un peu de bruit entre les images.' },
     caveat: {
@@ -48,24 +52,13 @@ export const fr: Translation = {
     title: ['Suppression des métadonnées', 'des photos et vidéos.'],
     lede:
       'Les photos et vidéos enregistrent le lieu de prise de vue, l’appareil, son numéro de série et l’historique des retouches. L’outil supprime tout cela et liste ce qu’il a retiré.',
+    synthidTag: 'Filigrane SynthID',
     photosTitle: 'Retiré des photos',
     photoTags: ['EXIF', 'Position GPS', 'XMP', 'IPTC', 'Profils ICC', 'C2PA / Content Credentials', 'Notes du fabricant', 'Miniatures', 'Commentaires'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. Les HEIC sont renvoyés en JPEG.',
     videosTitle: 'Retiré des vidéos',
     videoTags: ['Balises globales et de piste', 'Balises de chapitre', 'Pistes GPS et télémétrie', 'Timecode', 'Pochette', 'Boîtes C2PA', 'Infos de l’encodeur'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Les pistes sont copiées sans réencodage.',
-  },
-  where: {
-    title: ['Serveur', 'ou cet appareil.'],
-    lede: 'Un seul interrupteur choisit où vos fichiers sont traités.',
-    server: {
-      title: 'Serveur',
-      text: 'Votre fichier est envoyé, nettoyé puis supprimé aussitôt. Tous les formats sont pris en charge, et SynthID est retiré des photos comme des vidéos.',
-    },
-    device: {
-      title: 'Cet appareil',
-      text: 'Votre fichier reste dans votre navigateur. Les photos sont nettoyées sans perte. Les vidéos demandent un téléchargement d’environ 30 Mo la première fois. Le retrait de SynthID ne fonctionne que sur les photos.',
-    },
   },
   downloaders: {
     label: 'Téléchargeurs de vidéos',
@@ -93,17 +86,24 @@ export const fr: Translation = {
   how: {
     title: ['Comment retirer SynthID', 'et les métadonnées.'],
     steps: [
-      ['Ajoutez vos fichiers.', 'Photos ou vidéos, autant que vous voulez.'],
-      ['Choisissez les options.', 'Serveur ou cet appareil, retrait de SynthID activé ou non.'],
-      ['Téléchargez les copies nettoyées.', 'Chaque fichier indique ce qui a été retiré.'],
+      ['Importez votre fichier.', 'Vidéos ou photos d’IA, autant que vous voulez. Sur le serveur ou sur cet appareil.'],
+      ['{site} le nettoie.', 'Les balises EXIF, GPS et C2PA sont supprimées et le filigrane SynthID est affaibli.'],
+      ['Téléchargez la copie propre.', 'Chaque fichier indique ce qui a été supprimé.'],
     ],
+    flow: {
+      uploading: 'Import…',
+      stripping: 'Suppression des métadonnées · affaiblissement de SynthID…',
+      clean: 'Propre · 4 éléments supprimés',
+      download: 'Télécharger',
+    },
     cta: 'Ouvrir l’outil SynthID',
   },
   pricing: {
     title: ['Une seule offre.', '{price} par mois.'],
     perMonth: '/ mois',
-    features: ['Retrait de SynthID et suppression des métadonnées', 'Téléchargeurs YouTube, X, TikTok et Instagram', 'Traitement sur serveur et sur l’appareil'],
+    features: ['Retrait de SynthID et suppression des métadonnées', 'Téléchargeurs YouTube, X, TikTok et Instagram', 'Photos et vidéos dans tous les formats courants'],
     billing: 'Facturation mensuelle via Stripe. Résiliable à tout moment.',
+    stripeLabel: 'Paiements par Stripe',
     cta: 'Ouvrir les outils',
   },
   faq: {
@@ -112,6 +112,18 @@ export const fr: Translation = {
       {
         q: 'Qu’est-ce qu’un outil de retrait de SynthID ?',
         a: 'SynthID est un filigrane invisible que Google ajoute aux images et vidéos créées avec ses modèles d’IA. Un outil de retrait de SynthID modifie légèrement les pixels pour casser ce motif. {site} rééchantillonne et accentue les photos, et réencode les vidéos en haute qualité : le fichier garde le même aspect.',
+      },
+      {
+        q: 'Comment supprimer SynthID des vidéos d’IA ?',
+        a: 'Ouvrez le suppresseur de SynthID, ajoutez votre vidéo, laissez l’option SynthID activée et choisissez Serveur. {site} supprime les métadonnées, réencode la vidéo en haute qualité avec de légères modifications de pixels qui affaiblissent le filigrane, et vous donne un MP4 propre à télécharger. Les vidéos de Google Veo et Gemini portent SynthID ; les mêmes étapes effacent aussi les métadonnées des autres générateurs.',
+      },
+      {
+        q: 'Avec quels générateurs d’IA cela fonctionne-t-il ?',
+        a: 'Tous. Les vidéos et photos de Google Veo, Gemini et Imagen portent un filigrane SynthID. Les fichiers de Sora, ChatGPT et de nombreux autres outils portent des C2PA Content Credentials dans leurs métadonnées. Higgsfield utilise plusieurs modèles, dont Veo, donc ses fichiers peuvent porter l’un ou l’autre. {site} supprime les métadonnées de tous et perturbe SynthID quand il est présent. Il ne supprime pas les filigranes visibles ni les logos.',
+      },
+      {
+        q: 'TikTok ou d’autres plateformes marqueront-ils encore ma vidéo comme IA ?',
+        a: 'C’est possible. Certaines plateformes, dont TikTok, lisent les C2PA Content Credentials pour marquer le contenu IA, et {site} les supprime. Mais les plateformes peuvent aussi utiliser des détecteurs de filigrane, leurs propres classificateurs et des règles de déclaration, et nous n’avons pas testé comment une plateforme marque le résultat. {site} ne garantit pas qu’un fichier passera sans être détecté ni marqué. Respectez les règles de chaque plateforme sur la déclaration du contenu généré par IA.',
       },
       {
         q: 'Le retrait de SynthID fonctionne-t-il à tous les coups ?',

@@ -21,6 +21,8 @@ export const tr: Translation = {
     faq: 'SSS',
     openTools: 'Araçları aç',
     language: 'Dil',
+    menu: 'Menü',
+    mobileLabel: 'Ana menü (mobil)',
   },
   hero: {
     eyebrow: 'SynthID kaldırma · meta veri silme · video indirme',
@@ -36,6 +38,8 @@ export const tr: Translation = {
     title: ['SynthID kaldırın,', 'görüntü aynı kalsın.'],
     lede:
       'SynthID, Google’ın yapay zekâ ile üretilen görsel ve videoların piksellerine eklediği görünmez bir filigrandır. {site} bu pikselleri hafifçe değiştirerek deseni bozar. Dosya aynı görünür, aynı oynar.',
+    sourcesTitle: 'Şu araçların dosyalarını temizler',
+    sourcesLabel: 'Yapay zekâ üreticileri',
     photos: { title: 'Fotoğraflar', text: 'Hafif bir yeniden örnekleme ve keskinleştirme her pikseli değiştirir, ardından görsel yüksek kalitede yeniden kaydedilir.' },
     videos: { title: 'Videolar', text: 'Hafif bir bulanıklık, ona denk bir keskinleştirme ve kareler arasında biraz gürültüyle yüksek kaliteli yeniden kodlama (CRF 18).' },
     caveat: {
@@ -48,24 +52,13 @@ export const tr: Translation = {
     title: ['Meta Veri Temizleyici', 'fotoğraf ve videolar için.'],
     lede:
       'Fotoğraf ve videolar çekildikleri yeri, cihazı, seri numarasını ve düzenleme geçmişini saklar. Meta veri temizleyici bunların hepsini siler ve neyi kaldırdığını listeler.',
+    synthidTag: 'SynthID filigranı',
     photosTitle: 'Fotoğraflardan kaldırılanlar',
     photoTags: ['EXIF', 'GPS konumu', 'XMP', 'IPTC', 'ICC profilleri', 'C2PA / Content Credentials', 'Üretici notları', 'Küçük resimler', 'Metin yorumları'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC dosyaları JPEG olarak döner.',
     videosTitle: 'Videolardan kaldırılanlar',
     videoTags: ['Genel ve akış etiketleri', 'Bölüm etiketleri', 'GPS ve telemetri izleri', 'Zaman kodu', 'Kapak görseli', 'C2PA kutuları', 'Kodlayıcı bilgileri'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Akışlar yeniden kodlanmadan kopyalanır.',
-  },
-  where: {
-    title: ['Sunucu', 'ya da bu cihaz.'],
-    lede: 'Tek bir anahtar, dosyalarınızın nerede işleneceğini seçer.',
-    server: {
-      title: 'Sunucu',
-      text: 'Dosyanız yüklenir, temizlenir ve hemen silinir. Tüm formatlarla çalışır; SynthID’yi fotoğraf ve videolardan kaldırır.',
-    },
-    device: {
-      title: 'Bu cihaz',
-      text: 'Dosyanız tarayıcınızda kalır. Fotoğraflar kayıpsız temizlenir. Videolar için ilk seferde yaklaşık 30 MB’lık bir indirme gerekir. SynthID kaldırma burada yalnızca fotoğraflarda çalışır.',
-    },
   },
   downloaders: {
     label: 'Video indiriciler',
@@ -93,17 +86,24 @@ export const tr: Translation = {
   how: {
     title: ['SynthID ve meta veriler', 'nasıl kaldırılır.'],
     steps: [
-      ['Dosyalarınızı ekleyin.', 'Fotoğraf ya da video, istediğiniz kadar.'],
-      ['Seçenekleri belirleyin.', 'Sunucu ya da bu cihaz, SynthID kaldırma açık ya da kapalı.'],
-      ['Temiz kopyaları indirin.', 'Her dosya neyin kaldırıldığını gösterir.'],
+      ['Dosyanı yükle.', 'Yapay zekâ videoları veya fotoğrafları, istediğin kadar. Sunucuda ya da bu cihazda.'],
+      ['{site} temizler.', 'EXIF, GPS ve C2PA etiketleri silinir, SynthID filigranı zayıflatılır.'],
+      ['Temiz kopyayı indir.', 'Her dosya neyin silindiğini gösterir.'],
     ],
+    flow: {
+      uploading: 'Yükleniyor…',
+      stripping: 'Meta veriler siliniyor · SynthID zayıflatılıyor…',
+      clean: 'Temiz · 4 öğe silindi',
+      download: 'İndir',
+    },
     cta: 'SynthID kaldırıcıyı aç',
   },
   pricing: {
     title: ['Tek plan.', 'Aylık {price}.'],
     perMonth: '/ ay',
-    features: ['SynthID kaldırıcı ve meta veri temizleyici', 'YouTube, X, TikTok ve Instagram indiricileri', 'Sunucuda ve cihazda işleme'],
+    features: ['SynthID kaldırıcı ve meta veri temizleyici', 'YouTube, X, TikTok ve Instagram indiricileri', 'Tüm yaygın biçimlerde fotoğraf ve video'],
     billing: 'Stripe üzerinden aylık faturalandırılır. İstediğiniz zaman iptal edin.',
+    stripeLabel: 'Stripe ile ödeme',
     cta: 'Araçları aç',
   },
   faq: {
@@ -112,6 +112,18 @@ export const tr: Translation = {
       {
         q: 'SynthID kaldırıcı nedir?',
         a: 'SynthID, Google’ın yapay zekâ modelleriyle üretilen görsel ve videolara eklediği görünmez bir filigrandır. SynthID kaldırıcı, bu deseni bozmak için pikselleri hafifçe değiştirir. {site} fotoğrafları yeniden örnekleyip keskinleştirir, videoları yüksek kalitede yeniden kodlar; böylece dosya aynı görünür.',
+      },
+      {
+        q: 'Yapay zekâ videolarından SynthID nasıl kaldırılır?',
+        a: 'SynthID kaldırıcıyı aç, videonu ekle, SynthID kaldırmayı açık bırak ve Sunucu\'yu seç. {site} meta verileri siler, videoyu filigranı zayıflatan küçük piksel değişiklikleriyle yüksek kalitede yeniden kodlar ve indirmen için temiz bir MP4 verir. Google Veo ve Gemini videolarında SynthID bulunur; aynı adımlar diğer üreticilerin meta verilerini de temizler.',
+      },
+      {
+        q: 'Hangi yapay zekâ üreticileriyle çalışır?',
+        a: 'Hepsiyle. Google Veo, Gemini ve Imagen video ve fotoğraflarında SynthID filigranı bulunur. Sora, ChatGPT ve diğer pek çok aracın dosyalarının meta verilerinde C2PA Content Credentials bulunur. Higgsfield, Veo dahil birkaç model kullandığı için dosyalarında ikisinden biri olabilir. {site} hepsinden meta verileri siler ve varsa SynthID\'yi bozar. Görünür filigranları veya logoları kaldırmaz.',
+      },
+      {
+        q: 'TikTok veya diğer platformlar videomu yine de yapay zekâ olarak etiketler mi?',
+        a: 'Etiketleyebilir. TikTok dahil bazı platformlar yapay zekâ içeriğini etiketlemek için C2PA Content Credentials\'ı okur ve {site} bunları siler. Ancak platformlar filigran dedektörleri, kendi sınıflandırıcıları ve beyan kuralları da kullanabilir; çıktının herhangi bir platformda nasıl etiketlendiğini test etmedik. {site} bir dosyanın tespit edilmeyeceğini veya etiketlenmeyeceğini garanti etmez. Yapay zekâ ile üretilmiş içeriğin beyanı konusunda her platformun kurallarına uy.',
       },
       {
         q: 'SynthID kaldırma her zaman işe yarar mı?',

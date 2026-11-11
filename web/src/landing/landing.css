@@ -9,10 +9,12 @@ a { color: inherit; }
 section[id] { scroll-margin-top: 16px; }
 
 .wordmark { text-decoration: none; }
-.nav { display: flex; align-items: center; gap: 4px 18px; flex-wrap: wrap; justify-content: flex-end; font-weight: 650; font-size: 14.5px; }
-.nav a { text-decoration: none; color: var(--soft); }
+.hero .card-head { gap: 8px 22px; }
+.nav { display: flex; align-items: center; gap: 4px 18px; margin-left: auto; font-weight: 650; font-size: 14.5px; }
+.nav a { text-decoration: none; color: var(--soft); white-space: nowrap; }
 .nav a:hover { color: var(--ink); }
-.nav .pill-btn { color: #fff; margin-left: 6px; text-decoration: none; }
+.head-cta { flex: none; color: #fff; text-decoration: none; }
+.menu { display: none; }
 
 /* Language switcher: a <details> menu, so it works without JavaScript. */
 .hero .card-head { position: relative; }
@@ -85,17 +87,18 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .card .display.sm + .lede { margin-bottom: 4px; }
 
 .grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.feature, .mode { padding: 22px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
-.feature p, .mode p { color: var(--soft); margin-top: 8px; font-size: 14.5px; }
+.feature { padding: 22px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
+.feature p { color: var(--soft); margin-top: 8px; font-size: 14.5px; }
 
 .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .split h3 { margin-bottom: 12px; }
-.modes { margin-top: 24px; }
-.mode h3::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 3px; background: var(--green); margin-right: 8px; vertical-align: 2px; }
-.mode:first-child h3::before { background: var(--blue); }
 
 .tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .tags li { padding: 6px 13px; border-radius: 999px; background: var(--chip); font-size: 13.5px; font-weight: 600; }
+/* SynthID gets a green accent wherever the metadata remover is described. */
+.tags li.tag-hi { background: #e8f8ee; color: var(--green-ink); box-shadow: inset 0 0 0 1.5px var(--green); }
+.tags li.tag-hi::before { content: '★'; margin-right: 6px; }
+.synth-mark { color: var(--green-ink); font-weight: 750; }
 .small { color: var(--faint); font-size: 13px; margin-top: 12px; }
 
 .card-cta { margin-top: 24px; }
@@ -112,6 +115,9 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .price-tag b { color: var(--ink); font-size: 48px; font-weight: 800; letter-spacing: -0.04em; margin-right: 4px; }
 .price-list { list-style: none; padding: 0; margin-top: 14px; display: grid; gap: 8px; color: var(--soft); font-size: 15px; }
 .price-list li::before { content: '✓'; color: var(--green-ink); font-weight: 800; margin-right: 10px; }
+.stripe-line { display: grid; gap: 10px; justify-items: start; }
+.stripe-badge { display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 6px; border-radius: 999px; background: #635bff; color: #fff; font-weight: 750; font-size: 14px; letter-spacing: -0.01em; }
+.stripe-badge svg { width: 22px; height: 22px; padding: 3px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); }
 .price-side { display: grid; gap: 14px; justify-items: start; color: var(--soft); font-size: 14.5px; }
 
 .badges { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px 20px; padding: 8px 16px 0; }
@@ -150,10 +156,247 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 }
 @media (max-width: 640px) {
   .split, .dl-grid, .price { grid-template-columns: minmax(0, 1fr); }
-  .card-head { flex-direction: column; align-items: flex-start; }
-  .nav { justify-content: flex-start; }
-  .nav .pill-btn { margin-left: 0; }
-  /* On phones the switcher sits on the wordmark's row, top right. */
-  .hero .card-head > .lang { position: absolute; top: 0; right: 0; }
-  .cta-row .cta { flex: 1; justify-content: center; }
+  /* Header: wordmark, "Open tools" and a burger on one row; the section
+     links drop down from the burger. */
+  .hero .card-head { position: relative; gap: 10px; }
+  .hero .wordmark { font-size: 26px; margin-right: auto; }
+  .nav { display: none; }
+  .head-cta { padding: 10px 16px; }
+  .menu { display: block; }
+  .menu summary { list-style: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--chip); cursor: pointer; }
+  .menu summary::-webkit-details-marker { display: none; }
+  .burger { display: grid; gap: 4px; width: 18px; }
+  .burger i { display: block; height: 2px; border-radius: 2px; background: var(--ink); transition: transform 0.2s, opacity 0.2s; }
+  .menu[open] .burger i:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .menu[open] .burger i:nth-child(2) { opacity: 0; }
+  .menu[open] .burger i:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+  .menu-panel {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: grid;
+    padding: 8px;
+    border-radius: 18px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    box-shadow: 0 18px 40px rgba(14, 26, 43, 0.16);
+  }
+  .menu-panel a { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 12px; font-weight: 650; font-size: 16px; color: var(--ink); text-decoration: none; }
+  .menu-panel a:active, .menu-panel a:hover { background: var(--chip); }
+  /* The language switcher moves into the burger panel on phones. */
+  .hero .card-head > .lang { display: none; }
+  .menu-langs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 8px 4px; margin-top: 4px; border-top: 1px solid var(--line); }
+  .menu-panel .menu-langs a { min-height: 40px; padding: 0 12px; font-size: 14px; background: var(--chip); }
+  .menu-panel .menu-langs a[aria-current] { color: #fff; background: var(--ink); }
+  .hero .hero-body { margin-top: 26px; }
+  .eyebrow { font-size: 11.5px; margin-bottom: 12px; }
+  .hero .display { font-size: clamp(36px, 10.5vw, 44px); }
+  .hero .lede { font-size: 16px; }
+  .cta-row { flex-direction: column; margin-top: 22px; }
+  .cta-row .cta { justify-content: center; }
+  .price { padding: 22px; }
+}
+
+.sources { margin-top: 22px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.sources h3 { font-size: 14px; color: var(--soft); }
+.grid3 { margin-top: 18px; }
+
+/* ---------- How it works animation ----------
+   One 9 s loop: upload (0–33%), strip (33–66%), download (66–100%).
+   The base styles are the finished state, so when animations are off
+   (prefers-reduced-motion) the card shows the clean result. */
+.flow, .flow-steps { --t: 9s; }
+.flow {
+  margin-top: 26px;
+  padding: clamp(18px, 4vw, 34px);
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 15% 0%, var(--blue-soft), transparent 55%),
+    radial-gradient(circle at 90% 100%, #e7f8ec, transparent 50%),
+    #f8fafc;
+  display: grid;
+  place-items: center;
+}
+.flow-file {
+  position: relative;
+  width: min(100%, 520px);
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 16px 16px 28px;
+  border-radius: 22px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  animation: flow-file var(--t) ease-in-out infinite;
+}
+.flow-thumb {
+  position: relative;
+  height: 96px;
+  border-radius: 16px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(140deg, #7c3aed, #1a6dff 55%, #22d3ee);
+}
+.flow-play { position: relative; z-index: 1; }
+/* The watermark: a faint dot lattice over the frame. */
+.flow-wm {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.9) 1.2px, transparent 1.6px);
+  background-size: 9px 9px;
+  opacity: 0.08;
+  animation: flow-wm var(--t) ease-in-out infinite;
+}
+.flow-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 26px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  opacity: 0;
+  animation: flow-scan var(--t) linear infinite;
+}
+.flow-badge {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  top: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--green);
+  box-shadow: 0 2px 6px rgba(21, 128, 61, 0.4);
+  animation: flow-pop var(--t) ease-out infinite;
+}
+.flow-meta { min-width: 0; display: grid; gap: 8px; }
+.flow-name, .flow-status { display: grid; }
+.flow-name > span, .flow-status > span { grid-area: 1 / 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.flow-name { font-weight: 750; font-size: 15.5px; letter-spacing: -0.01em; }
+.flow-status { font-size: 13px; color: var(--soft); }
+.flow-status .s3 { color: var(--green-ink); font-weight: 700; }
+.n1, .s1, .s2 { opacity: 0; }
+.n1 { animation: flow-a var(--t) infinite; }
+.n2 { animation: flow-b var(--t) infinite; }
+.s1 { animation: flow-p1 var(--t) infinite; }
+.s2 { animation: flow-p2 var(--t) infinite; }
+.s3 { animation: flow-b var(--t) infinite; }
+.flow-bar { height: 6px; border-radius: 99px; background: var(--chip); overflow: hidden; }
+.flow-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transform-origin: left;
+  animation: flow-bar var(--t) ease-in-out infinite;
+}
+.flow-tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.flow-tags li {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--mono);
+  background: #fdecec;
+  color: var(--red);
+  text-decoration: line-through;
+  opacity: 0.4;
+}
+.flow-tags li:nth-child(1) { animation: flow-tag1 var(--t) infinite; }
+.flow-tags li:nth-child(2) { animation: flow-tag2 var(--t) infinite; }
+.flow-tags li:nth-child(3) { animation: flow-tag3 var(--t) infinite; }
+.flow-tags li:nth-child(4) { animation: flow-tag4 var(--t) infinite; }
+.flow-dl {
+  position: absolute;
+  right: 16px;
+  bottom: -16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  animation: flow-dl var(--t) ease-out infinite;
+}
+
+/* Upload, strip, download: the step cards light up in turn. */
+.flow-steps li:nth-child(1) { animation: flow-step1 var(--t) infinite; }
+.flow-steps li:nth-child(2) { animation: flow-step2 var(--t) infinite; }
+.flow-steps li:nth-child(3) { animation: flow-step3 var(--t) infinite; }
+
+@keyframes flow-file {
+  0% { opacity: 0; translate: 0 -18px; }
+  6%, 90% { opacity: 1; translate: 0 0; }
+  97%, 100% { opacity: 0; translate: 0 10px; }
+}
+@keyframes flow-bar {
+  0%, 4% { transform: scaleX(0); background: var(--blue); }
+  30% { transform: scaleX(1); background: var(--blue); }
+  33% { transform: scaleX(0); background: var(--green); }
+  62%, 100% { transform: scaleX(1); background: var(--green); }
+}
+@keyframes flow-wm {
+  0%, 36% { opacity: 0.6; }
+  62%, 100% { opacity: 0.08; }
+}
+@keyframes flow-scan {
+  0%, 34% { opacity: 0; left: -30px; }
+  36% { opacity: 1; }
+  60% { opacity: 1; left: 100%; }
+  62%, 100% { opacity: 0; left: 100%; }
+}
+@keyframes flow-pop {
+  0%, 65% { opacity: 0; scale: 0.3; }
+  69% { opacity: 1; scale: 1.15; }
+  72%, 90% { opacity: 1; scale: 1; }
+  100% { opacity: 1; scale: 1; }
+}
+@keyframes flow-dl {
+  0%, 70% { opacity: 0; translate: 0 8px; }
+  74% { opacity: 1; translate: 0 0; }
+  80% { translate: 0 -4px; }
+  84%, 100% { opacity: 1; translate: 0 0; }
+}
+/* Crossfades: a = shown until strip ends, b = shown from download on,
+   p1 / p2 = shown during upload / strip only. */
+@keyframes flow-a { 0%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
+@keyframes flow-b { 0%, 64% { opacity: 0; } 66%, 100% { opacity: 1; } }
+@keyframes flow-p1 { 0%, 31% { opacity: 1; } 33%, 100% { opacity: 0; } }
+@keyframes flow-p2 { 0%, 31% { opacity: 0; } 33%, 64% { opacity: 1; } 66%, 100% { opacity: 0; } }
+/* Tags start as live metadata and get struck through one by one. */
+@keyframes flow-tag1 { 0%, 38% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 41%, 100% { opacity: 0.4; } }
+@keyframes flow-tag2 { 0%, 44% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 47%, 100% { opacity: 0.4; } }
+@keyframes flow-tag3 { 0%, 50% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 53%, 100% { opacity: 0.4; } }
+@keyframes flow-tag4 { 0%, 56% { opacity: 1; background: var(--chip); color: var(--ink); text-decoration-color: transparent; } 59%, 100% { opacity: 0.4; } }
+@keyframes flow-step1 {
+  0%, 31% { border-color: var(--blue); background: var(--card); box-shadow: var(--shadow); }
+  34%, 100% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+}
+@keyframes flow-step2 {
+  0%, 31% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+  34%, 64% { border-color: var(--blue); background: var(--card); box-shadow: var(--shadow); }
+  67%, 100% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+}
+@keyframes flow-step3 {
+  0%, 64% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+  67%, 97% { border-color: var(--green); background: var(--card); box-shadow: var(--shadow); }
+  100% { border-color: var(--line); background: #f8fafc; box-shadow: none; }
+}
+
+@media (max-width: 560px) {
+  .flow-file { grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 12px 12px 30px; }
+  .flow-thumb { height: 120px; }
 }

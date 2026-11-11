@@ -21,6 +21,8 @@ export const id: Translation = {
     faq: 'FAQ',
     openTools: 'Buka alat',
     language: 'Bahasa',
+    menu: 'Menu',
+    mobileLabel: 'Utama (seluler)',
   },
   hero: {
     eyebrow: 'Hapus SynthID · hapus metadata · unduh video',
@@ -36,6 +38,8 @@ export const id: Translation = {
     title: ['Penghapus SynthID', 'tanpa mengubah tampilan.'],
     lede:
       'SynthID adalah watermark tak terlihat yang ditambahkan Google ke piksel gambar dan video buatan AI. {site} sedikit mengubah piksel itu untuk memecah polanya. File tetap terlihat dan diputar sama.',
+    sourcesTitle: 'Bersihkan file dari',
+    sourcesLabel: 'Generator AI',
     photos: { title: 'Foto', text: 'Resample dan penajaman ringan mengubah setiap piksel, lalu gambar disimpan ulang dengan kualitas tinggi.' },
     videos: { title: 'Video', text: 'Encode ulang berkualitas tinggi (CRF 18) dengan blur ringan, penajaman yang seimbang, dan sedikit noise antar-frame.' },
     caveat: {
@@ -48,24 +52,13 @@ export const id: Translation = {
     title: ['Penghapus Metadata', 'untuk foto dan video.'],
     lede:
       'Foto dan video menyimpan lokasi pengambilan, perangkat, nomor serinya, dan riwayat editan. Penghapus metadata menghapus semuanya dan menampilkan apa saja yang dihapus.',
+    synthidTag: 'Watermark SynthID',
     photosTitle: 'Dihapus dari foto',
     photoTags: ['EXIF', 'Lokasi GPS', 'XMP', 'IPTC', 'Profil ICC', 'C2PA / Content Credentials', 'Catatan produsen', 'Thumbnail', 'Komentar teks'],
     photoFormats: 'JPEG, PNG, WebP, HEIC/HEIF, AVIF, TIFF, GIF. HEIC dikembalikan sebagai JPEG.',
     videosTitle: 'Dihapus dari video',
     videoTags: ['Tag global & stream', 'Tag bab', 'Track GPS & telemetri', 'Timecode', 'Gambar sampul', 'Kotak C2PA', 'Info encoder'],
     videoFormats: 'MP4, MOV, M4V, MKV, WebM, AVI, MTS/M2TS, TS, 3GP, WMV, FLV. Stream disalin tanpa encode ulang.',
-  },
-  where: {
-    title: ['Server', 'atau perangkat ini.'],
-    lede: 'Satu sakelar memilih tempat file Anda diproses.',
-    server: {
-      title: 'Server',
-      text: 'File Anda diunggah, dibersihkan, lalu langsung dihapus. Mendukung semua format dan menghapus SynthID dari foto maupun video.',
-    },
-    device: {
-      title: 'Perangkat ini',
-      text: 'File Anda tetap di browser. Foto dibersihkan tanpa kehilangan kualitas. Video butuh unduhan sekitar 30 MB saat pertama kali. Penghapusan SynthID di sini hanya untuk foto.',
-    },
   },
   downloaders: {
     label: 'Pengunduh video',
@@ -93,17 +86,24 @@ export const id: Translation = {
   how: {
     title: ['Cara menghapus SynthID', 'dan metadata.'],
     steps: [
-      ['Tambahkan file Anda.', 'Foto atau video, sebanyak yang Anda mau.'],
-      ['Pilih opsinya.', 'Server atau perangkat ini, penghapusan SynthID aktif atau tidak.'],
-      ['Unduh salinan yang bersih.', 'Setiap file menampilkan apa saja yang dihapus.'],
+      ['Unggah file kamu.', 'Video atau foto AI, sebanyak yang kamu mau. Di server atau di perangkat ini.'],
+      ['{site} membersihkannya.', 'Tag EXIF, GPS, dan C2PA dihapus, dan watermark SynthID dilemahkan.'],
+      ['Unduh salinan bersih.', 'Setiap file menampilkan apa saja yang dihapus.'],
     ],
+    flow: {
+      uploading: 'Mengunggah…',
+      stripping: 'Menghapus metadata · melemahkan SynthID…',
+      clean: 'Bersih · 4 item dihapus',
+      download: 'Unduh',
+    },
     cta: 'Buka penghapus SynthID',
   },
   pricing: {
     title: ['Satu paket.', '{price} per bulan.'],
     perMonth: '/ bulan',
-    features: ['Penghapus SynthID dan metadata', 'Pengunduh YouTube, X, TikTok, dan Instagram', 'Pemrosesan di server dan di perangkat'],
+    features: ['Penghapus SynthID dan metadata', 'Pengunduh YouTube, X, TikTok, dan Instagram', 'Foto dan video dalam semua format umum'],
     billing: 'Ditagih bulanan melalui Stripe. Bisa dibatalkan kapan saja.',
+    stripeLabel: 'Pembayaran lewat Stripe',
     cta: 'Buka alat',
   },
   faq: {
@@ -112,6 +112,18 @@ export const id: Translation = {
       {
         q: 'Apa itu penghapus SynthID?',
         a: 'SynthID adalah watermark tak terlihat yang ditambahkan Google ke gambar dan video yang dibuat dengan model AI-nya. Penghapus SynthID sedikit mengubah piksel untuk memecah pola itu. {site} melakukan resample dan penajaman pada foto, serta encode ulang video dengan kualitas tinggi, sehingga file tetap terlihat sama.',
+      },
+      {
+        q: 'Bagaimana cara menghapus SynthID dari video AI?',
+        a: 'Buka penghapus SynthID, tambahkan video, biarkan penghapusan SynthID aktif, lalu pilih Server. {site} menghapus metadata, meng-encode ulang video dalam kualitas tinggi dengan perubahan piksel kecil yang melemahkan watermark, lalu memberimu MP4 bersih untuk diunduh. Video dari Google Veo dan Gemini membawa SynthID; langkah yang sama juga membersihkan metadata dari generator lain.',
+      },
+      {
+        q: 'Generator AI apa saja yang didukung?',
+        a: 'Semuanya. Video dan foto dari Google Veo, Gemini, dan Imagen membawa watermark SynthID. File dari Sora, ChatGPT, dan banyak alat lain membawa C2PA Content Credentials di metadatanya. Higgsfield memakai beberapa model, termasuk Veo, jadi filenya bisa membawa salah satunya. {site} menghapus metadata dari semuanya dan mengganggu SynthID jika ada. Watermark atau logo yang terlihat tidak dihapus.',
+      },
+      {
+        q: 'Apakah TikTok atau platform lain tetap akan melabeli videoku sebagai AI?',
+        a: 'Bisa jadi. Beberapa platform, termasuk TikTok, membaca C2PA Content Credentials untuk melabeli konten AI, dan {site} menghapusnya. Tetapi platform juga bisa memakai detektor watermark, pengklasifikasi sendiri, dan aturan pengungkapan, dan kami belum menguji bagaimana platform mana pun melabeli hasilnya. {site} tidak menjamin file akan lolos tanpa terdeteksi atau dilabeli. Ikuti aturan setiap platform tentang pengungkapan konten buatan AI.',
       },
       {
         q: 'Apakah penghapus SynthID selalu berhasil?',

@@ -21,6 +21,8 @@ export const ja: Translation = {
     faq: 'FAQ',
     openTools: 'ツールを開く',
     language: '言語',
+    menu: 'メニュー',
+    mobileLabel: 'メイン(モバイル)',
   },
   hero: {
     eyebrow: 'SynthID除去 · メタデータ削除 · 動画ダウンロード',
@@ -36,6 +38,8 @@ export const ja: Translation = {
     title: ['見た目はそのまま、', 'SynthIDを除去。'],
     lede:
       'SynthIDは、GoogleがAIで生成した画像や動画のピクセルに埋め込む見えない透かしです。{site}はピクセルをわずかに変えてそのパターンを崩します。見た目も再生もそのままです。',
+    sourcesTitle: '対応する生成元',
+    sourcesLabel: 'AI生成ツール',
     photos: { title: '写真', text: 'わずかなリサンプリングとシャープ処理ですべてのピクセルを変え、高画質で保存し直します。' },
     videos: { title: '動画', text: '高画質の再エンコード（CRF 18）に、軽いぼかし、それを打ち消すシャープ処理、フレーム間のわずかなノイズを加えます。' },
     caveat: {
@@ -48,24 +52,13 @@ export const ja: Translation = {
     title: ['写真と動画の', 'メタデータを削除。'],
     lede:
       '写真や動画には、撮影場所、端末、シリアル番号、編集履歴が保存されています。メタデータ削除ツールはこれらをすべて消し、何を削除したかを一覧で表示します。',
+    synthidTag: 'SynthID透かし',
     photosTitle: '写真から削除するもの',
     photoTags: ['EXIF', 'GPS位置情報', 'XMP', 'IPTC', 'ICCプロファイル', 'C2PA / コンテンツ認証情報', 'メーカーノート', 'サムネイル', 'テキストコメント'],
     photoFormats: 'JPEG、PNG、WebP、HEIC/HEIF、AVIF、TIFF、GIF。HEICはJPEGで返されます。',
     videosTitle: '動画から削除するもの',
     videoTags: ['グローバル・ストリームのタグ', 'チャプタータグ', 'GPS・テレメトリートラック', 'タイムコード', 'カバー画像', 'C2PAボックス', 'エンコーダー情報'],
     videoFormats: 'MP4、MOV、M4V、MKV、WebM、AVI、MTS/M2TS、TS、3GP、WMV、FLV。ストリームは再エンコードせずにコピーします。',
-  },
-  where: {
-    title: ['サーバーか、', 'この端末か。'],
-    lede: 'スイッチひとつで処理する場所を選べます。',
-    server: {
-      title: 'サーバー',
-      text: 'ファイルはアップロードされ、クリーンにしたあとすぐ削除されます。すべての形式に対応し、写真と動画の両方からSynthIDを除去します。',
-    },
-    device: {
-      title: 'この端末',
-      text: 'ファイルはブラウザの外に出ません。写真はロスレスでクリーンにします。動画は初回のみ約30MBのダウンロードが必要です。SynthID除去は写真のみ対応です。',
-    },
   },
   downloaders: {
     label: '動画ダウンローダー',
@@ -93,17 +86,24 @@ export const ja: Translation = {
   how: {
     title: ['SynthIDとメタデータを', '削除する方法。'],
     steps: [
-      ['ファイルを追加。', '写真でも動画でも、何件でも。'],
-      ['オプションを選択。', 'サーバーかこの端末か、SynthID除去のオン・オフ。'],
+      ['ファイルをアップロード。', 'AI動画や写真を何件でも。サーバーでもこの端末でも。'],
+      ['{site}が除去。', 'EXIF・GPS・C2PAタグを削除し、SynthID透かしを弱めます。'],
       ['クリーンなコピーをダウンロード。', '各ファイルに削除した内容が表示されます。'],
     ],
+    flow: {
+      uploading: 'アップロード中…',
+      stripping: 'メタデータを削除 · SynthIDを弱めています…',
+      clean: 'クリーン · 4項目を削除',
+      download: 'ダウンロード',
+    },
     cta: 'SynthID除去ツールを開く',
   },
   pricing: {
     title: ['プランはひとつ。', '月額{price}。'],
     perMonth: '/ 月',
-    features: ['SynthID除去とメタデータ削除', 'YouTube・X・TikTok・Instagramのダウンローダー', 'サーバー処理と端末内処理'],
+    features: ['SynthID除去とメタデータ削除', 'YouTube・X・TikTok・Instagramのダウンローダー', '一般的な形式の写真と動画すべてに対応'],
     billing: 'Stripeで毎月請求。いつでも解約できます。',
+    stripeLabel: 'Stripeによる決済',
     cta: 'ツールを開く',
   },
   faq: {
@@ -112,6 +112,18 @@ export const ja: Translation = {
       {
         q: 'SynthID除去ツールとは何ですか？',
         a: 'SynthIDは、GoogleのAIモデルで作成された画像や動画に埋め込まれる見えない透かしです。SynthID除去ツールはピクセルをわずかに変えてそのパターンを崩します。{site}は写真をリサンプリングしてシャープ処理し、動画を高画質で再エンコードするため、見た目は変わりません。',
+      },
+      {
+        q: 'AI動画からSynthIDを除去するには?',
+        a: 'SynthID除去ツールを開き、動画を追加し、SynthID除去をオンのままサーバーを選びます。{site}がメタデータを削除し、透かしを弱める小さなピクセル変更を加えて動画を高画質で再エンコードし、クリーンなMP4をダウンロードできるようにします。Google VeoやGeminiの動画にはSynthIDが入っています。同じ手順でほかの生成ツールのメタデータも削除できます。',
+      },
+      {
+        q: 'どのAI生成ツールに対応していますか?',
+        a: 'すべてに対応します。Google Veo、Gemini、Imagenの動画や写真にはSynthID透かしが入っています。Sora、ChatGPTなど多くのツールのファイルにはメタデータにC2PA Content Credentialsが入っています。HiggsfieldはVeoを含む複数のモデルを使うため、どちらも入っている可能性があります。{site}はすべてのメタデータを削除し、SynthIDがあれば乱します。目に見える透かしやロゴは削除しません。',
+      },
+      {
+        q: 'TikTokなどのプラットフォームで、まだAIと表示されますか?',
+        a: '表示される可能性はあります。TikTokなど一部のプラットフォームはC2PA Content Credentialsを読んでAIコンテンツを表示しますが、{site}はそれを削除します。ただしプラットフォームは透かし検出器、独自の分類器、開示ルールも使うことがあり、出力がどう表示されるかは検証していません。{site}は、ファイルが検出や表示を免れることを保証しません。AI生成コンテンツの開示については各プラットフォームのルールに従ってください。',
       },
       {
         q: 'SynthIDは必ず除去できますか？',
