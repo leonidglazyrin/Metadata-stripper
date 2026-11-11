@@ -55,10 +55,25 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .tags li { padding: 6px 13px; border-radius: 999px; background: var(--chip); font-size: 13.5px; font-weight: 600; }
 .small { color: var(--faint); font-size: 13px; margin-top: 12px; }
 
+.card-cta { margin-top: 24px; }
+
+/* Downloader cards: equal heights, with the button pinned to the bottom so
+   every card's button sits on the same line. */
+.dl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.dl { display: flex; flex-direction: column; align-items: flex-start; }
 .dl p { color: var(--soft); margin: 10px 0 22px; max-width: 46ch; }
-.also { text-align: center; color: var(--soft); font-size: 14.5px; padding: 0 16px; }
-.also a { color: var(--blue); font-weight: 650; text-decoration: none; }
-.also a:hover { text-decoration: underline; }
+.dl .cta { margin-top: auto; }
+
+.price { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; margin-top: 24px; padding: 26px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
+.price-tag { color: var(--soft); font-size: 17px; font-weight: 650; }
+.price-tag b { color: var(--ink); font-size: 48px; font-weight: 800; letter-spacing: -0.04em; margin-right: 4px; }
+.price-list { list-style: none; padding: 0; margin-top: 14px; display: grid; gap: 8px; color: var(--soft); font-size: 15px; }
+.price-list li::before { content: '✓'; color: var(--green-ink); font-weight: 800; margin-right: 10px; }
+.price-side { display: grid; gap: 14px; justify-items: start; color: var(--soft); font-size: 14.5px; }
+
+.badges { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px 20px; padding: 8px 16px 0; }
+.badges a { display: inline-flex; }
+.badges img { max-width: 100%; height: auto; }
 
 .steps { list-style: none; padding: 0; counter-reset: s; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 26px 0 26px; }
 .steps li { counter-increment: s; padding: 22px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); color: var(--soft); font-size: 14.5px; }
@@ -91,7 +106,7 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
   .grid3, .steps { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-  .split { grid-template-columns: minmax(0, 1fr); }
+  .split, .dl-grid, .price { grid-template-columns: minmax(0, 1fr); }
   .card-head { flex-direction: column; align-items: flex-start; }
   .nav { justify-content: flex-start; }
   .nav .pill-btn { margin-left: 0; }

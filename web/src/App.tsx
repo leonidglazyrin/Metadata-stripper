@@ -113,7 +113,7 @@ export default function App() {
 function Wordmark() {
   return (
     <a className="wordmark" href="/" aria-label="Sharona home">
-      sharon<span>a</span>
+      sharona
     </a>
   );
 }
