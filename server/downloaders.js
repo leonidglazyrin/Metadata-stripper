@@ -187,6 +187,11 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
     '--print', `before_dl:${INFO}%(.{id,title,thumbnail,thumbnails,format_id})j`,
     '--print', `after_move:${FILE}%(filepath)s`,
     '--socket-timeout', '30', '--retries', '3',
+    // IPv4 only. On networks with broken IPv6 (a route that drops packets
+    // rather than refusing), yt-dlp's connect to YouTube's IPv6 address hangs
+    // for minutes with no output, so the page shows no progress and the job
+    // times out. YTDLP_IPV6=1 turns this off.
+    ...(process.env.YTDLP_IPV6 === '1' ? [] : ['--force-ipv4']),
     '--max-filesize', `${MAX_DOWNLOAD_MB}M`,
     '-f', audio ? AUDIO_FORMAT : PLATFORMS[platform].video,
     // Directory via -P and a length-capped name via -o. (--trim-filenames
