@@ -111,16 +111,22 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .dl p { color: var(--soft); margin: 10px 0 22px; max-width: 46ch; }
 .dl .cta { margin-top: auto; }
 
-.price { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: end; margin-top: 24px; padding: 26px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
-.price-tag { color: var(--soft); font-size: 17px; font-weight: 650; }
+.price-free { color: var(--soft); font-size: 15px; margin-top: 14px; }
+.price-plans { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.price { display: flex; flex-direction: column; align-items: flex-start; padding: 26px; border-radius: 22px; background: #f8fafc; border: 1px solid var(--line); }
+.price-best { background: var(--card, #fff); border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.price-name { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 18px; color: var(--ink); }
+.price-badge { padding: 3px 10px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; }
+.price .price-list { margin-bottom: 22px; }
+.price .cta { margin-top: auto; }
+.price-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; color: var(--faint); font-size: 13.5px; }
+.price-tag { color: var(--soft); font-size: 17px; font-weight: 650; margin-top: 6px; }
 .price-tag b { color: var(--ink); font-size: 48px; font-weight: 800; letter-spacing: -0.04em; margin-right: 4px; }
 .price-list { list-style: none; padding: 0; margin-top: 14px; display: grid; gap: 8px; color: var(--soft); font-size: 15px; }
 .price-list li::before { content: '✓'; color: var(--green-ink); font-weight: 800; margin-right: 10px; }
-.stripe-line { display: grid; gap: 10px; justify-items: start; }
-/* A small trust mark, not a banner. */
-.stripe-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 3px; border-radius: 999px; background: #635bff; color: #fff; font-weight: 700; font-size: 11.5px; line-height: 1.4; letter-spacing: 0; }
-.stripe-badge svg { width: 14px; height: 14px; padding: 2px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); }
-.price-side { display: grid; gap: 14px; justify-items: start; color: var(--soft); font-size: 14.5px; }
+/* Small and quiet: a 16px mark and the name, no pill. */
+.stripe-badge { display: inline-flex; align-items: center; gap: 5px; height: 16px; color: var(--soft); font-weight: 700; font-size: 13px; }
+.stripe-badge svg { width: 16px; height: 16px; flex: none; }
 
 .badges { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px 20px; padding: 8px 16px 0; }
 .badges a { display: inline-flex; }
@@ -157,7 +163,7 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
   .grid3, .steps { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-  .split, .dl-grid, .price { grid-template-columns: minmax(0, 1fr); }
+  .split, .dl-grid, .price-plans { grid-template-columns: minmax(0, 1fr); }
   /* Header: wordmark, "Open tools" and a burger on one row; the section
      links drop down from the burger. */
   .hero .card-head { position: relative; gap: 10px; }

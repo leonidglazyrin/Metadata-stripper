@@ -99,9 +99,7 @@ export const ru: Translation = {
     cta: 'Открыть удаление SynthID',
   },
   pricing: {
-    title: ['Один тариф.', '{price} в месяц.'],
     perMonth: '/ месяц',
-    features: ['Удаление SynthID и метаданных', 'Загрузчики YouTube, X, TikTok и Instagram', 'Фото и видео во всех распространённых форматах'],
     billing: 'Ежемесячная оплата через Stripe. Отмена в любой момент.',
     stripeLabel: 'Оплата через Stripe',
     cta: 'Открыть инструменты',

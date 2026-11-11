@@ -99,9 +99,7 @@ export const pt: Translation = {
     cta: 'Abrir o removedor de SynthID',
   },
   pricing: {
-    title: ['Um só plano.', '{price} por mês.'],
     perMonth: '/ mês',
-    features: ['Removedor de SynthID e de metadados', 'Downloaders de YouTube, X, TikTok e Instagram', 'Fotos e vídeos em todos os formatos comuns'],
     billing: 'Cobrança mensal pelo Stripe. Cancele quando quiser.',
     stripeLabel: 'Pagamentos pela Stripe',
     cta: 'Abrir as ferramentas',

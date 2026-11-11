@@ -111,11 +111,24 @@ export const en = {
     cta: 'Open the SynthID stripper',
   },
   pricing: {
-    title: ['One plan.', '{price} a month.'] as Pair,
+    title: ['Two plans.', 'Start free.'] as Pair,
     perMonth: '/ month',
-    features: ['SynthID stripper and metadata remover', 'YouTube, X, TikTok and Instagram downloaders', 'Photos and videos in every common format'],
-    billing: 'Billed monthly through Stripe. Cancel anytime.',
-    stripeLabel: 'Payments by Stripe',
+    free: 'Every account gets 1 free on-device strip, 1 free server strip and 1 free video download.',
+    basic: {
+      name: 'Basic',
+      features: ['Unlimited on-device stripping', 'Files never leave your device', 'Metadata, C2PA and SynthID removed'],
+    },
+    pro: {
+      name: 'Pro',
+      badge: 'Fastest',
+      features: [
+        'Everything in Basic',
+        'Unlimited server stripping, about 4x faster',
+        'Unlimited video downloads from YouTube, X, TikTok and Instagram',
+      ],
+    },
+    billing: 'Billed monthly. Cancel or change plan anytime.',
+    stripeLabel: 'Secure payments by Stripe',
     cta: 'Open the tools',
   },
   faq: {

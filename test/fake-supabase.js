@@ -14,17 +14,23 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
   const counters = new Map(); // `${user}:${kind}` -> used
   const events = [];
   const history = new Map(); // row id -> download row
-  const settings = { free_strips: 1, free_downloads: 1 };
+  const settings = { free_strips: 1, free_server_strips: 1, free_downloads: 1 };
   const calls = [];
   let down = false;
 
-  const isPro = (uid) => [...subs.values()].some((s) => s.user_id === uid && ACTIVE.has(s.status)
-    && (s.current_period_end == null || s.current_period_end * 1000 > Date.now() - 86400000));
+  // account_tier(): the paid plan now, Pro before Basic, or null.
+  const tierOf = (uid) => {
+    const paid = [...subs.values()].filter((s) => s.user_id === uid && ACTIVE.has(s.status)
+      && (s.current_period_end == null || s.current_period_end * 1000 > Date.now() - 86400000));
+    return paid.some((s) => s.tier === 'pro') ? 'pro' : paid.length ? 'basic' : null;
+  };
+  // tier_unlimited()
+  const unlimited = (tier, kind) => tier === 'pro' || (tier === 'basic' && kind === 'strip');
 
   function account(p) {
     if (!p) return null;
     const mine = [...subs.values()].filter((s) => s.user_id === p.id)
-      .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || b.updated_at - a.updated_at);
+      .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || ((b.tier === 'pro') - (a.tier === 'pro')) || b.updated_at - a.updated_at);
     const s = mine[0];
     return {
       ...p,
@@ -34,6 +40,9 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
       cancel_at_period_end: s?.cancel_at_period_end ?? false,
       strips_used: counters.get(`${p.id}:strip`) ?? 0,
       downloads_used: counters.get(`${p.id}:download`) ?? 0,
+      subscription_tier: s?.tier ?? null,
+      subscription_price_id: s?.price_id ?? null,
+      server_strips_used: counters.get(`${p.id}:server_strip`) ?? 0,
     };
   }
   const rows = (p) => (p ? [account(p)] : []);
@@ -56,11 +65,12 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
       if (p) p.stripe_customer_id = p_customer;
       return null;
     },
-    set_subscription({ p_user_id, p_id, p_status, p_period_end, p_cancel_at_period_end, p_price_id }) {
+    set_subscription({ p_user_id, p_id, p_status, p_period_end, p_cancel_at_period_end, p_price_id, p_tier = 'pro' }) {
       if (!profiles.has(p_user_id)) throw Object.assign(new Error('violates foreign key constraint'), { status: 409 });
       subs.set(p_id, {
         id: p_id, user_id: p_user_id, status: p_status, current_period_end: p_period_end,
-        cancel_at_period_end: p_cancel_at_period_end, price_id: p_price_id, updated_at: ++tick,
+        cancel_at_period_end: p_cancel_at_period_end, price_id: p_price_id ?? subs.get(p_id)?.price_id ?? null,
+        tier: p_tier ?? 'pro', updated_at: ++tick,
       });
       return null;
     },
@@ -68,10 +78,11 @@ function fakeSupabase({ url = 'https://proj.supabase.test', key = 'sb_secret_tes
       if (!profiles.has(p_user_id)) return false;
       const k = `${p_user_id}:${p_kind}`;
       const used = counters.get(k) ?? 0;
-      const pro = isPro(p_user_id);
+      const tier = tierOf(p_user_id);
+      const pro = unlimited(tier, p_kind);
       if (!pro && used >= p_free_limit) return false;
       counters.set(k, used + 1);
-      events.push({ user_id: p_user_id, kind: p_kind, delta: 1, pro });
+      events.push({ user_id: p_user_id, kind: p_kind, delta: 1, pro, tier });
       return true;
     },
     refund_usage({ p_user_id, p_kind }) {

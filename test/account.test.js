@@ -22,7 +22,7 @@ async function start({ db = fakeSupabase(), ...opts } = {}) {
   const accounts = createAccounts({ store: storeFor(db), ...opts });
   const app = express();
   app.use('/api', accounts.router);
-  app.post('/api/strip', accounts.gate('strip'), (req, res) => {
+  app.post('/api/strip', accounts.gate('server_strip'), (req, res) => {
     req.quota.refundUnlessSent(res);
     if (req.query.fail) return res.status(500).json({ error: 'boom' });
     res.send('clean');
@@ -65,7 +65,7 @@ test('helpers', () => {
   assert.equal(withQuery('/app/?a=1', 'upgraded=1'), '/app/?a=1&upgraded=1');
 });
 
-test('dev mode: anonymous is asked to sign in, then gets 1 free strip and 1 free download', async (t) => {
+test('dev mode: anonymous is asked to sign in, then gets 1 free on-device strip, 1 server strip and 1 download', async (t) => {
   const s = await start({ config: config() });
   t.after(s.close);
 
@@ -83,29 +83,40 @@ test('dev mode: anonymous is asked to sign in, then gets 1 free strip and 1 free
   me = await s.call('GET', '/api/me');
   assert.equal(me.data.signedIn, true);
   assert.equal(me.data.plan, 'free');
-  assert.deepEqual(me.data.usage.strip, { used: 0, limit: 1 });
+  assert.deepEqual(me.data.usage, {
+    strip: { used: 0, limit: 1 }, server_strip: { used: 0, limit: 1 }, download: { used: 0, limit: 1 },
+  });
 
   // A failed strip gives the use back.
   assert.equal((await s.call('POST', '/api/strip?fail=1')).status, 500);
-  assert.equal((await s.call('GET', '/api/me')).data.usage.strip.used, 0);
+  assert.equal((await s.call('GET', '/api/me')).data.usage.server_strip.used, 0);
 
   assert.equal((await s.call('POST', '/api/strip')).status, 200);
   const second = await s.call('POST', '/api/strip');
   assert.equal(second.status, 402);
   assert.equal(second.data.code, 'upgrade_required');
-  // On-device strips count against the same quota.
-  assert.equal((await s.call('POST', '/api/usage/strip')).status, 402);
+  assert.equal(second.data.kind, 'server_strip');
+  assert.equal(second.data.plan, 'pro');
+  // On-device strips have their own free one.
+  assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
+  const device = await s.call('POST', '/api/usage/strip');
+  assert.equal(device.status, 402);
+  assert.equal(device.data.kind, 'strip');
+  assert.equal(device.data.plan, 'basic');
+  assert.match(device.data.error, /Basic or Pro/);
 
   assert.equal((await s.call('POST', '/api/download?fail=1')).status, 202);
   assert.equal((await s.call('POST', '/api/download')).status, 202);
   assert.equal((await s.call('POST', '/api/download')).status, 402);
 
-  // Dev upgrade → unlimited.
+  // Dev upgrade to Pro (the default plan) → unlimited.
   const up = await s.call('POST', '/api/billing/checkout', { body: { next: '/app/#strip' } });
-  assert.equal(up.data.url, 'http://app.test/app/?upgraded=1#strip');
+  assert.equal(up.data.url, 'http://app.test/app/?upgraded=pro#strip');
   me = await s.call('GET', '/api/me');
   assert.equal(me.data.plan, 'pro');
   assert.equal(me.data.usage.strip.limit, null);
+  assert.equal(me.data.usage.server_strip.limit, null);
+  assert.equal(me.data.usage.download.limit, null);
   for (let i = 0; i < 3; i++) assert.equal((await s.call('POST', '/api/strip')).status, 200);
   assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
 
@@ -148,6 +159,9 @@ test('PAYWALL=off lets everyone through without an account', async (t) => {
   const s = await start({ config: config({ paywall: false }) });
   t.after(s.close);
   for (let i = 0; i < 3; i++) assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  // With no database at all, /api/me still answers.
+  const noDb = createAccounts({ config: config({ paywall: false }) });
+  assert.equal((await noDb.account(null)).paywall, false);
 });
 
 test('Google sign-in: state is checked, the code is exchanged, the account is created', async (t) => {
@@ -222,7 +236,7 @@ test('Stripe: checkout, webhook turns Pro on, cancellation turns it off', async 
     throw new Error(`unexpected ${url}`);
   };
   const s = await start({
-    config: config({ stripeKey: 'sk_test_x', stripePrice: 'price_20', stripeWebhookSecret: 'whsec_t' }),
+    config: config({ stripeKey: 'sk_test_x', stripePricePro: 'price_20', stripeWebhookSecret: 'whsec_t' }),
     fetchImpl,
   });
   t.after(s.close);
@@ -234,7 +248,7 @@ test('Stripe: checkout, webhook turns Pro on, cancellation turns it off', async 
   assert.equal(checkoutParams.get('line_items[0][price]'), 'price_20');
   assert.equal(checkoutParams.get('customer_email'), 'buyer@example.com');
   const userId = checkoutParams.get('client_reference_id');
-  assert.equal(checkoutParams.get('success_url'), 'http://app.test/app/?upgraded=1');
+  assert.equal(checkoutParams.get('success_url'), 'http://app.test/app/?upgraded=pro');
 
   const hook = (event) => {
     const body = JSON.stringify(event);
@@ -246,7 +260,7 @@ test('Stripe: checkout, webhook turns Pro on, cancellation turns it off', async 
   assert.equal(forged.status, 400);
 
   const periodEnd = Math.floor(Date.now() / 1000) + 30 * 86400;
-  subs.set('sub_1', { id: 'sub_1', customer: 'cus_1', status: 'active', items: { data: [{ current_period_end: periodEnd }] } });
+  subs.set('sub_1', { id: 'sub_1', customer: 'cus_1', status: 'active', items: { data: [{ id: 'si_1', price: { id: 'price_20' }, current_period_end: periodEnd }] } });
   const r = await hook({ id: 'evt_1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', client_reference_id: userId, customer: 'cus_1', subscription: 'sub_1' } } });
   assert.equal(r.status, 200);
   let me = await s.call('GET', '/api/me');
@@ -276,6 +290,135 @@ test('Stripe: checkout, webhook turns Pro on, cancellation turns it off', async 
   assert.equal(checkoutParams.get('customer_email'), null);
 });
 
+test('two plans: Basic unlocks on-device stripping, switching to Pro goes through the portal confirm page', async (t) => {
+  const subs = new Map();
+  const checkouts = [];
+  const portals = [];
+  let portalFlowFails = false;
+  const fetchImpl = async (url, init = {}) => {
+    if (url === 'https://api.stripe.com/v1/checkout/sessions') {
+      checkouts.push(new URLSearchParams(init.body));
+      return Response.json({ id: 'cs_b', url: 'https://checkout.stripe.com/c/cs_b' });
+    }
+    if (url === 'https://api.stripe.com/v1/billing_portal/sessions') {
+      const p = new URLSearchParams(init.body);
+      portals.push(p);
+      if (p.get('flow_data[type]') && portalFlowFails) {
+        return Response.json({ error: { message: 'This portal configuration does not allow subscription updates' } }, { status: 400 });
+      }
+      return Response.json({ url: `https://billing.stripe.com/p/${p.get('flow_data[type]') ? 'confirm' : 'home'}` });
+    }
+    const m = url.match(/\/v1\/subscriptions\/(.+)$/);
+    if (m) return Response.json(subs.get(m[1]));
+    throw new Error(`unexpected ${url}`);
+  };
+  const s = await start({
+    config: config({ stripeKey: 'sk_test_x', stripePriceBasic: 'price_10', stripePricePro: 'price_20', stripeWebhookSecret: 'whsec_t' }),
+    fetchImpl,
+  });
+  t.after(s.close);
+  const hook = (event) => {
+    const body = JSON.stringify(event);
+    return s.call('POST', '/api/billing/webhook', { raw: body, headers: { 'content-type': 'application/json', 'stripe-signature': signed('whsec_t', body) } });
+  };
+  await s.call('GET', '/api/auth/dev?email=two@example.com');
+
+  let me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.plans.map((p) => [p.id, p.label, p.available]), [['basic', '$10', true], ['pro', '$20', true]]);
+
+  // Basic checkout uses the Basic price.
+  const co = await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', next: '/app/' } });
+  assert.equal(co.data.url, 'https://checkout.stripe.com/c/cs_b');
+  assert.equal(checkouts[0].get('line_items[0][price]'), 'price_10');
+  assert.equal(checkouts[0].get('subscription_data[metadata][plan]'), 'basic');
+  const userId = checkouts[0].get('client_reference_id');
+
+  const periodEnd = Math.floor(Date.now() / 1000) + 30 * 86400;
+  subs.set('sub_b', { id: 'sub_b', customer: 'cus_b', status: 'active', items: { data: [{ id: 'si_b', price: { id: 'price_10' }, current_period_end: periodEnd }] } });
+  await hook({ id: 'evt_b1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', client_reference_id: userId, customer: 'cus_b', subscription: 'sub_b' } } });
+
+  me = await s.call('GET', '/api/me');
+  assert.equal(me.data.plan, 'basic');
+  assert.equal(me.data.usage.strip.limit, null);
+  assert.equal(me.data.usage.server_strip.limit, 1);
+  assert.equal(me.data.usage.download.limit, 1);
+  for (let i = 0; i < 4; i++) assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  const more = await s.call('POST', '/api/strip');
+  assert.equal(more.status, 402);
+  assert.equal(more.data.plan, 'pro');
+  assert.equal((await s.call('POST', '/api/download')).status, 202);
+  assert.equal((await s.call('POST', '/api/download')).status, 402);
+
+  // Asking for Basic again is a no-op.
+  assert.equal((await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', next: '/app/' } })).data.url, 'http://app.test/app/');
+
+  // Upgrade: no second Checkout, a portal page that confirms the new price on the same subscription.
+  const up = await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro', next: '/app/#strip' } });
+  assert.equal(up.data.url, 'https://billing.stripe.com/p/confirm');
+  assert.equal(checkouts.length, 1);
+  const flow = portals.at(-1);
+  assert.equal(flow.get('customer'), 'cus_b');
+  assert.equal(flow.get('flow_data[type]'), 'subscription_update_confirm');
+  assert.equal(flow.get('flow_data[subscription_update_confirm][subscription]'), 'sub_b');
+  assert.equal(flow.get('flow_data[subscription_update_confirm][items][0][id]'), 'si_b');
+  assert.equal(flow.get('flow_data[subscription_update_confirm][items][0][price]'), 'price_20');
+  assert.equal(flow.get('flow_data[after_completion][redirect][return_url]'), 'http://app.test/app/?upgraded=pro#strip');
+
+  // Stripe changes the price and sends .updated: the webhook maps price_20 to Pro.
+  subs.set('sub_b', { ...subs.get('sub_b'), items: { data: [{ id: 'si_b', price: { id: 'price_20' }, current_period_end: periodEnd }] } });
+  await hook({ id: 'evt_b2', type: 'customer.subscription.updated', data: { object: { id: 'sub_b', customer: 'cus_b' } } });
+  me = await s.call('GET', '/api/me');
+  assert.equal(me.data.plan, 'pro');
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  assert.equal((await s.call('POST', '/api/download')).status, 202);
+
+  // Downgrading when the portal doesn't allow plan changes falls back to the portal's home page.
+  portalFlowFails = true;
+  const down = await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', next: '/app/' } });
+  assert.equal(down.data.url, 'https://billing.stripe.com/p/home');
+
+  // Downgraded in the portal: back to Basic limits (server strips already used up).
+  subs.set('sub_b', { ...subs.get('sub_b'), items: { data: [{ id: 'si_b', price: { id: 'price_10' }, current_period_end: periodEnd }] } });
+  await hook({ id: 'evt_b3', type: 'customer.subscription.updated', data: { object: { id: 'sub_b', customer: 'cus_b' } } });
+  assert.equal((await s.call('GET', '/api/me')).data.plan, 'basic');
+  assert.equal((await s.call('POST', '/api/strip')).status, 402);
+  assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
+
+  // The Supabase row carries the tier and price.
+  const row = s.db.subs.get('sub_b');
+  assert.equal(row.tier, 'basic');
+  assert.equal(row.price_id, 'price_10');
+});
+
+test('price to plan mapping, and a plan without a price cannot be bought', async (t) => {
+  const s = await start({ config: config({ stripeKey: 'sk_test_x', stripePricePro: 'price_20', production: true }), fetchImpl: async () => { throw new Error('no Stripe call expected'); } });
+  t.after(s.close);
+  assert.equal(s.accounts.tierForPrice('price_20'), 'pro');
+  assert.equal(s.accounts.tierForPrice('price_old'), 'pro');
+  assert.equal(s.accounts.tierForPrice(null), 'pro');
+  // Create the account through the store (no dev sign-in in production).
+  const user = await s.accounts.store.upsertGoogleUser({ sub: 'g-9', email: 'x@example.com' });
+  const me = await s.accounts.account(await s.accounts.store.getUser(user.id));
+  assert.deepEqual(me.plans.map((p) => [p.id, p.available]), [['basic', false], ['pro', true]]);
+  assert.equal(loadConfig({ STRIPE_PRICE_ID: 'price_legacy' }).stripePricePro, 'price_legacy');
+  assert.equal(loadConfig({ STRIPE_PRICE_ID_PRO: 'p2', STRIPE_PRICE_ID: 'price_legacy' }).stripePricePro, 'p2');
+});
+
+test('dev billing: switching between Basic and Pro', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic' } });
+  assert.equal((await s.call('GET', '/api/me')).data.plan, 'basic');
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro' } });
+  assert.equal((await s.call('GET', '/api/me')).data.plan, 'pro');
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic' } });
+  assert.equal((await s.call('GET', '/api/me')).data.plan, 'basic');
+  await s.call('POST', '/api/billing/portal', { body: {} });
+  assert.equal((await s.call('GET', '/api/me')).data.plan, 'free');
+});
+
 test('Supabase store: sends the service key, and the free allowance follows the app_settings table', async (t) => {
   const s = await start({ config: config() });
   t.after(s.close);
@@ -301,13 +444,15 @@ test('Supabase store: sends the service key, and the free allowance follows the 
   assert.deepEqual(s.db.events.map((e) => e.delta), [1, 1]);
 });
 
-test('FREE_STRIPS / FREE_DOWNLOADS env override the table', async (t) => {
-  const s = await start({ config: config(loadConfigOverrides({ FREE_STRIPS: '2', FREE_DOWNLOADS: '0' })) });
+test('FREE_* env override the table', async (t) => {
+  const s = await start({ config: config(loadConfigOverrides({ FREE_STRIPS: '3', FREE_SERVER_STRIPS: '2', FREE_DOWNLOADS: '0' })) });
   t.after(s.close);
   await s.call('GET', '/api/auth/dev');
   assert.equal((await s.call('POST', '/api/strip')).status, 200);
   assert.equal((await s.call('POST', '/api/strip')).status, 200);
   assert.equal((await s.call('POST', '/api/strip')).status, 402);
+  for (let i = 0; i < 3; i++) assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
+  assert.equal((await s.call('POST', '/api/usage/strip')).status, 402);
   const dl = await s.call('POST', '/api/download');
   assert.equal(dl.status, 402);
   assert.match(dl.data.error, /Upgrade to Pro/);
@@ -316,7 +461,7 @@ test('FREE_STRIPS / FREE_DOWNLOADS env override the table', async (t) => {
 
 function loadConfigOverrides(env) {
   const c = loadConfig({ NODE_ENV: 'test', ...env });
-  return { freeStrips: c.freeStrips, freeDownloads: c.freeDownloads };
+  return { freeStrips: c.freeStrips, freeServerStrips: c.freeServerStrips, freeDownloads: c.freeDownloads };
 }
 
 test('a Supabase outage answers 503 instead of letting work through', async (t) => {

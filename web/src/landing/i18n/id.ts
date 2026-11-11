@@ -99,9 +99,7 @@ export const id: Translation = {
     cta: 'Buka penghapus SynthID',
   },
   pricing: {
-    title: ['Satu paket.', '{price} per bulan.'],
     perMonth: '/ bulan',
-    features: ['Penghapus SynthID dan metadata', 'Pengunduh YouTube, X, TikTok, dan Instagram', 'Foto dan video dalam semua format umum'],
     billing: 'Ditagih bulanan melalui Stripe. Bisa dibatalkan kapan saja.',
     stripeLabel: 'Pembayaran lewat Stripe',
     cta: 'Buka alat',

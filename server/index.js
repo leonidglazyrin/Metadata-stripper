@@ -276,7 +276,7 @@ app.use('/api', accounts.router);
 
 // The quota is checked before the upload starts, so nobody uploads a big
 // file just to be told to upgrade. A failed strip gives the use back.
-const stripGate = [accounts.gate('strip'), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
+const stripGate = [accounts.gate('server_strip'), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
 
 app.post('/api/strip', stripGate, upload.single('file'), async (req, res) => {
   const f = req.file;

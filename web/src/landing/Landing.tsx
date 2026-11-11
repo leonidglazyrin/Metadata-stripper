@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react';
 import { HeroArt, Tile, ToolIcon } from '../components/Icons';
-import { AI_SOURCES, PRICE, SITE_NAME } from './content';
+import { AI_SOURCES, PRICE, PRICES, SITE_NAME } from './content';
 import { getDict, langPath, LANGS, type Dict } from './i18n';
 import { SiteFooter } from '../pages/Pages';
 import type { Faq } from './i18n/en';
@@ -135,21 +135,29 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
           <h2 id="pricing-h" className="display sm">
             <Pair p={[fill(t.pricing.title[0]), fill(t.pricing.title[1])]} />
           </h2>
-          <div className="price">
-            <div>
-              <p className="price-tag"><b>{PRICE}</b> {t.pricing.perMonth}</p>
-              <ul className="price-list">
-                {t.pricing.features.map((f, i) => <li key={f}>{i === 0 ? <Mark s={f} /> : f}</li>)}
-              </ul>
-            </div>
-            <div className="price-side">
-              <p className="stripe-line">
-                <StripeBadge label={t.pricing.stripeLabel} />
-                {t.pricing.billing}
-              </p>
-              <a className="cta" href={APP}>{t.pricing.cta}</a>
-            </div>
+          <p className="price-free">{t.pricing.free}</p>
+          <div className="price-plans">
+            {(['basic', 'pro'] as const).map((id) => {
+              const plan = t.pricing[id];
+              return (
+                <div key={id} className={`price${id === 'pro' ? ' price-best' : ''}`}>
+                  <p className="price-name">
+                    {plan.name}
+                    {'badge' in plan && plan.badge && <span className="price-badge">{plan.badge}</span>}
+                  </p>
+                  <p className="price-tag"><b>{PRICES[id]}</b> {t.pricing.perMonth}</p>
+                  <ul className="price-list">
+                    {plan.features.map((f) => <li key={f}>{f}</li>)}
+                  </ul>
+                  <a className={id === 'pro' ? 'cta' : 'cta ghost'} href={APP}>{t.pricing.cta}</a>
+                </div>
+              );
+            })}
           </div>
+          <p className="price-foot">
+            {t.pricing.billing}
+            <StripeBadge label={t.pricing.stripeLabel} />
+          </p>
         </section>
 
         <FaqSection id="faq" title={t.faq.title} items={t.faq.items} />
@@ -362,12 +370,14 @@ function ProcessAnimation({ f }: { f: Dict['how']['flow'] }) {
   );
 }
 
-// Stripe's "S" mark in its brand colour, with the name beside it.
+// A small, quiet "Stripe" mark (16px) next to the billing line: a trust cue.
 const StripeBadge = ({ label }: { label: string }) => (
-  <span className="stripe-badge" aria-label={label}>
+  <span className="stripe-badge" aria-label={label} title={label}>
     <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <rect width="24" height="24" rx="5" fill="#635BFF" />
       <path
         fill="#fff"
+        transform="translate(4.2 4.2) scale(0.65)"
         d="M13.976 9.15c-2.172-.806-3.356-1.426-3.356-2.409 0-.831.683-1.305 1.901-1.305 2.227 0 4.515.858 6.09 1.631l.89-5.494C18.252.975 15.697 0 12.165 0 9.667 0 7.589.654 6.104 1.872 4.56 3.147 3.757 4.992 3.757 7.218c0 4.039 2.467 5.76 6.476 7.219 2.585.92 3.445 1.574 3.445 2.583 0 .98-.84 1.545-2.354 1.545-1.875 0-4.965-.921-6.99-2.109l-.9 5.555C5.175 22.99 8.385 24 11.714 24c2.641 0 4.843-.624 6.328-1.813 1.664-1.305 2.525-3.236 2.525-5.732 0-4.128-2.524-5.851-6.594-7.305h.003z"
       />
     </svg>
@@ -383,7 +393,7 @@ const PhotoGlyph = () => (
 );
 
 // "$20" -> "20.00" for structured data.
-const PRICE_NUMBER = Number(PRICE.replace(/[^0-9.]/g, '')).toFixed(2);
+const priceNumber = (p: string) => Number(p.replace(/[^0-9.]/g, '')).toFixed(2);
 
 function jsonLd(siteUrl: string, lang: string, t: Dict) {
   const url = `${siteUrl}${langPath(lang)}`;
@@ -402,18 +412,19 @@ function jsonLd(siteUrl: string, lang: string, t: Dict) {
         description: fill(t.jsonLd.description),
         keywords: t.jsonLd.keywords,
         featureList: t.jsonLd.featureList,
-        offers: {
+        offers: (['basic', 'pro'] as const).map((id) => ({
           '@type': 'Offer',
-          price: PRICE_NUMBER,
+          name: t.pricing[id].name,
+          price: priceNumber(PRICES[id]),
           priceCurrency: 'USD',
           priceSpecification: {
             '@type': 'UnitPriceSpecification',
-            price: PRICE_NUMBER,
+            price: priceNumber(PRICES[id]),
             priceCurrency: 'USD',
             unitCode: 'MON',
             referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
           },
-        },
+        })),
       },
       {
         '@type': 'FAQPage',

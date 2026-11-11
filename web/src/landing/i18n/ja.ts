@@ -99,9 +99,7 @@ export const ja: Translation = {
     cta: 'SynthID除去ツールを開く',
   },
   pricing: {
-    title: ['プランはひとつ。', '月額{price}。'],
     perMonth: '/ 月',
-    features: ['SynthID除去とメタデータ削除', 'YouTube・X・TikTok・Instagramのダウンローダー', '一般的な形式の写真と動画すべてに対応'],
     billing: 'Stripeで毎月請求。いつでも解約できます。',
     stripeLabel: 'Stripeによる決済',
     cta: 'ツールを開く',
