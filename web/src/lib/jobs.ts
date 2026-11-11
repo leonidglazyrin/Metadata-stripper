@@ -28,6 +28,8 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
   jobsRef.current = jobs;
   const queue = useRef<Job<I>[]>([]);
   const running = useRef(new Map<string, AbortController>());
+  /** Running jobs that don't count against `concurrency`. */
+  const unqueued = useRef(new Set<string>());
   const runnerRef = useRef(runner);
   runnerRef.current = runner;
   const urls = useRef(new Set<string>());
@@ -37,9 +39,8 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
     setJobs((list) => list.map((j) => (j.id === id ? ({ ...j, ...patch } as Job<I>) : j)));
   }, []);
 
-  const pump = useCallback(() => {
-    while (running.current.size < concurrency && queue.current.length) {
-      const job = queue.current.shift()!;
+  const start = useCallback(
+    (job: Job<I>) => {
       const ctrl = new AbortController();
       running.current.set(job.id, ctrl);
       update(job.id, { status: 'active' });
@@ -50,41 +51,78 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
           update(job.id, { status: 'error', message: e instanceof Error ? e.message : String(e), progress: null });
         })
         .finally(() => {
-          running.current.delete(job.id);
+          // The same row may have been started again since (retry, remount).
+          if (running.current.get(job.id) === ctrl) {
+            running.current.delete(job.id);
+            unqueued.current.delete(job.id);
+          }
           pump();
         });
-    }
-  }, [concurrency, update]);
+    },
+    // pump is defined below and only called from callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [update],
+  );
 
+  function pump() {
+    while (running.current.size - unqueued.current.size < concurrency && queue.current.length) start(queue.current.shift()!);
+  }
+
+  /**
+   * Add rows. By default each one waits its turn in the queue. `immediate`
+   * runs it now without taking a slot (work already going on elsewhere, e.g.
+   * a server job picked up after a reload); a given `status` of 'error' or
+   * 'done' only shows the row.
+   */
   const add = useCallback(
-    (items: { input: I; name: string; preview?: Job['preview'] }[]) => {
+    (
+      items: {
+        input: I;
+        name: string;
+        preview?: Job['preview'];
+        id?: string;
+        immediate?: boolean;
+        status?: 'error' | 'done';
+        message?: string;
+        result?: Job['result'];
+      }[],
+    ) => {
       const created = items.map<Job<I>>((it) => ({
-        id: crypto.randomUUID(),
+        id: it.id ?? crypto.randomUUID(),
         input: it.input,
         name: it.name,
         preview: it.preview,
-        status: 'waiting',
+        status: it.status ?? 'waiting',
         progress: null,
-        message: 'Waiting…',
+        message: it.message ?? 'Waiting…',
+        result: it.result,
       }));
       for (const j of created) if (j.preview) urls.current.add(j.preview);
-      queue.current.push(...created);
       setJobs((list) => [...[...created].reverse(), ...list]);
+      created.forEach((j, i) => {
+        if (items[i].status) return;
+        if (items[i].immediate) {
+          unqueued.current.add(j.id);
+          start(j);
+        } else queue.current.push(j);
+      });
       pump();
       return created.map((j) => j.id);
     },
-    [pump],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [start],
   );
 
   const remove = useCallback((id: string) => {
     queue.current = queue.current.filter((j) => j.id !== id);
     running.current.get(id)?.abort();
     running.current.delete(id);
+    unqueued.current.delete(id);
     setJobs((list) => {
       const j = list.find((x) => x.id === id);
       for (const u of [j?.preview, j?.result?.url]) {
         if (!u) continue;
-        URL.revokeObjectURL(u);
+        if (u.startsWith('blob:')) URL.revokeObjectURL(u);
         urls.current.delete(u);
       }
       return list.filter((x) => x.id !== id);
@@ -101,14 +139,15 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
       update(id, reset);
       pump();
     },
-    [pump, update],
+    [update],
   );
 
   const clear = useCallback(() => {
     queue.current = [];
     for (const c of running.current.values()) c.abort();
     running.current.clear();
-    for (const u of urls.current) URL.revokeObjectURL(u);
+    unqueued.current.clear();
+    for (const u of urls.current) if (u.startsWith('blob:')) URL.revokeObjectURL(u);
     urls.current.clear();
     setJobs([]);
   }, []);
@@ -120,5 +159,7 @@ export function useJobs<I>(runner: Runner<I>, concurrency = 2) {
 
   const setPreview = useCallback((id: string, url: string) => update(id, { preview: url }), [update]);
 
-  return { jobs, add, remove, retry, clear, setPreview };
+  const patch = useCallback((id: string, p: Partial<Job>) => update(id, p), [update]);
+
+  return { jobs, add, remove, retry, clear, setPreview, update: patch };
 }

@@ -96,9 +96,12 @@ docker run -p 3000:3000 sharona
 | `PORT` | `3000` | |
 | `MAX_UPLOAD_MB` | `2048` | Max upload for the stripper |
 | `MAX_DOWNLOAD_MB` | `2048` | Max file size yt-dlp will fetch |
+| `DOWNLOAD_TTL_MIN` | `30` | How long a finished download stays on the server, so a reloaded page can still collect it |
+| `DOWNLOAD_STALL_MIN` | `5` | A download with no yt-dlp output for this long is killed as hung |
+| `DOWNLOAD_MAX_MIN` | `30` | Hard cap on one download's run time |
 | `YTDLP_PATH` | | Path to yt-dlp if not on `PATH` |
 | `YTDLP_COOKIES` | | Netscape cookies file for Instagram / age-gated content |
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
 | `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately |
 
-Uploads and downloads are written to a temp directory and deleted as soon as the response is sent. Nothing is stored.
+Uploads are written to a temp directory and deleted as soon as the response is sent. Finished link downloads stay for `DOWNLOAD_TTL_MIN` minutes so a reloaded page can collect them again (removing the row deletes them sooner). The server purges the temp directory on startup and sweeps it every minute for expired, hung or orphaned files, and logs why each download failed (yt-dlp's exit code and its ERROR / WARNING lines).

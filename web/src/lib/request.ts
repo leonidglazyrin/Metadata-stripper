@@ -12,7 +12,11 @@ export interface BlobResponse {
   header: (name: string) => string | null;
 }
 
-export class RequestError extends Error {}
+export class RequestError extends Error {
+  constructor(message: string, readonly status = 0, readonly data: unknown = null) {
+    super(message);
+  }
+}
 
 /** Base URL for the API; empty means same origin (or the Vite dev proxy). */
 const API = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
@@ -44,9 +48,9 @@ export async function requestJson<T>(method: string, path: string, body?: object
   }
   if (!res.ok) {
     const msg = (data as { error?: string } | null)?.error;
-    if (msg) throw new RequestError(msg);
-    if (res.status === 404 || res.status === 405) throw new RequestError('Server is missing this feature, restart it with the latest code');
-    throw new RequestError(`Server error (HTTP ${res.status})`);
+    if (msg) throw new RequestError(msg, res.status, data);
+    if (res.status === 404 || res.status === 405) throw new RequestError('Server is missing this feature, restart it with the latest code', res.status);
+    throw new RequestError(`Server error (HTTP ${res.status})`, res.status);
   }
   return data as T;
 }
@@ -88,7 +92,7 @@ function requestForBlob(
       if (e.lengthComputable && xhr.status === 200) progress.onDownload?.(e.loaded / e.total);
     };
     xhr.onload = async () => {
-      if (xhr.status !== 200) return reject(new RequestError(await errorMessage(xhr)));
+      if (xhr.status !== 200) return reject(new RequestError(await errorMessage(xhr), xhr.status));
       const disp = xhr.getResponseHeader('Content-Disposition') || '';
       resolve({
         blob: xhr.response as Blob,
