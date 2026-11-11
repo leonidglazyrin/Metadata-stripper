@@ -10,6 +10,12 @@ import type { LegalDoc } from './legal';
 
 const APP = '/app/';
 
+const KIND_LABEL: Record<Guide['kind'], string> = {
+  synthid: 'SynthID guide',
+  privacy: 'Privacy guide',
+  download: 'Download guide',
+};
+
 export const fill = (s: string) => s.replaceAll('{site}', SITE_NAME);
 
 /** Inline markup: `code`, **bold** and [text](href). */
@@ -114,6 +120,10 @@ export function SiteFooter({ tagline, disclaimer, openLabel = 'Open the tools' }
           <p>{tagline ?? 'Metadata, C2PA and SynthID remover, plus YouTube, TikTok, X and Instagram downloaders.'}</p>
           <p><a href={APP}>{openLabel}</a></p>
         </div>
+        <nav aria-label="SynthID guides">
+          <h2>SynthID guides</h2>
+          <ul>{group('synthid').map((g) => <li key={g.slug}><a href={guidePath(g.slug)}>{g.short}</a></li>)}</ul>
+        </nav>
         <nav aria-label="Privacy guides">
           <h2>Privacy guides</h2>
           <ul>{group('privacy').map((g) => <li key={g.slug}><a href={guidePath(g.slug)}>{g.short}</a></li>)}</ul>
@@ -147,7 +157,7 @@ export function GuidePage({ guide: g }: { guide: Guide }) {
         <div className="doc-top">
           <ToolIcon tool={g.tool} size={56} />
           <div>
-            <p className="eyebrow">{g.kind === 'download' ? 'Download guide' : 'Privacy guide'}</p>
+            <p className="eyebrow">{KIND_LABEL[g.kind]}</p>
             <h1 className="display sm">{fill(g.title)}</h1>
             <p className="doc-date">Updated <time dateTime={g.updated}>{longDate(g.updated)}</time></p>
           </div>
@@ -210,6 +220,7 @@ function GuideCard({ g }: { g: Guide }) {
 
 export function GuidesIndex() {
   const groups: [Guide['kind'], string, string][] = [
+    ['synthid', 'SynthID and AI watermarks', 'Weaken Google’s invisible SynthID watermark and clear the metadata on images and videos from Veo, Gemini and Imagen, so platforms stop flagging them as AI.'],
     ['privacy', 'Privacy and metadata', 'Remove the hidden data in photos and videos: location, device details, dates, editing history and C2PA Content Credentials.'],
     ['download', 'Video downloads', 'Save public videos from YouTube, TikTok, X and Instagram as MP4, or keep only the sound as M4A.'],
   ];

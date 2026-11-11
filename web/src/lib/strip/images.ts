@@ -230,6 +230,19 @@ export function stripGif(b: Uint8Array): Uint8Array<ArrayBuffer> {
 
 /* ---------------- Canvas re-encode ---------------- */
 
+/** Adds ±2 code values of uniform noise to the RGB channels, in place. */
+function addNoise(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number) {
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data; // Uint8ClampedArray: writes are clamped to 0–255
+  for (let i = 0; i < d.length; i += 4) {
+    const n = ((Math.random() * 5) | 0) - 2;
+    d[i] += n;
+    d[i + 1] += n;
+    d[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
 export async function reencode(
   source: Blob | ImageBitmap,
   type: 'image/jpeg' | 'image/png' | 'image/webp',
@@ -251,14 +264,18 @@ export async function reencode(
   }
   if (synthid) {
     // Same idea as the server: a near-unity shrink and re-grow resamples every
-    // pixel, which breaks invisible watermark lattices.
-    const sw = Math.max(1, Math.round(w * 0.995));
-    const sh = Math.max(1, Math.round(h * 0.995));
+    // pixel, then a trace of additive noise (the still-image equivalent of the
+    // video filter's per-frame noise) is laid over the top. Together they break
+    // up invisible watermark lattices such as SynthID while staying visually
+    // indistinguishable.
+    const sw = Math.max(1, Math.round(w * 0.99));
+    const sh = Math.max(1, Math.round(h * 0.99));
     const small = new OffscreenCanvas(sw, sh);
     const sctx = small.getContext('2d')!;
     sctx.imageSmoothingQuality = 'high';
     sctx.drawImage(bmp, 0, 0, sw, sh);
     ctx.drawImage(small, 0, 0, w, h);
+    addNoise(ctx, w, h);
   } else {
     ctx.drawImage(bmp, 0, 0);
   }

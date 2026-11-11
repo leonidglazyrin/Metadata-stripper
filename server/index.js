@@ -139,6 +139,22 @@ async function inspectVideo(file) {
 // Stripping
 // ---------------------------------------------------------------------------
 
+// Renders the pipeline to raw sRGB pixels, adds ±2 code values of uniform
+// noise to the colour channels (alpha left alone), and wraps it back into a
+// sharp instance for encoding. Expects 8-bit pixels (caller guards on depth).
+async function addImageNoise(img) {
+  const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
+  const ch = info.channels;
+  for (let i = 0; i < data.length; i += ch) {
+    const n = ((Math.random() * 5) | 0) - 2;
+    for (let c = 0; c < ch && c < 3; c++) {
+      const v = data[i + c] + n;
+      data[i + c] = v < 0 ? 0 : v > 255 ? 255 : v;
+    }
+  }
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: ch } });
+}
+
 async function stripImage(input, ext, quality, synthid = false) {
   // Decode to raw pixels and re-encode a brand-new file. sharp writes no
   // EXIF / XMP / IPTC / ICC / C2PA / comments unless explicitly asked to.
@@ -150,23 +166,27 @@ async function stripImage(input, ext, quality, synthid = false) {
   img = img.toColorspace('srgb');
 
   if (synthid) {
-    // Disrupt invisible pixel-level watermarks (SynthID, etc.) with the lightest
+    // Disrupt invisible pixel-level watermarks (SynthID, etc.) with a light
     // touch that still resamples every pixel: a near-unity resize-down→resize-up
-    // cycle (lanczos3, high-fidelity) that shifts the pixel grid just enough to
-    // break the watermark lattice, followed by a gentle sharpen that restores
-    // any softness the resample introduced. No standalone blur pass, so fine
-    // detail is preserved and the result stays visually indistinguishable.
+    // cycle (lanczos3, high-fidelity) that shifts the pixel grid enough to break
+    // the watermark lattice, a gentle sharpen that restores any softness the
+    // resample introduced, and a trace of additive noise (the still-image
+    // equivalent of the video filter's per-frame noise) that further scrambles
+    // the pattern. The result stays visually indistinguishable.
     const meta = await sharp(input, { animated, failOn: 'none' }).metadata();
     const w = meta.width;
     const h = meta.height;
     if (w && h) {
-      const shrunkW = Math.max(1, Math.round(w * 0.995));
-      const shrunkH = Math.max(1, Math.round(h * 0.995));
+      const shrunkW = Math.max(1, Math.round(w * 0.99));
+      const shrunkH = Math.max(1, Math.round(h * 0.99));
       img = img
         .resize(shrunkW, shrunkH, { kernel: 'lanczos3' })
         .resize(w, h, { kernel: 'lanczos3' });
     }
     img = img.sharpen({ sigma: 0.5, m1: 0.3, m2: 0.2 });
+    // Noise needs raw 8-bit pixels; animated frames and >8-bit depths are left
+    // to the resample + sharpen alone.
+    if (!animated && meta.depth === 'uchar') img = await addImageNoise(img);
   }
 
   let outExt = ext;

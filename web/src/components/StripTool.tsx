@@ -11,6 +11,7 @@ import { isImageName, isVideoName, videoFrame } from '../lib/thumb';
 import Switch from './Switch';
 
 export default function StripTool() {
+  // SynthID stripping is on by default; metadata is always removed regardless.
   const [synthid, setSynthid] = useStored('synthid', true);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);

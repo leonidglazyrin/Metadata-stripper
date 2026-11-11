@@ -25,6 +25,7 @@ export const en = {
     label: 'Main',
     home: '{site} home',
     synthid: 'SynthID',
+    detection: 'AI label',
     metadata: 'Metadata',
     downloaders: 'Downloaders',
     pricing: 'Pricing',
@@ -36,13 +37,32 @@ export const en = {
   },
   hero: {
     eyebrow: 'SynthID, C2PA & metadata remover',
-    title: ['Remove SynthID & C2PA', 'from AI images and videos.'] as Pair,
+    title: ['Stop platforms flagging', 'your images & videos as AI.'] as Pair,
     lede:
-      'Drop in a photo or video from Google Veo, Gemini, Sora, ChatGPT, Higgsfield or any other AI tool. Download a copy with the C2PA Content Credentials and every other metadata tag (EXIF, GPS, XMP) deleted, and the SynthID watermark disrupted. It runs on our server or in your browser.',
+      'TikTok, Instagram and others read the hidden C2PA Content Credentials and SynthID watermark in AI files and add an “AI-generated” label to your post. Drop in a photo or video from Google Veo, Gemini, Sora, ChatGPT or Higgsfield and download a clean copy — C2PA and every metadata tag (EXIF, GPS, XMP) deleted, and the SynthID watermark disrupted. It runs on our server or in your browser.',
     ctaStrip: 'Strip a file',
     ctaDownload: 'Download a video',
     toolsLabel: 'Tools',
     chipStrip: 'SynthID & metadata',
+  },
+  detection: {
+    title: ['Stop the automatic', '“AI-generated” label.'] as Pair,
+    lede:
+      'Platforms scan every upload for C2PA Content Credentials and watermarks. Find them, and they switch on an AI label you can’t turn off. Remove them first and disclosing stays your choice.',
+    beforeTitle: 'Metadata left in',
+    beforeText:
+      'TikTok read the Content Credentials and turned the AI label on for you — greyed out, with no way to switch it off.',
+    afterTitle: 'Cleaned with {site}',
+    afterText:
+      'Nothing left for the platform to find, so the label is optional again. You decide whether to disclose.',
+    detectedTag: 'Auto-labelled',
+    cleanTag: 'Your choice',
+    note:
+      'Platforms also run their own classifiers and may still label a file. {site} removes the signals it can; it can’t promise a platform won’t label your post. Follow each platform’s AI-disclosure rules.',
+    shotDetectedAlt:
+      'TikTok’s “AI-generated content” switch turned on and locked, reading “We’ve added this label as TikTok detected the use of AI to edit or generate content in your post.”',
+    shotOptionalAlt:
+      'TikTok’s “AI-generated content” switch turned off and optional, reading “Add this label to tell viewers your content was generated or edited with AI.”',
   },
   synthid: {
     title: ['Remove SynthID from AI videos', 'and keep the look.'] as Pair,
@@ -50,7 +70,12 @@ export const en = {
       'SynthID is an invisible watermark Google adds to the pixels of images and videos made with Veo, Gemini and Imagen. {site} changes those pixels slightly to weaken the pattern, and the file looks and plays the same.',
     sourcesTitle: 'Clean files from',
     sourcesLabel: 'AI generators',
-    photos: { title: 'Photos', text: 'A slight resample and sharpen changes every pixel, then the image is saved again at high quality.' },
+    reencode: {
+      caption: 'A near-lossless resample, a trace of noise and a fresh re-encode move every pixel. The picture looks the same; the invisible watermark lattice does not survive.',
+      before: 'AI frame · watermark baked in',
+      after: 'Re-encoded · watermark broken',
+    },
+    photos: { title: 'Photos', text: 'A slight resample, a trace of noise and a sharpen change every pixel, then the image is saved again at high quality.' },
     videos: { title: 'Videos', text: 'A high-quality re-encode (CRF 18) with a light blur, a matching sharpen and a little noise between frames.' },
     caveat: {
       title: 'No guarantees',
@@ -140,7 +165,7 @@ export const en = {
       },
       {
         q: 'How do I remove SynthID from AI videos?',
-        a: 'Open the SynthID stripper, add your video, leave SynthID stripping on and pick Server. {site} removes the metadata, re-encodes the video at high quality with small pixel changes that weaken the watermark, and gives you a clean MP4 to download. Videos from Google Veo and Gemini carry SynthID; the same steps also clear metadata from other generators.',
+        a: 'Open the SynthID stripper, add your video, keep SynthID stripping switched on (it is on by default) and pick Server. {site} removes the metadata, re-encodes the video at high quality with small pixel changes that weaken the watermark, and gives you a clean MP4 to download. Videos from Google Veo and Gemini carry SynthID; the same steps also clear metadata from other generators.',
       },
       {
         q: 'Which AI generators does it work with?',
@@ -155,12 +180,16 @@ export const en = {
         a: 'No. SynthID is built to survive edits, and detectors keep changing. {site} disrupts the watermark, but a detector may still find it.',
       },
       {
+        q: 'Why is my image still detected as AI after cleaning?',
+        a: 'SynthID for images is a pixel-level watermark designed to survive resizing and re-saving, so a hard case can still trip a detector. {site} resamples the image, adds a trace of noise and re-encodes it to weaken the pattern as much as it can without visibly changing the picture. If a file is still flagged, that is the watermark being stubborn, not the metadata: the EXIF, XMP and C2PA Content Credentials are still fully removed. We do not guarantee a clean pass against any detector.',
+      },
+      {
         q: 'What does the metadata remover take out?',
         a: 'From photos: EXIF (camera, serial number, time, GPS), XMP, IPTC, ICC profiles, C2PA Content Credentials, maker notes, embedded thumbnails and comments. From videos: global, stream and chapter tags, GPS and telemetry tracks, timecode, cover art, C2PA boxes and encoder strings. Each file shows a list of what was removed.',
       },
       {
         q: 'Are my files uploaded?',
-        a: 'Only if you pick Server. In Server mode the file is uploaded, cleaned and deleted straight away. In This device mode it stays in your browser. On your device, photos are cleaned losslessly and videos are remuxed; SynthID stripping on your device works on photos only.',
+        a: 'Only if you pick Server. In Server mode the file is uploaded, cleaned and deleted straight away. In This device mode it stays in your browser and nothing is sent to us. Metadata is always removed; SynthID stripping is a switch that is on by default, and on your device its re-encode runs in the browser, so videos take longer than on the server.',
       },
       {
         q: 'Which formats are supported?',
