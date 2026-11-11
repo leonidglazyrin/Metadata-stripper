@@ -96,7 +96,7 @@ function requestForBlob(
       const disp = xhr.getResponseHeader('Content-Disposition') || '';
       resolve({
         blob: xhr.response as Blob,
-        filename: (disp.match(/filename="([^"]+)"/) || [])[1] ?? null,
+        filename: dispositionName(disp),
         header: (n) => xhr.getResponseHeader(n),
       });
     };
@@ -129,3 +129,16 @@ async function errorMessage(xhr: XMLHttpRequest) {
 
 export const formatSize = (n: number) =>
   n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+
+/** The file name in a Content-Disposition header, preferring the UTF-8 one. */
+function dispositionName(disp: string): string | null {
+  const star = disp.match(/filename\*=UTF-8''([^;]+)/i);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      /* fall back to the plain name */
+    }
+  }
+  return (disp.match(/filename="([^"]+)"/) || [])[1] ?? null;
+}

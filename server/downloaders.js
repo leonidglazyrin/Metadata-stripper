@@ -168,7 +168,7 @@ const FILE = 'MSFILE ';
 
 /**
  * Download one link into dir. onEvent (optional) receives
- *   { type: 'info', title, thumbnail, parts }   once the video is resolved
+ *   { type: 'info', title, author, thumbnails, parts }   once the video is resolved
  *   { type: 'progress', progress }              0..1 across all parts
  *   { type: 'processing' }                      merging / remuxing after the download
  */
@@ -184,7 +184,7 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
     '--progress-template', `download:${PROG}%(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s`,
     // thumbnails too: the single "thumbnail" yt-dlp picks is often a URL that
     // doesn't exist (YouTube's maxresdefault.jpg 404s on many videos).
-    '--print', `before_dl:${INFO}%(.{id,title,thumbnail,thumbnails,format_id})j`,
+    '--print', `before_dl:${INFO}%(.{id,title,channel,uploader,thumbnail,thumbnails,format_id})j`,
     '--print', `after_move:${FILE}%(filepath)s`,
     '--socket-timeout', '30', '--retries', '3',
     // IPv4 only. On networks with broken IPv6 (a route that drops packets
@@ -217,7 +217,7 @@ async function download(platform, url, dir, mode, onEvent = () => {}, signal) {
       let info = {};
       try { info = JSON.parse(line.slice(INFO.length)); } catch (_) { /* ignore */ }
       parts = Math.max(1, String(info.format_id || '').split('+').length);
-      onEvent({ type: 'info', title: info.title || null, thumbnails: thumbCandidates(platform, info), format: info.format_id || null, parts });
+      onEvent({ type: 'info', title: info.title || null, author: info.channel || info.uploader || null, thumbnails: thumbCandidates(platform, info), format: info.format_id || null, parts });
     } else if (line.startsWith(PROG)) {
       const [done, total, estimate] = line.slice(PROG.length).split(' ').map(Number);
       const size = total > 0 ? total : estimate;
@@ -318,6 +318,37 @@ function friendlyError(platform, msg) {
   }
   if (/no video could be found|no video formats/i.test(msg)) return 'This post has no video to download';
   return msg;
+}
+
+// "Video title - Channel", the name a row and its file get. Skips the
+// channel when the title already carries it (X titles start with the
+// poster's name) or when there's no title.
+function displayName(title, author) {
+  const t = clean(title);
+  const a = clean(author);
+  if (!t) return a || null;
+  if (!a || t.toLowerCase().includes(a.toLowerCase())) return t;
+  return `${t} - ${a}`;
+}
+
+function clean(s) {
+  return String(s || '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// A file name from a display name: keeps spaces, accents and emoji, drops
+// what Windows, macOS or a header can't take, and caps the length.
+function niceFilename(name, ext) {
+  let base = clean(name).replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  base = [...base].slice(0, 120).join('').replace(/^[.\s]+|[.\s]+$/g, '');
+  return base ? `${base}${ext}` : null;
+}
+
+// Content-Disposition for any file name: an ASCII fallback plus the UTF-8 name.
+function disposition(filename) {
+  const ascii = filename.normalize('NFKD').replace(/[^\x20-\x7e]/g, '').replace(/["\\%]/g, '').replace(/\s+/g, ' ').trim();
+  const ext = path.extname(filename);
+  const fallback = /[a-z0-9]/i.test(path.basename(ascii, ext)) ? ascii : `download${ext}`;
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`;
 }
 
 function safeBase(name) {
@@ -483,14 +514,13 @@ function createDownloadRouter(workDir) {
   };
 
   // Stream a downloaded file to the browser; onClose(finished) runs once it's gone.
-  const sendFile = async (res, file, mode, onClose) => {
-    const name = path.basename(file);
-    const ext = path.extname(name).toLowerCase() || (mode === 'audio' ? '.m4a' : '.mp4');
+  // filename: what the browser saves it as (defaults to the file's own name).
+  const sendFile = async (res, file, mode, filename, onClose) => {
     const { size } = await fs.stat(file);
-    const filename = `${safeBase(name)}${ext}`;
+    filename = filename || fileNameFor(file, mode, null);
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Content-Length', size);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Disposition', disposition(filename));
     res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     // Stream instead of buffering: YouTube videos can be large.
     const stream = createReadStream(file);
@@ -499,6 +529,13 @@ function createDownloadRouter(workDir) {
     res.on('finish', () => { finished = true; });
     res.on('close', () => onClose(finished, filename, size));
     stream.pipe(res);
+  };
+
+  // "Title - Channel.mp4" when the post has a title, else yt-dlp's safe name.
+  const fileNameFor = (file, mode, name) => {
+    const base = path.basename(file);
+    const ext = path.extname(base).toLowerCase() || (mode === 'audio' ? '.m4a' : '.mp4');
+    return niceFilename(name, ext) || `${safeBase(base)}${ext}`;
   };
 
   router.get('/platforms', (_req, res) => {
@@ -526,6 +563,8 @@ function createDownloadRouter(workDir) {
       progress: null,
       milestone: 0,
       title: null,
+      author: null,
+      name: null,
       thumbnail: null,
       thumb: null,
       thumbOk: false,
@@ -552,6 +591,8 @@ function createDownloadRouter(workDir) {
       let file = null;
       if (reuse && await fs.access(source.file).then(() => true, () => false)) {
         job.title = source.title;
+        job.author = source.author;
+        job.name = source.name;
         job.thumbnail = source.thumbnail;
         job.thumb = source.thumb;
         job.thumbOk = source.thumbOk;
@@ -586,6 +627,8 @@ function createDownloadRouter(workDir) {
           if (/^WARNING\b/.test(ev.line)) log.note('download', `${tag(job)} yt-dlp ${ev.line.slice(0, 300)}`);
         } else if (ev.type === 'info') {
           job.title = ev.title;
+          job.author = ev.author;
+          job.name = displayName(ev.title, ev.author);
           if (ev.thumbnails.length) {
             job.thumbnail = ev.thumbnails;
             // Fetch it now, so the page gets it as soon as it asks.
@@ -611,10 +654,8 @@ function createDownloadRouter(workDir) {
       // when a short download finishes before the image was fetched.
       if (job.thumb) await Promise.race([job.thumb.catch(() => {}), new Promise((ok) => setTimeout(ok, 5000))]);
       if (!jobs.has(job.id) || job.state === 'error') return;
-      const name = path.basename(file);
-      const ext = path.extname(name).toLowerCase() || (r.mode === 'audio' ? '.m4a' : '.mp4');
       job.file = file;
-      job.filename = `${safeBase(name)}${ext}`;
+      job.filename = fileNameFor(file, r.mode, job.name);
       job.size = (await fs.stat(file)).size;
       job.state = 'ready';
       job.progress = 1;
@@ -635,6 +676,9 @@ function createDownloadRouter(workDir) {
       state: job.state,
       progress: job.progress,
       title: job.title,
+      author: job.author,
+      // "Title - Channel", what the row shows.
+      name: job.name,
       step: job.step || null,
       // Only once the server has a working image, so the page never shows a broken one.
       thumbnail: Boolean(job.thumbOk),
@@ -670,7 +714,7 @@ function createDownloadRouter(workDir) {
     try {
       // The file stays after it's sent, so a reloaded page can fetch it again
       // until it expires (or the user removes the row).
-      await sendFile(res, job.file, job.mode, (finished, filename, size) => {
+      await sendFile(res, job.file, job.mode, job.filename, (finished, filename, size) => {
         if (finished) {
           job.sent++;
           log.ok('download', `${tag(job)} sent ${filename} (${log.size(size)}) to the browser${job.sent > 1 ? ` (${job.sent}×)` : ''}`);
@@ -703,8 +747,11 @@ function createDownloadRouter(workDir) {
     log.start('download', `${label} ${mode} ${url}`);
     try {
       await fs.mkdir(dir, { recursive: true });
-      const file = await download(platform, url, dir, mode);
-      await sendFile(res, file, mode, (finished, filename, size) => {
+      let name = null;
+      const file = await download(platform, url, dir, mode, (ev) => {
+        if (ev.type === 'info') name = displayName(ev.title, ev.author);
+      });
+      await sendFile(res, file, mode, fileNameFor(file, mode, name), (finished, filename, size) => {
         const took = log.duration(Date.now() - started);
         if (finished) log.ok('download', `${label} ${mode} ${url} → ${filename} (${log.size(size)}) in ${took}`);
         else log.fail('download', `${label} ${mode} ${url} → client disconnected before the ${log.size(size)} file was sent (${took})`);
@@ -720,4 +767,4 @@ function createDownloadRouter(workDir) {
   return router;
 }
 
-module.exports = { createDownloadRouter, download, extractAudio, parseUrl, PLATFORMS, stderrSummary, dirSize, thumbCandidates };
+module.exports = { createDownloadRouter, displayName, niceFilename, disposition, download, extractAudio, parseUrl, PLATFORMS, stderrSummary, dirSize, thumbCandidates };
