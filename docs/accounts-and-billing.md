@@ -137,6 +137,27 @@ If the paywall is on and the D1 variables are missing, the server refuses to sta
 
 On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, billing Stripe, accounts in D1 (<database id>), free tier from the app_settings table, plans: basic + pro`. If one of the two price IDs is missing it logs which, and that plan shows "Not available yet" in the dialog.
 
+## Deploying on Cloudflare Containers
+
+`wrangler.jsonc` and `worker/index.js` deploy the Docker image to [Cloudflare Containers](https://developers.cloudflare.com/containers/) with a small Worker in front. Workers Builds (connected to this repo) runs `npx wrangler deploy` on every push to main; you can also run it yourself with Docker running.
+
+1. Put the D1 database id in both `REPLACE_WITH_D1_DATABASE_ID` spots in `wrangler.jsonc`, and your real address in `SITE_URL` (the `workers.dev` one, or your own domain once you add it under the Worker's **Settings → Domains & Routes**).
+2. Set the secrets once (each command asks for the value):
+
+   ```bash
+   npx wrangler secret put SESSION_SECRET          # openssl rand -hex 32
+   npx wrangler secret put CLOUDFLARE_API_TOKEN    # the D1 token
+   npx wrangler secret put GOOGLE_CLIENT_ID
+   npx wrangler secret put GOOGLE_CLIENT_SECRET
+   npx wrangler secret put STRIPE_SECRET_KEY
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET
+   ```
+
+   Put `STRIPE_PRICE_ID_BASIC` and `STRIPE_PRICE_ID_PRO` in `vars` in `wrangler.jsonc` (they aren't secret), or set them as secrets too. The Worker hands every one of these to the server (the list is `PASS` in `worker/index.js`).
+3. Push to main (or run `npx wrangler deploy`).
+
+One container instance (`standard-2`) serves all traffic, because a download job lives in the memory and disk of the container that started it. It sleeps after 15 minutes without requests and wakes in a few seconds on the next one; set `SLEEP_AFTER` in `vars` to change that.
+
 ## Dev mode
 
 There is no local database: point `npm run dev` at a D1 database too (a second database, e.g. `npx wrangler d1 create sharona-dev`, keeps test accounts out of production). With `NODE_ENV` not `production` and no Google/Stripe variables: **Sign in** logs into a local test account (`/api/auth/dev?email=…` gives you more), **Get Basic** / **Get Pro** turn that plan on at once (and switch between them), and **Cancel plan (dev)** turns it off. In production missing Google/Stripe settings make sign-in and checkout answer "not set up" instead; set `PAYWALL=off` to run without accounts (and without D1) until they are configured.
