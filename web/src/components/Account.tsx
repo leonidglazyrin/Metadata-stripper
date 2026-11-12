@@ -368,49 +368,90 @@ export function PaywallDialog() {
   );
 }
 
-/** Signed out with the paywall on: the tools are shown but locked behind SignInGate. */
-export function useLocked() {
-  const { account: a } = useAccountState();
-  return Boolean(a?.paywall && !a.signedIn);
+/**
+ * What the tool area shows: 'pending' until the first account check answers
+ * (so a usable-looking tool never flashes before turning into sign-in),
+ * 'signin' when signed out with the paywall on, else 'open'. If the check
+ * can't reach the server at all, the tool opens and reports errors itself.
+ */
+export function useToolAccess(): 'pending' | 'signin' | 'open' {
+  const { account: a, loaded } = useAccountState();
+  if (!a) return loaded ? 'open' : 'pending';
+  return a.paywall && !a.signedIn ? 'signin' : 'open';
 }
 
 /**
- * Above the tools for a signed-out visitor: the free allowance, the plans and
- * Google sign-in, in the page rather than a dialog. The tools stay visible
- * underneath but can't be used until sign-in.
+ * In place of the tool for a signed-out visitor: what signing in gets and the
+ * Google button, before anything can be dropped or pasted. No file input or
+ * link field is on the page, so nothing can be read or sent signed out.
+ */
+export function ToolSignIn({ downloads, toolName }: { downloads: boolean; toolName: string }) {
+  const { account: a } = useAccountState();
+  if (!a) return null;
+  const free = a.free;
+  return (
+    <div className="tool-signin">
+      <span className="tool-signin-badge" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+          <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+        </svg>
+      </span>
+      <h3 className="tool-signin-title">{downloads ? `Sign in to download from ${toolName}` : 'Sign in to strip your files'}</h3>
+      <p className="tool-signin-text">
+        {downloads ? (
+          <>
+            Your free account includes <b>{n(free?.download)} video download</b>. After that, downloads need <b>Pro</b>.
+          </>
+        ) : (
+          <>
+            Your free account includes <b>{n(free?.strip)} on-device strip</b>, <b>{n(free?.server_strip)} server strip</b> and{' '}
+            <b>{n(free?.download)} video download</b>.
+          </>
+        )}
+      </p>
+      <button type="button" className="signin-big" onClick={signIn} disabled={!a.signIn}>
+        <span className="signin-big-g">
+          <GoogleLogo size={20} />
+        </span>
+        {a.signIn === 'dev' ? 'Continue (dev account)' : 'Continue with Google'}
+      </button>
+      {!a.signIn && <p className="paywall-error">Sign-in isn’t set up on this server yet.</p>}
+      <p className="tool-signin-fine">
+        Free, no card needed. <a href="#plans" onClick={toPlans}>See plans</a>
+      </p>
+    </div>
+  );
+}
+
+// The page uses the URL hash for the open tool, so scroll instead of navigating.
+const toPlans = (e: React.MouseEvent) => {
+  e.preventDefault();
+  document.getElementById('plans')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+/**
+ * Below the tool for a signed-out visitor: the plans, for after the free
+ * uses. Sign-in itself is in the tool (ToolSignIn).
  */
 export function SignInGate({ downloads }: { downloads?: boolean }) {
   const { account: a } = useAccountState();
   if (!a?.paywall || a.signedIn) return null;
-  const free = a.free;
   const pk = a.pack;
   // On a downloader only Pro helps (downloads run on our server), so show just
   // Pro and leave out Basic and the on-device strip pack.
   const plans: PlanId[] = downloads ? ['pro'] : ['basic', 'pro'];
   return (
-    <section className="card gate" aria-labelledby="gate-title">
-      <div className="gate-top">
-        <div className="gate-copy">
-          <h2 id="gate-title" className="display sm">Sign in to <span className="accent">start free</span></h2>
-          {downloads ? (
-            <p className="lede">
-              Every account gets <b>{n(free?.download)} free video download</b>. No card needed. Downloads run on our server, so
-              after that you need <b>Pro</b> for unlimited downloads.
-            </p>
-          ) : (
-            <p className="lede">
-              Every account gets <b>{n(free?.strip)} free on-device strip</b>, <b>{n(free?.server_strip)} free server strip</b> and{' '}
-              <b>{n(free?.download)} free video download</b>. No card needed.
-            </p>
-          )}
-        </div>
-        <div className="gate-cta">
-          <button type="button" className="paywall-google" onClick={signIn} disabled={!a.signIn}>
-            <GoogleLogo />
-            {a.signIn === 'dev' ? 'Continue (dev account)' : 'Continue with Google'}
-          </button>
-          {!a.signIn && <p className="paywall-error">Sign-in isn’t set up on this server yet.</p>}
-        </div>
+    <section id="plans" className="card gate" aria-labelledby="gate-title">
+      <div className="gate-copy">
+        <h2 id="gate-title" className="display sm">
+          After your <span className="accent">free {downloads ? 'download' : 'tries'}</span>
+        </h2>
+        <p className="lede">
+          {downloads
+            ? 'Downloads run on our server, so unlimited downloads come with Pro.'
+            : 'Pick a plan when you need more. You can buy one once you’re signed in.'}
+        </p>
       </div>
       <div className={plans.length === 1 ? 'plans plans-one' : 'plans'}>
         {plans.map((id) => {
@@ -431,7 +472,7 @@ export function SignInGate({ downloads }: { downloads?: boolean }) {
       </div>
       {!downloads && pk?.available && (
         <p className="paywall-fine">
-          Or try it for {pk.label}: {pk.strips} SynthID strips on your device, paid once. Sign in first to buy plans or packs.
+          Or try it for {pk.label}: {pk.strips} SynthID strips on your device, paid once.
         </p>
       )}
     </section>
