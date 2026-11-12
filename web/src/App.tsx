@@ -5,7 +5,7 @@ import { HeroArt, ToolIcon } from './components/Icons';
 import StripTool from './components/StripTool';
 import DownloadTool from './components/DownloadTool';
 import { AccountBar, AccountNotice, PaywallDialog, SignInGate, useLocked } from './components/Account';
-import { initAccount } from './lib/account';
+import { initAccount, openPaywall } from './lib/account';
 
 function initialTool(): ToolId {
   const fromHash = toolById(location.hash.slice(1));
@@ -35,6 +35,8 @@ export default function App() {
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
   }, []);
+
+  const askSignIn = () => openPaywall({ reason: 'auth' });
 
   const onChipKey = (e: React.KeyboardEvent, i: number) => {
     const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
@@ -95,9 +97,10 @@ export default function App() {
           aria-labelledby={`chip-${t.id}`}
           className={`card tool${locked ? ' tool-locked' : ''}`}
           hidden={t.id !== active}
-          // A file dropped on the locked tool must not open in the browser tab.
+          // A file dropped on the locked tool must not open in the browser tab,
+          // and is never read or sent: it only asks to sign in.
           onDragOver={locked ? (e) => e.preventDefault() : undefined}
-          onDrop={locked ? (e) => e.preventDefault() : undefined}
+          onDrop={locked ? (e) => (e.preventDefault(), askSignIn()) : undefined}
         >
           <div className="tool-head">
             <ToolIcon tool={t.id} size={56} />
@@ -109,8 +112,20 @@ export default function App() {
             </div>
           </div>
 
-          <div className="tool-body" inert={locked} aria-disabled={locked || undefined}>
-            {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} />}
+          <div className="tool-stage">
+            <div className="tool-body" inert={locked} aria-disabled={locked || undefined}>
+              {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} />}
+            </div>
+            {locked && (
+              // Covers the greyed-out tool so a click, tap or Enter opens sign-in
+              // instead of doing nothing. The tool underneath stays inert.
+              <button type="button" className="tool-unlock" onClick={askSignIn}>
+                <span className="tool-unlock-hint">
+                  <LockIcon />
+                  Sign in to start free
+                </span>
+              </button>
+            )}
           </div>
         </section>
       ))}
@@ -134,5 +149,14 @@ function Wordmark() {
     <a className="wordmark" href="/" aria-label="Sharona home">
       sharona
     </a>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+      <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </svg>
   );
 }
