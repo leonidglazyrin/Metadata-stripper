@@ -18,7 +18,7 @@ const PAGES = '/src/pages/render.tsx';
 // filled in afterwards, using a throwaway Vite server to load the component.
 type Rendered = { lang: string; head: string; body: string };
 type RenderModule = { render: (lang?: string) => Rendered; LANGS: { code: string }[]; langPath: (code: string) => string };
-type PagesModule = { PAGES: { path: string; priority: string }[]; pageFor: (path: string) => unknown; renderPage: (path: string) => Rendered };
+type PagesModule = { PAGES: { path: string; priority: string; alternates: { code: string; path: string }[] }[]; pageFor: (path: string) => unknown; renderPage: (path: string) => Rendered };
 
 const fillPage = (html: string, page: Rendered) =>
   // (Replacer functions, so a "$" in the copy is never read as a pattern.)
@@ -98,7 +98,7 @@ function prerenderLanding(): Plugin {
           await fs.writeFile(file, fillPage(template, pages.renderPage(p)));
         }
         // The server reads this for its routes and the sitemap.
-        await fs.writeFile(path.join(outDir, 'pages.json'), JSON.stringify(pages.PAGES.map(({ path: p, priority }) => ({ path: p, priority }))));
+        await fs.writeFile(path.join(outDir, 'pages.json'), JSON.stringify(pages.PAGES.map(({ path: p, priority, alternates }) => ({ path: p, priority, ...(alternates.length > 1 ? { alternates } : {}) }))));
       } finally {
         await server.close();
       }

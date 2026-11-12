@@ -82,6 +82,7 @@ export const en = {
       text: 'SynthID is built to survive edits, so no tool can promise a detector will miss it. {site} weakens the watermark; it can’t guarantee it’s gone, or that a platform won’t label the file as AI.',
     },
     cta: 'Open the SynthID stripper',
+    learnMore: 'What is SynthID?',
   },
   metadata: {
     title: ['Metadata Remover', 'for photos and videos.'] as Pair,

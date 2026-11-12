@@ -73,3 +73,12 @@
   .doc-steps { padding: 18px; }
   .toc ol { columns: 1; }
 }
+
+/* ---------- Plans promo (every guide and content page) ---------- */
+.promo .lede { max-width: 64ch; margin-top: 10px; }
+.promo .price-tag b { font-size: 40px; }
+.promo-year { margin-top: 4px; color: var(--soft); font-size: 14px; font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.promo .price-list { margin-top: 12px; }
+.promo-more { margin-left: auto; color: var(--blue); font-weight: 700; text-decoration: none; }
+.promo-more:hover { text-decoration: underline; }
+.pack-top { margin-top: 30px; }

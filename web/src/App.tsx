@@ -139,6 +139,9 @@ export default function App() {
         <p>
           Only download content you own or have permission to use. Downloading may break a platform&rsquo;s terms of service.
         </p>
+        <p>
+          <a href="/guides/what-is-synthid/">What is SynthID?</a> · <a href="/guides/">All guides</a>
+        </p>
       </footer>
     </div>
   );

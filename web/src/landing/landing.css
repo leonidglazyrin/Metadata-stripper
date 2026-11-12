@@ -11,7 +11,7 @@ section[id] { scroll-margin-top: 16px; }
 
 .wordmark { text-decoration: none; }
 .hero .card-head { gap: 8px 22px; }
-.nav { display: flex; align-items: center; gap: 4px 18px; margin-left: auto; font-weight: 650; font-size: 14.5px; }
+.nav { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 14px; min-width: 0; margin-left: auto; font-weight: 650; font-size: 14.5px; }
 .nav a { text-decoration: none; color: var(--soft); white-space: nowrap; }
 .nav a:hover { color: var(--ink); }
 .head-cta { flex: none; color: #fff; text-decoration: none; }
@@ -102,7 +102,7 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .synth-mark { color: var(--green-ink); font-weight: 750; }
 .small { color: var(--faint); font-size: 13px; margin-top: 12px; }
 
-.card-cta { margin-top: 24px; }
+.card-cta { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* Downloader cards: equal heights, with the button pinned to the bottom so
    every card's button sits on the same line. */
@@ -177,18 +177,12 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 
 .foot a { color: var(--blue); font-weight: 650; }
 
-@media (max-width: 860px) {
-  .grid3, .steps { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 640px) {
-  .split, .dl-grid, .price-plans, .price-pack { grid-template-columns: minmax(0, 1fr); }
-  .price-pack { justify-items: start; }
-  /* Header: wordmark, "Open tools" and a burger on one row; the section
-     links drop down from the burger. */
+/* Tablets and small laptops: the section links fold into the burger before
+   they can push "Open tools" out of the card (longer languages need the room). */
+@media (max-width: 1080px) {
   .hero .card-head { position: relative; gap: 10px; }
-  .hero .wordmark { font-size: 26px; margin-right: auto; }
+  .hero .wordmark { margin-right: auto; }
   .nav { display: none; }
-  .head-cta { padding: 10px 16px; }
   .menu { display: block; }
   .menu summary { list-style: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; background: var(--chip); cursor: pointer; }
   .menu summary::-webkit-details-marker { display: none; }
@@ -212,11 +206,22 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
   }
   .menu-panel a { display: flex; align-items: center; min-height: 48px; padding: 0 14px; border-radius: 12px; font-weight: 650; font-size: 16px; color: var(--ink); text-decoration: none; }
   .menu-panel a:active, .menu-panel a:hover { background: var(--chip); }
-  /* The language switcher moves into the burger panel on phones. */
+  /* The language switcher moves into the burger panel too. */
   .hero .card-head > .lang { display: none; }
   .menu-langs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 8px 4px; margin-top: 4px; border-top: 1px solid var(--line); }
   .menu-panel .menu-langs a { min-height: 40px; padding: 0 12px; font-size: 14px; background: var(--chip); }
   .menu-panel .menu-langs a[aria-current] { color: #fff; background: var(--ink); }
+}
+@media (max-width: 860px) {
+  .grid3, .steps { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .split, .dl-grid, .price-plans, .price-pack { grid-template-columns: minmax(0, 1fr); }
+  .price-pack { justify-items: start; }
+  /* Header: wordmark, "Open tools" and a burger on one row; the section
+     links drop down from the burger. */
+  .hero .wordmark { font-size: 26px; margin-right: auto; }
+  .head-cta { padding: 10px 16px; }
   .hero .hero-body { margin-top: 26px; }
   .eyebrow { font-size: 11.5px; margin-bottom: 12px; }
   .hero .display { font-size: clamp(36px, 10.5vw, 44px); }
