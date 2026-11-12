@@ -264,21 +264,20 @@ export function ProDownloadCard({ lang, tool }: { lang: string; tool: string }) 
  * The plans promo (the $2 strip pack, Basic and Pro) shown on every guide and
  * content page. Copy comes from the landing page's pricing strings, so it
  * matches the pricing section in every language. On download guides
- * (`downloads`) it shows only Pro, the one plan that includes downloads.
+ * (`downloads` is the guide's tool) it shows the Pro promo instead.
  */
-export function PlansPromo({ lang, downloads }: { lang: string; downloads?: boolean }) {
+export function PlansPromo({ lang, downloads }: { lang: string; downloads?: string }) {
   const ui = pagesUi(lang);
   const p = getDict(lang).pricing;
-  const copy = downloads ? ui.promo.download : ui.promo;
-  const plans = downloads ? (['pro'] as const) : (['basic', 'pro'] as const);
+  if (downloads) return <ProPromo lang={lang} tool={downloads} />;
   return (
     <aside className="card promo" aria-labelledby="promo-h">
       <p className="eyebrow">{ui.promo.eyebrow}</p>
-      <h2 id="promo-h" className="display xs"><Pair p={[fill(copy.title[0]), fill(copy.title[1])]} /></h2>
-      <p className="lede">{fill(copy.text)}</p>
-      {!downloads && <PackCard lang={lang} />}
-      <div className={`price-plans${downloads ? ' price-plans-one' : ''}`}>
-        {plans.map((id) => {
+      <h2 id="promo-h" className="display xs"><Pair p={[fill(ui.promo.title[0]), fill(ui.promo.title[1])]} /></h2>
+      <p className="lede">{fill(ui.promo.text)}</p>
+      <PackCard lang={lang} />
+      <div className="price-plans">
+        {(['basic', 'pro'] as const).map((id) => {
           const plan = p[id];
           return (
             <div key={id} className={`price${id === 'pro' ? ' price-best' : ''}`}>
@@ -292,6 +291,7 @@ export function PlansPromo({ lang, downloads }: { lang: string; downloads?: bool
               </p>
               <ul className="price-list">
                 {plan.features.map((f) => <li key={f}>{f}</li>)}
+                    {'missing' in plan && <li className="no">{plan.missing}</li>}
               </ul>
               <a className={id === 'pro' ? 'cta' : 'cta ghost'} href={APP}>{p.cta}</a>
             </div>
@@ -300,6 +300,47 @@ export function PlansPromo({ lang, downloads }: { lang: string; downloads?: bool
       </div>
       <p className="price-foot">
         {p.billing}
+        <StripeBadge label={p.stripeLabel} />
+        <a className="promo-more" href={`${langPath(lang)}#pricing`}>{ui.promo.seePlans}</a>
+      </p>
+    </aside>
+  );
+}
+
+/**
+ * The download guides' promo: only Pro includes downloads, so it is one wide
+ * Pro card (price and button on the left, what you get on the right) instead
+ * of the strip pack and two plans.
+ */
+function ProPromo({ lang, tool }: { lang: string; tool: string }) {
+  const ui = pagesUi(lang);
+  const p = getDict(lang).pricing;
+  const d = ui.promo.download;
+  // Downloads first; "Everything in Basic" means little without Basic beside it.
+  const perks = [p.pro.features[2], p.pro.features[1], p.basic.features[0], p.basic.features[2]];
+  return (
+    <aside className="card promo" aria-labelledby="promo-h">
+      <p className="eyebrow">{ui.promo.eyebrow}</p>
+      <h2 id="promo-h" className="display xs"><Pair p={[fill(d.title[0]), fill(d.title[1])]} /></h2>
+      <p className="lede">{fill(d.text)}</p>
+      <div className="price price-best price-wide">
+        <div className="price-wide-main">
+          <p className="price-name">
+            {p.pro.name}
+            <span className="price-badge">{d.badge}</span>
+          </p>
+          <p className="price-tag"><b>{PRICES.pro}</b> {p.perMonth}</p>
+          <p className="promo-year">
+            {ui.promo.orYearly.replace('{price}', YEARLY_PRICES.pro)} <span className="price-save">{p.yearlySave}</span>
+          </p>
+          <a className="cta" href={`${APP}#${tool}`}>{d.cta}</a>
+        </div>
+        <ul className="price-list">
+          {perks.map((f) => <li key={f}>{f}</li>)}
+        </ul>
+      </div>
+      <p className="price-foot">
+        {d.billing}
         <StripeBadge label={p.stripeLabel} />
         <a className="promo-more" href={`${langPath(lang)}#pricing`}>{ui.promo.seePlans}</a>
       </p>
@@ -370,7 +411,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
         )}
       </article>
 
-      <PlansPromo lang={lang} downloads={downloads} />
+      <PlansPromo lang={lang} downloads={downloads ? g.tool : undefined} />
 
       {related.length > 0 && (
         <nav className="card doc-related" aria-labelledby="related">

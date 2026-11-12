@@ -70,6 +70,7 @@ export const ja: PagesTranslation = {
         title: ['ダウンロードを無制限に。', 'Proで。'],
         text: '最初の動画ダウンロードは無料です。ダウンロードは当社のサーバーで行うため、その後はProが必要です。YouTube、X、TikTok、Instagramから無制限にダウンロードでき、除去も速くなります。',
         cardText: 'YouTube、X、TikTok、Instagramから動画を無制限にダウンロード。サーバーでの除去も約4倍速くなります。いつでも解約できます。',
+        billing: '月払いまたは年払い。いつでも解約・プラン変更できます。',
         cta: '無制限にダウンロード',
       },
     },

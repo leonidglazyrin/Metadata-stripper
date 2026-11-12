@@ -61,6 +61,8 @@ export type PagesUi = {
       title: Pair;
       text: string;
       cardText: string;
+      /** Billing line without the strip pack. */
+      billing: string;
       cta: string;
     };
   };

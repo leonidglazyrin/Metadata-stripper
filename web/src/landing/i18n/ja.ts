@@ -134,6 +134,8 @@ export const ja: Translation = {
     free: 'すべてのアカウントに、端末での除去1回、サーバーでの除去1回、動画ダウンロード1回が無料で付きます。無料のサーバー除去とダウンロードには、全員共通で1日あたりの上限があります。',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'YouTube、X、TikTok、Instagramの動画ダウンロードは含まれません(Proのみ)',
       features: [
         '端末での除去が無制限',
         'ファイルは端末の外に出ません',

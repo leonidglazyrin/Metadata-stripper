@@ -60,6 +60,7 @@ export const en: PagesUi = {
       title: ['Download without limits.', 'Go Pro.'],
       text: 'Your first video download is free. Downloads run on our server, so after that they need Pro: unlimited downloads from YouTube, X, TikTok and Instagram, plus faster stripping.',
       cardText: 'Unlimited video downloads from YouTube, X, TikTok and Instagram, plus server stripping about 4x faster. Cancel anytime.',
+      billing: 'Billed monthly or yearly. Cancel or change plan anytime.',
       cta: 'Get unlimited downloads',
     },
   },

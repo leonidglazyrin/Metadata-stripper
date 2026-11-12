@@ -70,6 +70,7 @@ export const id: PagesTranslation = {
         title: ['Unduh tanpa batas.', 'Pakai Pro.'],
         text: 'Unduhan video pertamamu gratis. Unduhan berjalan di server kami, jadi setelah itu kamu perlu Pro: unduhan tanpa batas dari YouTube, X, TikTok, dan Instagram, plus pembersihan lebih cepat.',
         cardText: 'Unduhan video tanpa batas dari YouTube, X, TikTok, dan Instagram, plus pembersihan di server sekitar 4x lebih cepat. Batalkan kapan saja.',
+        billing: 'Ditagih bulanan atau tahunan. Batalkan atau ganti paket kapan saja.',
         cta: 'Unduh tanpa batas',
       },
     },

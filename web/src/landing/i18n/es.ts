@@ -134,6 +134,8 @@ export const es: Translation = {
     free: 'Cada cuenta tiene 1 limpieza gratis en el dispositivo, 1 limpieza gratis en el servidor y 1 descarga de video gratis. Las limpiezas en el servidor y las descargas gratuitas tienen un límite diario para todos.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'Sin descargas de vídeo de YouTube, X, TikTok ni Instagram (solo Pro)',
       features: [
         'Limpiezas ilimitadas en el dispositivo',
         'Tus archivos nunca salen de tu dispositivo',

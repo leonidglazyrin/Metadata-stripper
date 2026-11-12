@@ -194,6 +194,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
                   <p className="price-tag price-year"><b>{YEARLY_PRICES[id]}</b> {t.pricing.perYear}</p>
                   <ul className="price-list">
                     {plan.features.map((f) => <li key={f}>{f}</li>)}
+                    {'missing' in plan && <li className="no">{plan.missing}</li>}
                   </ul>
                   <a className={id === 'pro' ? 'cta' : 'cta ghost'} href={APP}>{t.pricing.cta}</a>
                 </div>

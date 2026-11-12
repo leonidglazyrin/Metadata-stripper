@@ -70,6 +70,7 @@ export const pt: PagesTranslation = {
         title: ['Baixe sem limites.', 'Vá de Pro.'],
         text: 'Seu primeiro download de vídeo é grátis. Os downloads rodam no nosso servidor, então depois disso você precisa do Pro: downloads ilimitados do YouTube, X, TikTok e Instagram, e limpeza mais rápida.',
         cardText: 'Downloads de vídeo ilimitados do YouTube, X, TikTok e Instagram, mais limpeza no servidor cerca de 4x mais rápida. Cancele quando quiser.',
+        billing: 'Cobrança mensal ou anual. Cancele ou mude de plano quando quiser.',
         cta: 'Baixar sem limites',
       },
     },

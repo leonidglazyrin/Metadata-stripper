@@ -70,6 +70,7 @@ export const ko: PagesTranslation = {
         title: ['제한 없이 다운로드.', 'Pro로.'],
         text: '첫 동영상 다운로드는 무료입니다. 다운로드는 저희 서버에서 처리되므로 그다음에는 Pro가 필요합니다. YouTube, X, TikTok, Instagram에서 무제한 다운로드하고 더 빠르게 제거하세요.',
         cardText: 'YouTube, X, TikTok, Instagram 동영상 무제한 다운로드, 그리고 약 4배 빠른 서버 제거. 언제든지 해지할 수 있습니다.',
+        billing: '월간 또는 연간 결제. 언제든지 해지하거나 요금제를 바꿀 수 있습니다.',
         cta: '무제한 다운로드',
       },
     },

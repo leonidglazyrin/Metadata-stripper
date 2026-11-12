@@ -192,6 +192,16 @@ const PERKS: Record<PlanId, string[]> = {
   ],
 };
 
+// Pro as shown to someone downloading: downloads first, no "Everything in Basic"
+// since Basic isn't shown next to it.
+const PRO_FOR_DOWNLOADS = [
+  'Unlimited video downloads from YouTube, X, TikTok and Instagram',
+  'Unlimited server stripping, about 4x faster',
+  'Unlimited on-device stripping',
+  'Metadata and C2PA removed',
+];
+const perksFor = (id: PlanId, only: boolean) => (only && id === 'pro' ? PRO_FOR_DOWNLOADS : PERKS[id]);
+
 const n = (v: number | undefined) => v ?? 1;
 
 /** The sign-in / upgrade dialog, opened by a tool that hit the quota. */
@@ -319,7 +329,8 @@ export function PaywallDialog() {
                         <span className="plan-price"><b>{label}</b> / {iv}</span>
                       </div>
                       <ul className="paywall-perks">
-                        {PERKS[id].map((perk) => <li key={perk}>{perk}</li>)}
+                        {perksFor(id, plans.length === 1).map((perk) => <li key={perk}>{perk}</li>)}
+                {id === 'basic' && <li className="no">No video downloads from YouTube, X, TikTok or Instagram (Pro only)</li>}
                       </ul>
                       <button
                         type="button"
@@ -411,7 +422,8 @@ export function SignInGate({ downloads }: { downloads?: boolean }) {
                 <span className="plan-price"><b>{p.label}</b> / {p.interval}</span>
               </div>
               <ul className="paywall-perks">
-                {PERKS[id].map((perk) => <li key={perk}>{perk}</li>)}
+                {perksFor(id, plans.length === 1).map((perk) => <li key={perk}>{perk}</li>)}
+                {id === 'basic' && <li className="no">No video downloads from YouTube, X, TikTok or Instagram (Pro only)</li>}
               </ul>
             </div>
           );

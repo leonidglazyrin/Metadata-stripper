@@ -70,6 +70,7 @@ export const tr: PagesTranslation = {
         title: ['Sınırsız indir.', 'Pro’ya geç.'],
         text: 'İlk video indirmen ücretsiz. İndirmeler sunucumuzda çalıştığı için sonrasında Pro gerekir: YouTube, X, TikTok ve Instagram’dan sınırsız indirme ve daha hızlı temizleme.',
         cardText: 'YouTube, X, TikTok ve Instagram’dan sınırsız video indirme, ayrıca yaklaşık 4 kat daha hızlı sunucu temizleme. İstediğin zaman iptal et.',
+        billing: 'Aylık ya da yıllık faturalandırılır. İstediğin zaman iptal et ya da planını değiştir.',
         cta: 'Sınırsız indir',
       },
     },

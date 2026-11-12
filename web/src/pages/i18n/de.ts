@@ -70,6 +70,7 @@ export const de: PagesTranslation = {
         title: ['Ohne Limit herunterladen.', 'Mit Pro.'],
         text: 'Dein erster Video-Download ist kostenlos. Downloads laufen über unseren Server, danach brauchst du Pro: unbegrenzte Downloads von YouTube, X, TikTok und Instagram und schnelleres Bereinigen.',
         cardText: 'Unbegrenzte Video-Downloads von YouTube, X, TikTok und Instagram, dazu Server-Bereinigung, etwa 4x schneller. Jederzeit kündbar.',
+        billing: 'Monatlich oder jährlich abgerechnet. Jederzeit kündbar oder wechselbar.',
         cta: 'Unbegrenzt herunterladen',
       },
     },
