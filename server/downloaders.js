@@ -14,40 +14,7 @@ const log = require('./log');
 
 const MAX_DOWNLOAD_MB = Number(process.env.MAX_DOWNLOAD_MB || 2048);
 
-const PLATFORMS = {
-  youtube: {
-    label: 'YouTube',
-    hosts: /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i,
-    // Best H.264 up to 1080p merged with AAC so it plays everywhere; fall back
-    // to whatever yt-dlp considers best.
-    video: 'bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]/bv*[height<=1080]+ba/b',
-  },
-  x: {
-    label: 'X',
-    hosts: /(^|\.)(x\.com|twitter\.com|fxtwitter\.com|vxtwitter\.com|fixupx\.com)$/i,
-    video: 'b[vcodec^=avc1]/bv*[vcodec^=avc1]+ba/b/bv*+ba',
-  },
-  instagram: {
-    label: 'Instagram',
-    hosts: /(^|\.)(instagram\.com|instagr\.am)$/i,
-    video: 'b[vcodec^=avc1]/bv*[vcodec^=avc1]+ba/b/bv*+ba',
-  },
-  tiktok: {
-    label: 'TikTok',
-    hosts: /(^|\.)tiktok\.com$/i,
-    video: 'b[vcodec^=h264]/b[vcodec^=avc]/b',
-  },
-};
-
-const AUDIO_FORMAT = 'ba[ext=m4a]/ba[acodec^=mp4a]/ba/b';
-
-function parseUrl(platform, raw) {
-  let u;
-  try { u = new URL(String(raw || '').trim()); } catch (_) { return null; }
-  if (!['http:', 'https:'].includes(u.protocol)) return null;
-  if (!PLATFORMS[platform].hosts.test(u.hostname)) return null;
-  return u.toString();
-}
+const { PLATFORMS, AUDIO_FORMAT, parseUrl } = require('./platforms');
 
 // Hard cap on one yt-dlp run, whatever the caller does.
 const MAX_RUN_MS = Number(process.env.DOWNLOAD_MAX_MIN || 30) * 60 * 1000;
@@ -496,9 +463,10 @@ function createDownloadRouter(workDir, {
     return user && user.id === job.owner ? job : null;
   };
   // Write a job's row to the account's history; never fails the download.
+  // Returns a promise that settles once the row is written (or failed).
   const record = (job, fields) => {
-    if (!history || !job.owner) return;
-    history.saveDownload(job.owner, { id: job.rowId, platform: job.platform, url: job.url, mode: job.mode, jobId: job.id, ...fields })
+    if (!history || !job.owner) return Promise.resolve();
+    return history.saveDownload(job.owner, { id: job.rowId, platform: job.platform, url: job.url, mode: job.mode, jobId: job.id, ...fields })
       .catch((e) => log.fail('download', `${tag(job)} history not saved: ${e.message}`));
   };
 
@@ -667,7 +635,9 @@ function createDownloadRouter(workDir, {
       sent: 0,
     };
     jobs.set(job.id, job);
-    record(job, { status: 'pending' });
+    // Written before the id goes out: the Worker lets a free account follow
+    // its trial download only once this row names the job.
+    await record(job, { status: 'pending' });
     log.start('download', `${tag(job)} ${r.url} (started, ${jobs.size} job${jobs.size === 1 ? '' : 's'} on the server)`);
     res.status(202).json({ id: job.id });
 

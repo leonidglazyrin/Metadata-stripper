@@ -6,7 +6,9 @@ Every visitor signs in with Google. Each account gets, for life:
 - **1 free server strip** (about 4x faster),
 - **1 free video download**.
 
-You can change all three in the database without a deploy (see below). After that the tools offer two plans through Stripe, each billed monthly or yearly (yearly = two months free):
+Server strips and downloads run in the container (ffmpeg, sharp, yt-dlp), which costs money while it's awake, so the free ones are also capped **for the whole site: 10 per UTC day** in total (`free_trials_per_day` in `app_settings`). Once today's 10 are taken, a free account asking for its server strip or download gets "Today's free … are all taken. Try again tomorrow, or upgrade to Pro" (HTTP 402, `code: free_trials_full`) and the container is not woken. Pro is never counted against the cap, and the free on-device strip isn't either.
+
+You can change all of these in the database without a deploy (see below). After that the tools offer two plans through Stripe, each billed monthly or yearly (yearly = two months free):
 
 | Plan | Monthly | Yearly | Unlimited | Still limited to the free allowance |
 | --- | --- | --- | --- | --- |
@@ -21,10 +23,12 @@ People subscribe with Stripe Checkout (`POST /api/billing/checkout` with `{ plan
 
 ## How it works
 
+**What runs where (Cloudflare).** The Worker (`worker/app.mjs`) serves the pages and static files (the `ASSETS` binding, built from `dist/`) and answers every account route itself with the D1 binding: `/api/me`, Google sign-in, `/api/usage/strip` (the on-device count and pack credits), Checkout, the Portal and the Stripe webhook. **On-device stripping (free, $2 pack, Basic, Pro) only ever touches the Worker and D1; the container is never woken.** The container is reached only by server strips and downloads, and only after the Worker has checked, in this order: a well-formed request (POST, `multipart/form-data` with a `Content-Length` under `MAX_UPLOAD_MB` for strips; a JSON body under 4 KB with a link on that platform's own hosts for downloads; a UUID job id), a valid session (else 401), and then Pro, or a free use left on the account plus one of today's site-wide free trials (else 402). Following a download (`/api/download/jobs/:id`, its file and thumbnail) is allowed for Pro and for a free account's own trial job of the last hour or so; download history for anyone with nothing live on the server is answered from D1. Every request the Worker lets through carries `X-Sharona-Internal` (`CONTAINER_SECRET`, or a value derived from `SESSION_SECRET`), and the container refuses anything without it. Covered by `test/worker.test.js`.
+
 - `server/store.js` keeps users, usage counts and subscription status in **Cloudflare D1** (SQLite). The server sends SQL to D1's HTTP API with an API token, so it works from any container (Cloudflare Containers, Fly, Railway, ...). The schema is in `migrations/`. Nothing is stored on the container's disk, so it runs fine in throwaway containers and several can run side by side.
 - Every write is a single SQL statement and D1 runs statements one at a time, so two parallel requests can't both take the last free use. Triggers log each use and refund in `usage_events`.
 - Sign-in is the server's own Google OAuth flow. D1 is only the database.
-- `server/account.js` has the routes: Google sign-in, `/api/me`, the quota gate, Checkout, the Portal and the webhook.
+- `server/accounts-core.js` has the routes as plain Fetch API handlers (Google sign-in, `/api/me`, the quota checks, Checkout, the Portal and the webhook), so the same code runs in the Worker and, through `server/account.js`, in the Express server for local development and self-hosting.
 - Sessions are a signed, HttpOnly, SameSite=Lax cookie (30 days), signed with `SESSION_SECRET`. Every container must have the same `SESSION_SECRET`.
 - **Everything is per Google account, and signing in is required for all of it**: the free on-device strip, the free server strip, the free download, the $10 and $20 plans and the $2 pack. There is no anonymous, IP or cookie-only allowance: a request without a valid session cookie gets `401 auth_required` from `/api/usage/strip`, `/api/strip`, `/api/download/*`, `/api/billing/checkout`, `/api/billing/pack` and `/api/billing/portal` before any work or Stripe call happens (covered by a test in `test/account.test.js`). Usage counters, pack credits and subscriptions are rows keyed by the account id, and Checkout sessions carry that id in `client_reference_id` and metadata, so a payment always lands on the account that started it. The only ways around sign-in are explicit: `PAYWALL=off` (everything free for everyone) and dev mode, which never runs with `NODE_ENV=production` (set in the Dockerfile).
 - Limits are enforced on the server before any work starts. Each mode has its own counter (`kind` in `usage_counters`):
@@ -54,6 +58,7 @@ You need Node 22+ and a Cloudflare account. `wrangler` is Cloudflare's CLI; `npx
    npx wrangler d1 execute sharona --remote --file migrations/0001_accounts.sql
    npx wrangler d1 execute sharona --remote --file migrations/0002_download_history.sql
    npx wrangler d1 execute sharona --remote --file migrations/0003_strip_packs.sql
+   npx wrangler d1 execute sharona --remote --file migrations/0004_free_trial_cap.sql
    ```
 
    Running them again is harmless, as long as you run them in order: `0003` rebuilds the `accounts` view with the pack columns, so if you ever re-run `0001` on its own, run `0003` after it. When later features add `migrations/0003_….sql` and so on, run each new file the same way, in order of its name.
@@ -72,7 +77,8 @@ What the tables hold:
 | `strip_pack_purchases` | Each strip pack bought: Stripe Checkout session id, account, strips added (10), amount and currency |
 | `strip_credit_uses` | Each pack strip spent, and `refunded_at` when a failed strip gave it back |
 | `download_history` | Each signed-in account's download rows (link, name, state), so they show on any device. The file itself is still deleted after `DOWNLOAD_TTL_MIN`; rows older than 30 days are pruned hourly |
-| `app_settings` | `free_strips` (on-device), `free_server_strips` and `free_downloads` (all `1`) |
+| `app_settings` | `free_strips` (on-device), `free_server_strips` and `free_downloads` (all `1`), `free_trials_per_day` (`10`) |
+| `free_trial_days` | Free server strips + downloads taken per UTC day, for the site-wide cap |
 | `accounts` (view) | Profile + current subscription (with `subscription_tier`) + usage + `strip_credits` (pack strips left) and `strip_packs` (packs bought) on one row; handy for looking someone up |
 
 ### Changing the free allowance
@@ -84,6 +90,14 @@ npx wrangler d1 execute sharona --remote --command "UPDATE app_settings SET valu
 ```
 
 Running servers pick it up within a minute, no deploy needed. It applies to everyone, including people who already used their free one (someone at 1 of 3 gets 2 more). Set `FREE_STRIPS` / `FREE_SERVER_STRIPS` / `FREE_DOWNLOADS` on the server only if you want the env to override the table.
+
+The site-wide daily cap on free server strips and downloads is `free_trials_per_day` (default `10`, `0` turns free server use off entirely):
+
+```bash
+npx wrangler d1 execute sharona --remote --command "UPDATE app_settings SET value = '20', updated_at = unixepoch() WHERE key = 'free_trials_per_day'"
+```
+
+`FREE_TRIALS_PER_DAY` overrides it. Today's count is `SELECT used FROM free_trial_days WHERE day = date('now')`.
 
 To give one person 10 pack strips by hand (e.g. support), add a purchase row: `INSERT INTO strip_pack_purchases (id, user_id, strips) VALUES ('manual_<something unique>', '<id>', 10)`.
 
@@ -236,7 +250,7 @@ On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, bil
 
 ## Deploying on Cloudflare Containers
 
-`wrangler.jsonc` and `worker/index.js` deploy the Docker image to [Cloudflare Containers](https://developers.cloudflare.com/containers/) with a small Worker in front. Workers Builds (connected to this repo) runs `npx wrangler deploy` on every push to main; you can also run it yourself with Docker running.
+`wrangler.jsonc` and `worker/index.js` deploy the Worker (pages, static files, accounts and billing, with the D1 binding) and the Docker image to [Cloudflare Containers](https://developers.cloudflare.com/containers/) behind it. `wrangler deploy` runs `npm run build` first (the `build` block), so `dist/` is fresh. Workers Builds (connected to this repo) runs `npx wrangler deploy` on every push to main; you can also run it yourself with Docker running. Run `migrations/0004_free_trial_cap.sql` on the database before deploying this version.
 
 1. Put the D1 database id in both `REPLACE_WITH_D1_DATABASE_ID` spots in `wrangler.jsonc`, and your real address in `SITE_URL` (the `workers.dev` one, or your own domain once you add it under the Worker's **Settings → Domains & Routes**).
 2. Set the secrets once (each command asks for the value):
@@ -250,7 +264,7 @@ On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, bil
    npx wrangler secret put STRIPE_WEBHOOK_SECRET
    ```
 
-   Put `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_BASIC_YEARLY`, `STRIPE_PRICE_ID_PRO_YEARLY` and `STRIPE_PRICE_ID_PACK` in `vars` in `wrangler.jsonc` (they aren't secret), or set them as secrets too. The Worker hands every one of these to the server (the list is `PASS` in `worker/index.js`).
+   Put `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_BASIC_YEARLY`, `STRIPE_PRICE_ID_PRO_YEARLY` and `STRIPE_PRICE_ID_PACK` in `vars` in `wrangler.jsonc` (they aren't secret), or set them as secrets too. Sign-in and billing run in the Worker, so the Google and Stripe secrets stay there; the container only gets what it needs for strips and downloads (the list is `PASS` in `worker/index.js`) plus `INTERNAL_SECRET`, which it requires on every request.
 3. Push to main (or run `npx wrangler deploy`).
 
 One container instance (`standard-2`) serves all traffic, because a download job lives in the memory and disk of the container that started it. It sleeps after 15 minutes without requests and wakes in a few seconds on the next one; set `SLEEP_AFTER` in `vars` to change that.
@@ -261,4 +275,4 @@ There is no local database: point `npm run dev` at a D1 database too (a second d
 
 ## A note on the D1 HTTP API limit
 
-The server talks to D1 through Cloudflare's REST API, which allows about 1,200 requests per 5 minutes per account (roughly 4 a second). Each page load costs one request and each strip or download two or three, which is plenty for launch. If traffic grows past that, put a small Worker with a D1 binding in front of the database and point the store at it: `createStore()` only needs a `query(sql, params)` function, so nothing else changes.
+On Cloudflare the Worker uses the D1 binding, which has no such limit, for pages, `/api/me`, sign-in, billing and on-device strips. Only the container (server strips and downloads) still talks to D1 through Cloudflare's REST API, which allows about 1,200 requests per 5 minutes per account; each strip or download costs two or three.

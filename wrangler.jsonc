@@ -1,6 +1,9 @@
-// Deploys Sharona to Cloudflare Containers: `npx wrangler deploy` builds the
+// Deploys Sharona to Cloudflare: `npx wrangler deploy` builds the web app
+// (npm run build → dist/, served by the Worker as static assets), builds the
 // Dockerfile (Docker must be running locally; Workers Builds does it for you
-// on push) and puts a small Worker (worker/index.js) in front of it.
+// on push) and puts the Worker (worker/index.js) in front of it. The Worker
+// answers pages, sign-in, /api/me, usage and billing itself; the container
+// only wakes for server strips and downloads the Worker has let through.
 // Secrets are set with `npx wrangler secret put NAME` (see
 // docs/accounts-and-billing.md); plain settings go in "vars" below.
 {
@@ -8,7 +11,21 @@
   "name": "metadata-stripper",
   "main": "worker/index.js",
   "compatibility_date": "2026-11-01",
+  // The account code (server/accounts-core.js) uses node:crypto and Buffer.
+  "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+
+  // dist/ is built before every deploy (and `wrangler dev`).
+  "build": { "command": "npm run build" },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // The Worker routes every request (pages get SITE_URL filled in), and
+    // fetches files by their exact path.
+    "run_worker_first": true,
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
 
   "containers": [
     {
@@ -24,8 +41,9 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SharonaServer"] }],
 
-  // Lets `npx wrangler d1 execute sharona …` find the database. The server
-  // itself reaches D1 over the HTTP API with the vars/secrets below.
+  // The Worker reads accounts through this binding (env.DB); it also lets
+  // `npx wrangler d1 execute sharona …` find the database. The container
+  // reaches D1 over the HTTP API with the vars/secrets below.
   "d1_databases": [
     {
       "binding": "DB",

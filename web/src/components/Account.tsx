@@ -225,7 +225,9 @@ export function PaywallDialog() {
   const free = a?.free;
   // Highlight the plan that lifts the limit just hit (Pro by default).
   const best: PlanId = paywall?.plan === 'basic' && current === 'free' ? 'basic' : 'pro';
-  const hit = paywall?.kind === 'strip' && (a?.credits?.packs ?? 0) > 0
+  const hit = paywall?.full
+    ? 'Today’s free trials on our server are all taken. Try again tomorrow, or upgrade to Pro for unlimited. '
+    : paywall?.kind === 'strip' && (a?.credits?.packs ?? 0) > 0
     ? 'You’ve used your free and pack on-device strips. '
     : paywall?.kind
     ? `You’ve used your free ${paywall.kind === 'strip' ? 'on-device strip' : paywall.kind === 'server_strip' ? 'server strip' : 'download'}. `
@@ -255,7 +257,7 @@ export function PaywallDialog() {
               <h2 className="display sm">Sign in to <span className="accent">start free</span></h2>
               <p className="lede">
                 Every account gets <b>{n(free?.strip)} free on-device strip</b>, <b>{n(free?.server_strip)} free server strip</b> and{' '}
-                <b>{n(free?.download)} free video download</b>. No card needed.
+                <b>{n(free?.download)} free video download</b>. No card needed. Free server strips and downloads are limited per day for everyone.
               </p>
               {paywall.message && <p className="paywall-error">{paywall.message}</p>}
               <button type="button" className="paywall-google" onClick={signIn} disabled={!a?.signIn}>

@@ -623,7 +623,7 @@ test('D1 store: plans decide what is unlimited, and expiry ends them', async () 
 });
 
 test('FREE_* env override the table', async (t) => {
-  const s = await start({ config: config(loadConfigOverrides({ FREE_STRIPS: '3', FREE_SERVER_STRIPS: '2', FREE_DOWNLOADS: '0' })) });
+  const s = await start({ config: config(loadConfigOverrides({ FREE_STRIPS: '3', FREE_SERVER_STRIPS: '2', FREE_DOWNLOADS: '0', FREE_TRIALS_PER_DAY: '10' })) });
   t.after(s.close);
   await s.call('GET', '/api/auth/dev');
   assert.equal((await s.call('POST', '/api/strip')).status, 200);
@@ -639,7 +639,7 @@ test('FREE_* env override the table', async (t) => {
 
 function loadConfigOverrides(env) {
   const c = loadConfig({ NODE_ENV: 'test', ...env });
-  return { freeStrips: c.freeStrips, freeServerStrips: c.freeServerStrips, freeDownloads: c.freeDownloads };
+  return { freeStrips: c.freeStrips, freeServerStrips: c.freeServerStrips, freeDownloads: c.freeDownloads, freeTrialsPerDay: c.freeTrialsPerDay };
 }
 
 test('a D1 outage answers 503 instead of letting work through', async (t) => {
@@ -867,4 +867,22 @@ test('loadConfig reads the pack settings', () => {
   assert.equal(c.priceLabels.pack, '€2');
   assert.equal(loadConfig({}).packStrips, 10);
   assert.equal(loadConfig({ PACK_STRIPS: '0' }).packStrips, 10);
+});
+
+test('without the Worker in front, the server itself caps free trials per day', async (t) => {
+  const s = await start({ config: config({ freeTrialsPerDay: 1 }) });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev?email=a@test');
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  await s.call('POST', '/api/auth/logout');
+  await s.call('GET', '/api/auth/dev?email=b@test');
+  const full = await s.call('POST', '/api/strip');
+  assert.equal(full.status, 402);
+  assert.equal(full.data.code, 'free_trials_full');
+  // On-device strips are never capped.
+  assert.equal((await s.call('POST', '/api/usage/strip')).status, 200);
+  // Pro is never counted against it.
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro' } });
+  assert.equal((await s.call('POST', '/api/strip')).status, 200);
+  assert.equal((await s.call('POST', '/api/download')).status, 202);
 });

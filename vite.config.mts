@@ -24,6 +24,32 @@ const fillPage = (html: string, page: Rendered) =>
   // (Replacer functions, so a "$" in the copy is never read as a pattern.)
   html.replace('__LANG__', () => page.lang).replace('<!--head-->', () => page.head).replace('<!--landing-->', () => page.body);
 
+// Cloudflare serves static files of at most 25 MiB, and the ffmpeg.wasm core
+// is ~31 MB. Any bigger asset is cut into <file>.part0, .part1 ... plus a
+// <file>.parts.json listing them; the page fetches the parts and joins them
+// (web/src/lib/strip/video.ts). The Worker serves them like any other file,
+// so on-device video stripping never touches the container.
+const PART_BYTES = 20 * 1024 * 1024;
+function splitLargeAssets(): Plugin {
+  return {
+    name: 'split-large-assets',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      for (const [fileName, out] of Object.entries(bundle)) {
+        if (out.type !== 'asset' || typeof out.source === 'string' || out.source.length <= PART_BYTES) continue;
+        const parts: string[] = [];
+        for (let i = 0, at = 0; at < out.source.length; i++, at += PART_BYTES) {
+          const name = `${fileName}.part${i}`;
+          this.emitFile({ type: 'asset', fileName: name, source: out.source.subarray(at, at + PART_BYTES) });
+          parts.push(path.posix.basename(name));
+        }
+        this.emitFile({ type: 'asset', fileName: `${fileName}.parts.json`, source: JSON.stringify({ size: out.source.length, parts }) });
+        delete bundle[fileName];
+      }
+    },
+  };
+}
+
 function prerenderLanding(): Plugin {
   let dev: ViteDevServer | undefined;
   return {
@@ -88,7 +114,7 @@ function prerenderLanding(): Plugin {
 //   /guides/…, /privacy/, /terms/ → dist/<path>/index.html  static content pages
 export default defineConfig({
   root: 'web',
-  plugins: [react(), prerenderLanding()],
+  plugins: [react(), prerenderLanding(), splitLargeAssets()],
   // ffmpeg.wasm spawns its own worker; let Vite bundle it as-is.
   optimizeDeps: { exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'] },
   worker: { format: 'es' },

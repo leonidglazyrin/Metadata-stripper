@@ -142,7 +142,7 @@ export const en = {
     monthly: 'Monthly',
     yearly: 'Yearly',
     yearlySave: '2 months free',
-    free: 'Every account gets 1 free on-device strip, 1 free server strip and 1 free video download.',
+    free: 'Every account gets 1 free on-device strip, 1 free server strip and 1 free video download. Free server strips and downloads are limited per day for everyone.',
     basic: {
       name: 'Basic',
       features: [
