@@ -148,7 +148,7 @@ export default function StripTool() {
           checked={synthid}
           onChange={setSynthid}
           label={<><span className="synth-badge">SynthID</span> Strip AI watermarks</>}
-          hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Works hard to break up the invisible watermark in AI photos and videos. Photos come out a touch softer and lightly grained.'}
+          hint={where === 'device' ? 'Videos are re-encoded on this device, so they take a while.' : 'Breaks up the invisible watermark in AI photos and videos. Near-lossless.'}
         />
         <div className="where" role="radiogroup" aria-label="Where to clean files">
           {(['device', 'server'] as const).map((w) => (
