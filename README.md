@@ -4,7 +4,7 @@ A web app for creators:
 
 - **Strip metadata** from photos and videos (EXIF, GPS, XMP, IPTC, ICC, C2PA, container tags), with optional SynthID watermark disruption.
 - **Download** videos (or just the audio) from **YouTube**, **X**, **Instagram** and **TikTok** links.
-- **Accounts and plans**: Google sign-in, 1 free on-device strip, 1 free server strip and 1 free download per account. Then **Basic at $10/month or $100/year** (unlimited on-device stripping) or **Pro at $20/month or $200/year** (everything, including faster server stripping and downloads) via Stripe, or a **$2 strip pack** of 10 on-device SynthID strips that can be bought again and again. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
+- **Accounts and plans**: Google sign-in, 1 free on-device strip, 1 free server strip and 1 free download per account (free server strips and downloads are capped at 10 a day for the whole site). Then **Basic at $10/month or $100/year** (unlimited on-device stripping) or **Pro at $20/month or $200/year** (everything, including faster server stripping and downloads) via Stripe, or a **$2 strip pack** of 10 on-device SynthID strips that can be bought again and again. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
 
 ## Pages
 
@@ -23,14 +23,18 @@ Set `SITE_URL` (for example `https://sharona.example`) in production so canonica
 
 ```
 web/        React + Vite frontend (TypeScript)      → builds to dist/
-server/     Node + Express API                      → serves /api/* and dist/
+worker/     Cloudflare Worker in front of everything
+  app.mjs         pages + static files, accounts and billing (D1 binding),
+                  and the checks before anything reaches the container
+server/     Node + Express (the container)          → /api/strip, /api/download/*
   index.js        /api/strip (sharp + ffmpeg)
   downloaders.js  /api/download/:platform (yt-dlp)
-  account.js      Google sign-in, quota, Stripe Checkout / Portal / webhook
-  store.js        Cloudflare D1: users, usage, subscriptions
+  accounts-core.js Google sign-in, quota, Stripe Checkout / Portal / webhook (Fetch API, shared with the Worker)
+  account.js      the same routes and the quota gate for Express
+  store.js        Cloudflare D1: users, usage, subscriptions, the daily free trial cap
 ```
 
-Vite + React is the **frontend only**. The backend stays a Node service because the work it does needs native tools: `sharp`/libvips for images, `ffmpeg`/`ffprobe` for video, and `yt-dlp` (Python) for downloads. None of those run on edge runtimes like Cloudflare Workers, so the API ships as a container (see `Dockerfile`). Accounts and billing live in the same server and store their data in Cloudflare D1 (schema in `migrations/`), so the container is stateless and needs no disk.
+Vite + React is the **frontend only**. Server strips and downloads need native tools (`sharp`/libvips, `ffmpeg`/`ffprobe`, `yt-dlp`), so they run in a container (see `Dockerfile`). Everything else runs in the Worker: on Cloudflare, visiting the site, signing in, buying a plan or pack and stripping on-device never wake the container. The container only gets requests the Worker has checked (signed in, Pro or a free use left within today's free trial cap, a valid link or upload) and stamped with `X-Sharona-Internal`. Locally (`npm run dev`) and when self-hosting the image alone, the Express server serves everything itself. Data is in Cloudflare D1 (schema in `migrations/`), so the container is stateless and needs no disk.
 
 ## Server or on-device stripping
 
@@ -122,6 +126,9 @@ docker run -p 3000:3000 --env-file .env sharona
 | `PACK_STRIPS` | `10` | On-device strips each pack adds |
 | `PAYWALL` | on | `off` disables sign-in and limits |
 | `FREE_STRIPS`, `FREE_SERVER_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1, 1) | Free on-device strips, server strips and downloads per account. Leave unset to manage them in D1 without a deploy |
+| `FREE_TRIALS_PER_DAY` | from the `app_settings` table (10) | Free server strips + downloads per UTC day for the whole site. Pro is never counted |
+| `CONTAINER_SECRET` | derived from `SESSION_SECRET` | Worker only: the value of `X-Sharona-Internal` it stamps on requests to the container (passed to it as `INTERNAL_SECRET`) |
+| `INTERNAL_SECRET` | | Container: when set, every request without a matching `X-Sharona-Internal` header gets 403. The Worker sets it |
 | `PRICE_LABEL_BASIC`, `PRICE_LABEL_PRO`, `PRICE_LABEL_PACK` | `$10`, `$20`, `$2` | Prices shown in the upgrade dialog (the charge itself comes from the Stripe prices) |
 | `TRUST_PROXY` | private ranges | Express `trust proxy`, so `https` is detected behind a load balancer |
 

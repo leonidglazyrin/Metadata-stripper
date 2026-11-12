@@ -3,7 +3,7 @@
 // Small console logger so the terminal running the server shows every
 // download and strip as it happens. Colors only when writing to a TTY.
 
-const color = process.stdout.isTTY && !process.env.NO_COLOR;
+const color = Boolean(globalThis.process?.stdout?.isTTY) && !globalThis.process?.env?.NO_COLOR;
 const paint = (code, s) => (color ? `\x1b[${code}m${s}\x1b[0m` : s);
 
 function size(bytes) {

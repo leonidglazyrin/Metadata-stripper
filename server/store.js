@@ -2,9 +2,9 @@
 
 // Accounts, paid plans (Basic / Pro) and usage counts, stored in Cloudflare D1.
 //
-// The server reaches D1 over Cloudflare's HTTP API, so it works from any
-// container (Cloudflare Containers, Vercel, Fly, ...) with no extra
-// dependency and nothing kept on local disk. The schema is in
+// The container (and a self-hosted server) reaches D1 over Cloudflare's HTTP
+// API (d1Http), so it works anywhere with no extra dependency and nothing
+// kept on local disk. The Worker uses its D1 binding instead (d1Binding). The schema is in
 // migrations/0001_accounts.sql. Every write is a single SQL statement, and D1
 // runs statements one at a time, so the free-use check can't be raced.
 
@@ -42,6 +42,24 @@ function d1Http({ accountId, databaseId, apiToken, fetchImpl = fetch, timeoutMs 
     if (!res.ok || !data?.success || !r || r.success === false) {
       const why = data?.errors?.map((e) => e.message).join('; ') || r?.error || `HTTP ${res.status}`;
       throw new StoreError(`D1: ${why}`);
+    }
+    return { rows: r.results || [], changes: r.meta?.changes ?? 0 };
+  };
+}
+
+/**
+ * A D1 client over a Worker's D1 binding (env.DB), same shape as d1Http.
+ * Note: the binding's `changes` also counts rows written by triggers (an
+ * upsert of usage_counters reports 2), so callers test `changes > 0`.
+ */
+function d1Binding(db) {
+  if (!db || typeof db.prepare !== 'function') throw new StoreError('The DB (D1) binding is missing, see wrangler.jsonc');
+  return async function query(sql, params = []) {
+    let r;
+    try {
+      r = await db.prepare(sql).bind(...params).all();
+    } catch (e) {
+      throw new StoreError(`D1: ${e.message}`);
     }
     return { rows: r.results || [], changes: r.meta?.changes ?? 0 };
   };
@@ -113,7 +131,7 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
          WHERE ${UNLIMITED_SQL} OR usage_counters.used < ?3`,
         [userId, kind, freeLimit],
       );
-      return changes === 1;
+      return changes > 0;
     },
 
     /** Give back a use that didn't produce a file (failed or cancelled). */
@@ -135,7 +153,7 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
          ON CONFLICT (id) DO NOTHING`,
         [id, userId, strips, amountCents, currency],
       );
-      return changes === 1;
+      return changes > 0;
     },
 
     /**
@@ -152,7 +170,7 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
              > (SELECT COUNT(*) FROM strip_credit_uses WHERE user_id = ?2 AND refunded_at IS NULL)`,
         [id, userId],
       );
-      return changes === 1 ? id : null;
+      return changes > 0 ? id : null;
     },
 
     /**
@@ -166,7 +184,51 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
          WHERE id = ?1 AND user_id = ?2 AND refunded_at IS NULL AND created_at > unixepoch() - ?3`,
         [useId, userId, maxAgeSec],
       );
-      return changes === 1;
+      return changes > 0;
+    },
+
+    // --- site-wide free trial cap (migrations/0004_free_trial_cap.sql)
+
+    /**
+     * Take one of today's (UTC) free server strips / downloads, if fewer than
+     * `cap` were taken. One statement, so it can't be raced. True when taken.
+     */
+    async takeFreeTrial(cap) {
+      const { changes } = await query(
+        `INSERT INTO free_trial_days (day, used) SELECT date('now'), 1 WHERE ?1 >= 1
+         ON CONFLICT (day) DO UPDATE SET used = used + 1 WHERE free_trial_days.used < ?1`,
+        [Math.max(0, Number(cap) || 0)],
+      );
+      return changes > 0;
+    },
+
+    /** Free trials taken today (UTC). */
+    async freeTrialsToday() {
+      const row = await first("SELECT used FROM free_trial_days WHERE day = date('now')", []);
+      return Number(row?.used ?? 0);
+    },
+
+    /**
+     * Whether this account started download job `jobId` within the last
+     * `maxAgeSec` (its history row names the job), so a free account can
+     * follow its own trial download and nothing else.
+     */
+    async ownsRecentJob(userId, jobId, maxAgeSec) {
+      if (!isUuid(userId) || !isUuid(jobId)) return false;
+      return Boolean(await first(
+        'SELECT 1 AS ok FROM download_history WHERE user_id = ?1 AND job_id = ?2 AND created_at > unixepoch() - ?3 LIMIT 1',
+        [userId, jobId, maxAgeSec],
+      ));
+    },
+
+    /** Whether the account has a download the container may still hold (pending or ready, recent). */
+    async hasLiveDownload(userId, platform, maxAgeSec) {
+      if (!isUuid(userId)) return false;
+      return Boolean(await first(
+        `SELECT 1 AS ok FROM download_history WHERE user_id = ?1 AND (?2 IS NULL OR platform = ?2) AND job_id IS NOT NULL
+           AND status IN ('pending', 'ready') AND created_at > unixepoch() - ?3 LIMIT 1`,
+        [userId, platform ?? null, maxAgeSec],
+      ));
     },
 
     /** Rows of the app_settings table as { key: value }, cached for a minute. */
@@ -258,4 +320,4 @@ function planOf(user) {
 const isUnlimited = (plan, kind) => PLAN_UNLIMITED[plan]?.includes(kind) ?? false;
 const isPaid = (user) => planOf(user) !== 'free';
 
-module.exports = { createStore, d1Http, planOf, isPaid, isUnlimited, PLAN_UNLIMITED, StoreError };
+module.exports = { createStore, d1Http, d1Binding, planOf, isPaid, isUnlimited, PLAN_UNLIMITED, StoreError };

@@ -61,6 +61,8 @@ export interface Paywall {
   plan?: PlanId;
   /** The server offers the strip pack for this limit. */
   pack?: boolean;
+  /** Today's free server strips / downloads are all taken (site-wide cap). */
+  full?: boolean;
   message?: string;
 }
 
@@ -138,13 +140,16 @@ export const KIND_WORD: Record<Kind, string> = { strip: 'on-device strip', serve
 export function gateError(e: unknown, kind: Kind): unknown {
   if (!(e instanceof RequestError) || (e.status !== 401 && e.status !== 402)) return e;
   // The server says which quota was hit (on-device vs server strip).
-  const data = (e.data ?? {}) as { kind?: Kind; plan?: PlanId; pack?: boolean };
+  const data = (e.data ?? {}) as { kind?: Kind; plan?: PlanId; pack?: boolean; code?: string; error?: string };
   const k = data.kind && data.kind in KIND_WORD ? data.kind : kind;
   const plan = data.plan ?? (k === 'strip' ? 'basic' : 'pro');
   const pack = Boolean(data.pack);
-  openPaywall({ reason: e.status === 401 ? 'auth' : 'upgrade', kind: k, plan, pack });
+  // The site-wide daily cap on free server strips and downloads is reached.
+  const full = data.code === 'free_trials_full';
+  openPaywall({ reason: e.status === 401 ? 'auth' : 'upgrade', kind: k, plan, pack, full, message: full ? data.error : undefined });
   void refreshAccount();
   if (e.status === 401) return new Error('Sign in to keep going');
+  if (full) return new Error(`Today’s free ${KIND_WORD[k]}s are taken, try tomorrow or upgrade to Pro`);
   return new Error(`Free ${KIND_WORD[k]} used, upgrade to ${plan === 'basic' ? 'Basic' : 'Pro'}${pack ? ` or try ${state.account?.pack?.label ?? '$2'} strips` : ''}`);
 }
 

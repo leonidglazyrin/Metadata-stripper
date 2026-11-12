@@ -4,6 +4,25 @@
 import type { FFmpeg } from '@ffmpeg/ffmpeg';
 
 let loading: Promise<FFmpeg> | null = null;
+
+/**
+ * A build cuts files over 20 MB (the wasm core) into parts, because
+ * Cloudflare serves static files of at most 25 MiB (see vite.config.mts).
+ * Fetch them and join them into one blob: URL. In dev the file is whole.
+ */
+async function joinedAsset(url: string): Promise<string> {
+  if (!import.meta.env.PROD) return url;
+  const listing = await fetch(`${url}.parts.json`);
+  if (!listing.ok) return url;
+  const { parts } = (await listing.json()) as { parts: string[] };
+  const base = new URL(url, location.href);
+  const chunks = await Promise.all(parts.map(async (p) => {
+    const r = await fetch(new URL(p, base));
+    if (!r.ok) throw new Error(`Could not load the video engine (HTTP ${r.status})`);
+    return r.arrayBuffer();
+  }));
+  return URL.createObjectURL(new Blob(chunks, { type: 'application/wasm' }));
+}
 let lock: Promise<unknown> = Promise.resolve();
 
 async function getFFmpeg(onStatus: (msg: string) => void): Promise<FFmpeg> {
@@ -16,7 +35,7 @@ async function getFFmpeg(onStatus: (msg: string) => void): Promise<FFmpeg> {
         import('@ffmpeg/core/wasm?url'),
       ]);
       const ff = new FFmpeg();
-      await ff.load({ coreURL, wasmURL });
+      await ff.load({ coreURL, wasmURL: await joinedAsset(wasmURL) });
       return ff;
     })();
     loading.catch(() => {

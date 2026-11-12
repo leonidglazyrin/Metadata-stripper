@@ -1,0 +1,847 @@
+'use strict';
+
+// Accounts (Google sign-in), the free quota, and the two Stripe plans.
+// Framework-free: every route takes a Fetch API Request and returns a
+// Response, so the same code runs in the Cloudflare Worker (worker/app.mjs,
+// with the D1 binding) and in the Express server (server/account.js, for
+// local development and self-hosting).
+//
+//   Free   1 on-device strip, 1 server strip, 1 download per account
+//          (configurable in the app_settings table). Server strips and
+//          downloads run in the container, so free ones are also capped
+//          for the whole site: free_trials_per_day (default 10) per UTC day.
+//   Basic  $10/month or $100/year: unlimited on-device stripping
+//   Pro    $20/month or $200/year: unlimited everything (server stripping, downloads)
+//   Pack   $2 once: 10 on-device strips. Can be bought again and again;
+//          the strips add up and are used after the free ones, never while
+//          a plan already makes on-device stripping unlimited.
+//
+//   GET  /api/me                     who is signed in, plan, usage
+//   GET  /api/auth/google            start Google sign-in (?next=/app/#youtube)
+//   GET  /api/auth/google/callback   Google sends the user back here
+//   GET  /api/auth/dev               dev only: sign in without Google
+//   POST /api/auth/logout
+//   POST /api/usage/strip            count one on-device strip before it runs
+//   POST /api/usage/strip/refund     { credit } give back a pack credit whose strip failed
+//   POST /api/billing/checkout       { plan, interval } → { url } of Stripe Checkout,
+//                                    or of the Portal's confirm page to switch plan
+//                                    (interval: 'month' (default) or 'year')
+//   POST /api/billing/pack           → { url } of Stripe Checkout for one strip pack
+//   POST /api/billing/portal         → { url } of the Stripe Customer Portal
+//   POST /api/billing/webhook        Stripe events: turn the license on / off
+//
+// Accounts, subscriptions and usage live in Cloudflare D1 (see server/store.js
+// and migrations/). Sessions are signed cookies, so the server keeps
+// nothing on disk and can run in throwaway containers.
+//
+// Without GOOGLE_* / STRIPE_* set and NODE_ENV not "production", sign-in and
+// billing run in dev mode: "Sign in" logs into a test account and "Upgrade"
+// turns the plan on at once, so the whole flow can be tried locally. D1 is still
+// required whenever the paywall is on.
+
+const crypto = require('crypto');
+const { createStore, d1Http, planOf, isUnlimited } = require('./store');
+const log = require('./log');
+
+const COOKIE = 'sh_sess';
+const STATE_COOKIE = 'sh_oauth';
+const SESSION_DAYS = 30;
+
+function loadConfig(env = process.env) {
+  const production = env.NODE_ENV === 'production';
+  return {
+    production,
+    siteUrl: (env.SITE_URL || '').replace(/\/+$/, ''),
+    googleId: env.GOOGLE_CLIENT_ID || '',
+    googleSecret: env.GOOGLE_CLIENT_SECRET || '',
+    stripeKey: env.STRIPE_SECRET_KEY || '',
+    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || '',
+    // STRIPE_PRICE_ID is the older name of the Pro price.
+    stripePriceBasic: env.STRIPE_PRICE_ID_BASIC || '',
+    stripePricePro: env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || '',
+    // Yearly prices. Unset: that plan is sold monthly only.
+    stripePriceBasicYearly: env.STRIPE_PRICE_ID_BASIC_YEARLY || '',
+    stripePriceProYearly: env.STRIPE_PRICE_ID_PRO_YEARLY || '',
+    // One-time price of the strip pack, and how many on-device strips it adds.
+    stripePricePack: env.STRIPE_PRICE_ID_PACK || '',
+    packStrips: limitFromEnv(env.PACK_STRIPS) || DEFAULT_PACK_STRIPS,
+    sessionSecret: env.SESSION_SECRET || '',
+    cfAccountId: env.CLOUDFLARE_ACCOUNT_ID || '',
+    d1DatabaseId: env.CLOUDFLARE_D1_DATABASE_ID || '',
+    cfApiToken: env.CLOUDFLARE_API_TOKEN || '',
+    paywall: !/^(0|off|false|no)$/i.test(env.PAYWALL || ''),
+    // Free allowances come from the app_settings table in D1 (default
+    // 1 each). Setting these env vars overrides the table.
+    freeStrips: limitFromEnv(env.FREE_STRIPS),
+    freeServerStrips: limitFromEnv(env.FREE_SERVER_STRIPS),
+    freeDownloads: limitFromEnv(env.FREE_DOWNLOADS),
+    // Free server strips + downloads for everyone together per UTC day; the
+    // free_trials_per_day row of app_settings unless this is set.
+    freeTrialsPerDay: limitFromEnv(env.FREE_TRIALS_PER_DAY),
+    // Shown on the page; the charge itself comes from the Stripe price.
+    priceLabels: {
+      basic: env.PRICE_LABEL_BASIC || '$10',
+      pro: env.PRICE_LABEL_PRO || env.PRICE_LABEL || '$20',
+      pack: env.PRICE_LABEL_PACK || '$2',
+      basicYearly: env.PRICE_LABEL_BASIC_YEARLY || '$100',
+      proYearly: env.PRICE_LABEL_PRO_YEARLY || '$200',
+    },
+  };
+}
+
+function limitFromEnv(v) {
+  if (v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+const DEFAULT_FREE = 1;
+const DEFAULT_PACK_STRIPS = 10;
+const DEFAULT_TRIALS_PER_DAY = 10;
+/** How long after a failed on-device strip its pack credit can be given back. */
+const CREDIT_REFUND_SEC = 3600;
+
+const KINDS = ['strip', 'server_strip', 'download'];
+/** Kinds whose work runs in the container (ffmpeg / sharp / yt-dlp). */
+const SERVER_KINDS = ['server_strip', 'download'];
+const PLANS = ['basic', 'pro'];
+const INTERVALS = ['month', 'year'];
+const PLAN_NAME = { free: 'Free', basic: 'Basic', pro: 'Pro' };
+/** Cheapest plan with no limit on each kind. */
+const NEEDS = { strip: 'basic', server_strip: 'pro', download: 'pro' };
+/** Columns of the accounts view. */
+const USED = { strip: 'strips_used', server_strip: 'server_strips_used', download: 'downloads_used' };
+/** app_settings keys and config fields. */
+const SETTING = { strip: 'free_strips', server_strip: 'free_server_strips', download: 'free_downloads' };
+const ENV = { strip: 'freeStrips', server_strip: 'freeServerStrips', download: 'freeDownloads' };
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+function parseCookies(header) {
+  const out = {};
+  for (const part of (header || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i < 0) continue;
+    const k = part.slice(0, i).trim();
+    if (!k || Object.hasOwn(out, k)) continue;
+    try { out[k] = decodeURIComponent(part.slice(i + 1).trim()); } catch { /* skip malformed */ }
+  }
+  return out;
+}
+
+const b64u = (buf) => Buffer.from(buf).toString('base64url');
+
+/** Form-encode nested objects the way Stripe's API expects (a[b][0]=c). */
+function stripeForm(obj, prefix = '', out = new URLSearchParams()) {
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (typeof v === 'object') stripeForm(v, key, out);
+    else out.append(key, String(v));
+  }
+  return out;
+}
+
+/** Verify a Stripe-Signature header (v1 = HMAC-SHA256 of "t.payload"). */
+function verifyStripeSignature(payload, header, secret, toleranceSec = 300, now = Date.now()) {
+  if (!header || !secret) return false;
+  let t = null;
+  const sigs = [];
+  for (const part of header.split(',')) {
+    const [k, v] = part.split('=');
+    if (k === 't') t = Number(v);
+    else if (k === 'v1' && v) sigs.push(v);
+  }
+  if (!t || !sigs.length || Math.abs(now / 1000 - t) > toleranceSec) return false;
+  const expected = crypto.createHmac('sha256', secret).update(`${t}.`).update(payload).digest();
+  return sigs.some((s) => {
+    const got = Buffer.from(s, 'hex');
+    return got.length === expected.length && crypto.timingSafeEqual(got, expected);
+  });
+}
+
+/** Only same-site paths are allowed as a post-login destination. */
+function safeNext(next) {
+  return typeof next === 'string' && /^\/(?![/\\])/.test(next) && next.length < 300 ? next : '/app/';
+}
+
+// ---------------------------------------------------------------------------
+
+function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } = {}) {
+  if (!store && config.paywall) {
+    store = createStore({
+      query: d1Http({ accountId: config.cfAccountId, databaseId: config.d1DatabaseId, apiToken: config.cfApiToken, fetchImpl }),
+    });
+  }
+  const google = Boolean(config.googleId && config.googleSecret);
+  // Monthly price per plan (the main one), and the yearly one when set.
+  const priceOf = { basic: config.stripePriceBasic, pro: config.stripePricePro };
+  const yearlyOf = { basic: config.stripePriceBasicYearly || '', pro: config.stripePriceProYearly || '' };
+  const priceFor = (plan, interval) => (interval === 'year' ? yearlyOf[plan] : priceOf[plan]);
+  const packPrice = config.stripePricePack;
+  const packStrips = config.packStrips || DEFAULT_PACK_STRIPS;
+  const stripe = Boolean(config.stripeKey && (priceOf.basic || priceOf.pro || packPrice));
+  const devAuth = !google && !config.production;
+  const devBilling = !stripe && !config.production;
+  const packAvailable = Boolean(stripe && packPrice) || devBilling;
+
+  let secret = config.sessionSecret;
+  if (!secret) {
+    if (config.production && config.paywall) log.fail('account', 'SESSION_SECRET is not set: sessions end on every restart. Set it to a long random string.');
+    secret = crypto.randomBytes(32).toString('hex');
+  }
+
+  if (config.paywall) {
+    log.info(`Accounts: sign-in ${google ? 'Google' : devAuth ? 'DEV (local test account, no Google)' : 'NOT CONFIGURED'}, `
+      + `billing ${stripe ? 'Stripe' : devBilling ? 'DEV (upgrade is free and instant)' : 'NOT CONFIGURED'}, `
+      + `accounts in D1 (${config.d1DatabaseId || 'custom store'}), free tier from `
+      + `${KINDS.some((k) => config[ENV[k]] !== null) ? 'FREE_* env' : 'the app_settings table'}`
+      + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}, yearly: ${PLANS.filter((p) => yearlyOf[p]).join(' + ') || 'off'}, strip pack: ${packPrice ? `${packStrips} strips` : 'off'}` : ''}`);
+    if (stripe && PLANS.some((p) => !priceOf[p])) {
+      log.fail('billing', `STRIPE_PRICE_ID_${PLANS.find((p) => !priceOf[p]).toUpperCase()} is not set: that plan can't be bought`);
+    }
+    if (stripe && !packPrice) log.fail('billing', 'STRIPE_PRICE_ID_PACK is not set: the strip pack can\'t be bought');
+  } else {
+    log.info('Accounts: PAYWALL=off, everything is free and no sign-in is needed');
+  }
+
+  // --- sessions -------------------------------------------------------------
+
+  const sign = (data) => b64u(crypto.createHmac('sha256', secret).update(data).digest());
+
+  function sessionToken(userId, now = Date.now()) {
+    const body = b64u(JSON.stringify({ u: userId, e: now + SESSION_DAYS * 86400000 }));
+    return `${body}.${sign(body)}`;
+  }
+
+  function readSession(token, now = Date.now()) {
+    if (!token) return null;
+    const [body, mac] = token.split('.');
+    if (!body || !mac) return null;
+    const expected = Buffer.from(sign(body));
+    const got = Buffer.from(mac);
+    if (got.length !== expected.length || !crypto.timingSafeEqual(got, expected)) return null;
+    try {
+      const { u, e } = JSON.parse(Buffer.from(body, 'base64url').toString());
+      return e > now ? u : null;
+    } catch { return null; }
+  }
+
+  const secure = (request) => config.production || baseUrl(request).startsWith('https:');
+  const cookieOpts = (request, maxAgeSec) => `Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure(request) ? '; Secure' : ''}`;
+  /** A Set-Cookie header value. */
+  const cookie = (request, name, value, maxAgeSec) => `${name}=${encodeURIComponent(value)}; ${cookieOpts(request, maxAgeSec)}`;
+
+  /** The signed-in account for a Cookie header, or null. */
+  async function userFromCookies(cookieHeader) {
+    const id = readSession(parseCookies(cookieHeader)[COOKIE]);
+    return id && store ? store.getUser(id) : null;
+  }
+
+  /** Free allowances per kind: env override, else the app_settings table, else 1. */
+  async function limits() {
+    const s = KINDS.every((k) => config[ENV[k]] !== null) ? {} : await store.settings();
+    const out = {};
+    for (const k of KINDS) {
+      const n = Number(s[SETTING[k]]);
+      out[k] = config[ENV[k]] ?? (s[SETTING[k]] !== undefined && Number.isInteger(n) && n >= 0 ? n : DEFAULT_FREE);
+    }
+    return out;
+  }
+
+  /** Free server strips + downloads allowed per UTC day, for the whole site. */
+  async function trialsPerDay() {
+    if (config.freeTrialsPerDay !== null && config.freeTrialsPerDay !== undefined) return config.freeTrialsPerDay;
+    const n = Number((await store.settings()).free_trials_per_day);
+    return Number.isInteger(n) && n >= 0 ? n : DEFAULT_TRIALS_PER_DAY;
+  }
+
+  /** The plan a Stripe price pays for: monthly and yearly prices map to the same plan. */
+  function tierForPrice(priceId) {
+    if (priceId && (priceId === priceOf.basic || priceId === yearlyOf.basic)) return 'basic';
+    if (priceId && (priceId === priceOf.pro || priceId === yearlyOf.pro)) return 'pro';
+    // A price we don't know (e.g. an old one): keep the customer fully served.
+    if (priceId) log.fail('billing', `price ${priceId} is not one of STRIPE_PRICE_ID_BASIC(_YEARLY) / STRIPE_PRICE_ID_PRO(_YEARLY); treating it as Pro`);
+    return 'pro';
+  }
+
+  /** Whether a subscription's price is billed monthly or yearly. Dev prices end in _year. */
+  function intervalForPrice(priceId) {
+    if (!priceId) return 'month';
+    if (priceId === yearlyOf.basic || priceId === yearlyOf.pro) return 'year';
+    return devBilling && priceId.startsWith('dev_') && priceId.endsWith('_year') ? 'year' : 'month';
+  }
+
+  const UNAVAILABLE = { error: 'Accounts are unavailable right now, please try again', code: 'unavailable' };
+
+  // The public origin, for OAuth and Stripe return links. In dev the Vite
+  // proxy passes the page's own host along as X-Forwarded-Host.
+  function baseUrl(request) {
+    if (config.siteUrl) return config.siteUrl;
+    const u = new URL(request.url);
+    const fwd = !config.production && request.headers.get('x-forwarded-host');
+    const hostHeader = fwd || u.host;
+    const host = /^[a-z0-9.-]+(:\d+)?$/i.test(hostHeader) ? hostHeader : 'localhost';
+    const proto = request.headers.get('x-forwarded-proto')?.split(',')[0].trim() === 'https' ? 'https' : u.protocol.replace(':', '');
+    return `${proto}://${host}`;
+  }
+
+  // --- what the page shows --------------------------------------------------
+
+  async function account(user) {
+    const plan = planOf(user);
+    const lim = config.paywall && store && plan !== 'pro' ? await limits() : null;
+    return {
+      paywall: config.paywall,
+      signedIn: Boolean(user),
+      user: user ? { email: user.email, name: user.name, picture: user.picture } : null,
+      plan,
+      usage: user ? Object.fromEntries(KINDS.map((k) => [k, {
+        used: Number(user[USED[k]] ?? 0),
+        limit: isUnlimited(plan, k) ? null : lim[k],
+      }])) : null,
+      subscription: user && user.subscription_status ? {
+        status: user.subscription_status,
+        renewsAt: user.current_period_end ? user.current_period_end * 1000 : null,
+        cancelAtPeriodEnd: Boolean(user.cancel_at_period_end),
+        interval: intervalForPrice(user.subscription_price_id),
+        manageable: Boolean(user.stripe_customer_id) || devBilling,
+      } : null,
+      // On-device strips left from strip packs, and packs bought so far.
+      credits: user ? { strip: Math.max(0, Number(user.strip_credits ?? 0)), packs: Number(user.strip_packs ?? 0) } : null,
+      // The free allowance every account starts with (for the sign-in step).
+      free: lim,
+      plans: PLANS.map((id) => ({
+        id,
+        name: PLAN_NAME[id],
+        label: config.priceLabels[id],
+        interval: 'month',
+        available: Boolean(priceOf[id]) || devBilling,
+        // The yearly price, or null when STRIPE_PRICE_ID_<PLAN>_YEARLY is unset.
+        yearly: yearlyOf[id] || devBilling ? { label: config.priceLabels[`${id}Yearly`], interval: 'year', available: true } : null,
+      })),
+      // The one-time strip pack.
+      pack: { label: config.priceLabels.pack, strips: packStrips, available: packAvailable },
+      // Older pages read this: the Pro price.
+      price: { label: config.priceLabels.pro, interval: 'month' },
+      signIn: google ? 'google' : devAuth ? 'dev' : null,
+      dev: { auth: devAuth, billing: devBilling },
+    };
+  }
+
+  // --- quota ----------------------------------------------------------------
+
+  const NOOP = { credit: null, refund() {} };
+  const word = { strip: 'on-device strip', server_strip: 'server strip', download: 'download' };
+  const verb = { strip: 'strip on your device', server_strip: 'strip on our server', download: 'download' };
+
+  const authRequired = (kind) => ({ status: 401, body: { error: `Sign in with Google to ${verb[kind]} for free`, code: 'auth_required', kind } });
+
+  function upgradeRequired(kind, n) {
+    const needs = NEEDS[kind];
+    const upgrade = needs === 'basic' ? 'Basic or Pro' : 'Pro';
+    const pack = kind === 'strip' && packAvailable;
+    const orPack = pack ? `, or try ${packStrips} on-device strips for ${config.priceLabels.pack}` : '';
+    return {
+      status: 402,
+      body: {
+        error: n === 0
+          ? `Upgrade to ${upgrade} to ${verb[kind]}${orPack}.`
+          : `You've used your free ${word[kind]}${n === 1 ? '' : `s (${n})`}. Upgrade to ${upgrade} for unlimited${orPack}.`,
+        code: 'upgrade_required',
+        kind,
+        plan: needs,
+        pack,
+      },
+    };
+  }
+
+  /**
+   * Count one use of `kind` for this account. Returns { ok: true, credit,
+   * refund() } (refund for when the work fails and nothing reaches the user),
+   * or { ok: false, status, body } to send back: 401 signed out, 402 free use
+   * spent (with the plan that unlocks it).
+   */
+  async function use(user, kind) {
+    if (!config.paywall) return { ok: true, ...NOOP };
+    if (!user) return { ok: false, ...authRequired(kind) };
+    const n = (await limits())[kind];
+    // Free use or a plan first; then, for on-device strips, a strip pack credit.
+    let credit = null;
+    if (!(await store.consume(user.id, kind, n)) && !(kind === 'strip' && (credit = await store.useCredit(user.id)))) {
+      return { ok: false, ...upgradeRequired(kind, n) };
+    }
+    let refunded = false;
+    const refund = () => {
+      if (refunded) return;
+      refunded = true;
+      const done = credit ? store.refundCredit(user.id, credit, CREDIT_REFUND_SEC) : store.refund(user.id, kind);
+      done.catch((e) => log.fail('account', `refund ${credit ? 'strip credit' : kind} for user ${user.id}: ${e.message}`));
+    };
+    return { ok: true, credit, refund };
+  }
+
+  /**
+   * Whether this account may start one server strip or download, checked
+   * before anything reaches the container. Read-only for the account (the
+   * container counts the use itself), but a free use takes one of today's
+   * site-wide free trials. Returns null when allowed, else { status, body }.
+   */
+  async function admit(user, kind) {
+    if (!SERVER_KINDS.includes(kind)) throw new Error(`admit: ${kind} does not run on the server`);
+    if (!config.paywall) return null;
+    if (!user) return authRequired(kind);
+    if (isUnlimited(planOf(user), kind)) return null;
+    const n = (await limits())[kind];
+    if (Number(user[USED[kind]] ?? 0) >= n) return upgradeRequired(kind, n);
+    const cap = await trialsPerDay();
+    if (!(await store.takeFreeTrial(cap))) {
+      log.note('account', `free trials for today are used up (${cap}): user ${user.id} was asked to upgrade for a ${word[kind]}`);
+      return {
+        status: 402,
+        body: {
+          error: `Today's free ${word[kind]}s are all taken. Try again tomorrow, or upgrade to Pro for unlimited.`,
+          code: 'free_trials_full',
+          kind,
+          plan: 'pro',
+          pack: false,
+        },
+      };
+    }
+    return null;
+  }
+
+  // --- Stripe ---------------------------------------------------------------
+
+  async function stripeApi(method, endpoint, params) {
+    const res = await fetchImpl(`https://api.stripe.com/v1/${endpoint}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${config.stripeKey}`,
+        ...(params ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
+      },
+      body: params ? stripeForm(params).toString() : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data?.error?.message || `Stripe error (HTTP ${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  /** Copy a Stripe subscription object onto the user it belongs to. */
+  async function applySubscription(sub, userId) {
+    const customer = typeof sub.customer === 'string' ? sub.customer : sub.customer?.id;
+    let user = userId ? await store.getUser(userId) : null;
+    if (!user && customer) user = await store.userByCustomer(customer);
+    if (!user && sub.metadata?.user_id) user = await store.getUser(String(sub.metadata.user_id));
+    if (!user) return null;
+    if (customer && user.stripe_customer_id !== customer) await store.setCustomer(user.id, customer);
+    // Newer API versions keep the period on the subscription item.
+    const item = sub.items?.data?.[0];
+    const periodEnd = sub.current_period_end ?? item?.current_period_end ?? null;
+    const priceId = item?.price?.id ?? null;
+    await store.setSubscription(user.id, {
+      id: sub.id,
+      status: sub.status,
+      periodEnd,
+      cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end || sub.cancel_at),
+      priceId,
+      tier: tierForPrice(priceId),
+    });
+    return store.getUser(user.id);
+  }
+
+  /** Add a paid strip pack to its account. Safe to run twice for one session. */
+  async function grantPack(session) {
+    const meta = session.metadata || {};
+    if (meta.product !== 'strip_pack') return;
+    const userId = String(session.client_reference_id || meta.user_id || '');
+    const user = userId ? await store.getUser(userId) : null;
+    if (!user) {
+      // Throwing makes Stripe retry, which won't help: log it for support.
+      log.fail('billing', `strip pack ${session.id} paid for unknown user ${userId || '(none)'}`);
+      return;
+    }
+    const customer = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+    if (customer && !user.stripe_customer_id) await store.setCustomer(user.id, customer);
+    const n = Number(meta.strips);
+    const strips = Number.isInteger(n) && n > 0 && n <= 1000 ? n : packStrips;
+    const added = await store.grantStripPack(user.id, {
+      id: session.id, strips, amountCents: session.amount_total ?? null, currency: session.currency ?? null,
+    });
+    if (added) log.ok('billing', `user ${user.id} (${user.email}) bought a strip pack: +${strips} on-device strips`);
+    else log.note('billing', `strip pack ${session.id} was already added`);
+  }
+
+  async function handleEvent(event) {
+    const obj = event.data?.object || {};
+    switch (event.type) {
+      case 'checkout.session.async_payment_succeeded':
+        if (obj.mode === 'payment') await grantPack(obj);
+        return;
+      case 'checkout.session.completed': {
+        if (obj.mode === 'payment') {
+          // A card payment is 'paid' here; a delayed method (bank debit)
+          // arrives later as checkout.session.async_payment_succeeded.
+          if (obj.payment_status === 'paid' || obj.payment_status === 'no_payment_required') await grantPack(obj);
+          return;
+        }
+        if (obj.mode !== 'subscription') return;
+        const userId = obj.client_reference_id || null;
+        if (userId && obj.customer && await store.getUser(userId)) await store.setCustomer(userId, obj.customer);
+        if (obj.subscription) {
+          const sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(obj.subscription)}`);
+          const u = await applySubscription(sub, userId);
+          if (u) log.ok('billing', `user ${u.id} (${u.email}) subscribed to ${planOf(u)}: ${sub.status}`);
+        }
+        return;
+      }
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted':
+      case 'customer.subscription.paused':
+      case 'customer.subscription.resumed': {
+        // Events can arrive out of order, so read the subscription as it is now.
+        let sub = obj;
+        try { sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(obj.id)}`); } catch (e) {
+          if (e.status !== 404) throw e;
+        }
+        const u = await applySubscription(sub);
+        if (u) log.note('billing', `user ${u.id} (${u.email}) subscription ${sub.status}, plan ${planOf(u)}${u.cancel_at_period_end ? ' (cancels at period end)' : ''}`);
+        else log.note('billing', `${event.type} for unknown customer ${sub.customer}`);
+        return;
+      }
+      default:
+    }
+  }
+
+
+  /** A Customer Portal link that goes straight to "confirm the new plan". */
+  async function switchPlanUrl(user, want, price, doneUrl, backUrl) {
+    try {
+      const sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(user.subscription_id)}`);
+      const item = sub.items?.data?.[0];
+      if (!item?.id) throw new Error('subscription has no items');
+      const session = await stripeApi('POST', 'billing_portal/sessions', {
+        customer: user.stripe_customer_id,
+        return_url: backUrl,
+        flow_data: {
+          type: 'subscription_update_confirm',
+          subscription_update_confirm: { subscription: sub.id, items: [{ id: item.id, price, quantity: 1 }] },
+          after_completion: { type: 'redirect', redirect: { return_url: doneUrl } },
+        },
+      });
+      log.note('billing', `user ${user.id} is switching ${planOf(user)} → ${want} (${intervalForPrice(price)}ly)`);
+      return session.url;
+    } catch (e) {
+      // E.g. plan switching isn't turned on in the portal settings: open the
+      // portal's home page, where they can still manage the subscription.
+      log.fail('billing', `plan switch for user ${user.id}: ${e.message}; opening the plain portal`);
+      const session = await stripeApi('POST', 'billing_portal/sessions', { customer: user.stripe_customer_id, return_url: backUrl });
+      return session.url;
+    }
+  }
+
+  // --- routes ---------------------------------------------------------------
+  //
+  // handle(request) answers the account routes and returns null for any
+  // other path, so the caller can route it elsewhere.
+
+  const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
+    status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
+  });
+  const text = (body, status) => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+  const redirect = (location, cookies = []) => {
+    const h = new Headers({ Location: location });
+    for (const c of cookies) h.append('Set-Cookie', c);
+    return new Response(null, { status: 302, headers: h });
+  };
+  const withCookies = (res, cookies) => {
+    for (const c of cookies) res.headers.append('Set-Cookie', c);
+    return res;
+  };
+  const MAX_JSON = 4 * 1024;
+  const MAX_WEBHOOK = 1024 * 1024;
+
+  /** A small JSON body ({} when empty or not JSON); null when it's too big. */
+  async function readJson(request) {
+    const body = await request.text();
+    if (body.length > MAX_JSON) return null;
+    try { const v = JSON.parse(body || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+  }
+
+  const ROUTES = {
+    'GET /api/me': async (request, user) => json(await account(user), 200, { 'Cache-Control': 'no-store' }),
+
+    'GET /api/auth/google': async (request) => {
+      const next = safeNext(new URL(request.url).searchParams.get('next'));
+      if (!google) {
+        if (devAuth) return redirect(`/api/auth/dev?next=${encodeURIComponent(next)}`);
+        return text('Google sign-in is not set up on this server (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).', 503);
+      }
+      const state = b64u(crypto.randomBytes(18));
+      const params = new URLSearchParams({
+        client_id: config.googleId,
+        redirect_uri: `${baseUrl(request)}/api/auth/google/callback`,
+        response_type: 'code',
+        scope: 'openid email profile',
+        state,
+        prompt: 'select_account',
+      });
+      return redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`, [cookie(request, STATE_COOKIE, `${state}|${next}`, 600)]);
+    },
+
+    'GET /api/auth/google/callback': async (request) => {
+      const q = new URL(request.url).searchParams;
+      const saved = parseCookies(request.headers.get('cookie'))[STATE_COOKIE] || '';
+      const bar = saved.indexOf('|');
+      const state = bar > 0 ? saved.slice(0, bar) : '';
+      const next = safeNext(bar > 0 ? saved.slice(bar + 1) : '');
+      const clear = cookie(request, STATE_COOKIE, '', 0);
+      const fail = (why) => {
+        log.fail('account', `Google sign-in failed: ${why}`);
+        return redirect(`${next.split('#')[0]}${next.includes('?') ? '&' : '?'}signin=failed`, [clear]);
+      };
+      if (!google) return withCookies(new Response('Not Found', { status: 404 }), [clear]);
+      if (q.get('error')) return fail(String(q.get('error')));
+      const code = q.get('code');
+      if (!state || q.get('state') !== state || !code) return fail('state mismatch or missing code');
+      try {
+        const tokenRes = await fetchImpl('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            code,
+            client_id: config.googleId,
+            client_secret: config.googleSecret,
+            redirect_uri: `${baseUrl(request)}/api/auth/google/callback`,
+            grant_type: 'authorization_code',
+          }).toString(),
+        });
+        const tok = await tokenRes.json();
+        if (!tokenRes.ok || !tok.access_token) return fail(tok.error_description || tok.error || `token HTTP ${tokenRes.status}`);
+        // Ask Google who this is over TLS with the fresh token, rather than
+        // decoding the ID token ourselves.
+        const infoRes = await fetchImpl('https://openidconnect.googleapis.com/v1/userinfo', {
+          headers: { Authorization: `Bearer ${tok.access_token}` },
+        });
+        const info = await infoRes.json();
+        if (!infoRes.ok || !info.sub) return fail(`userinfo HTTP ${infoRes.status}`);
+        if (info.email && info.email_verified === false) return fail('email not verified');
+        const user = await store.upsertGoogleUser(info);
+        log.ok('account', `user ${user.id} (${user.email}) signed in`);
+        return redirect(next, [clear, cookie(request, COOKIE, sessionToken(user.id), SESSION_DAYS * 86400)]);
+      } catch (e) {
+        return fail(e.message);
+      }
+    },
+
+    // Dev mode only: a local account per ?email=, so the paywall can be tried
+    // without Google credentials.
+    'GET /api/auth/dev': async (request) => {
+      if (!devAuth || !store) return new Response('Not Found', { status: 404 });
+      const q = new URL(request.url).searchParams;
+      const email = /^[^\s@]+@[^\s@]+$/.test(q.get('email') || '') ? q.get('email') : 'dev@localhost';
+      const user = await store.upsertGoogleUser({ sub: `dev:${email}`, email, name: 'Dev user' });
+      log.note('account', `dev sign-in as user ${user.id} (${email})`);
+      return redirect(safeNext(q.get('next')), [cookie(request, COOKIE, sessionToken(user.id), SESSION_DAYS * 86400)]);
+    },
+
+    'POST /api/auth/logout': async (request) => withCookies(json(await account(null)), [cookie(request, COOKIE, '', 0)]),
+
+    // On-device stripping never reaches the server, so the page asks for one
+    // use first. (A determined user could skip this in the browser; the
+    // server-side tools are the ones that can't be bypassed.)
+    'POST /api/usage/strip': async (request, user) => {
+      const r = await use(user, 'strip');
+      if (!r.ok) return json(r.body, r.status);
+      const fresh = user ? await store.getUser(user.id) : null;
+      // `credit` lets the page give a pack credit back if the strip fails.
+      return json({ ...(await account(fresh)), credit: r.credit ?? null });
+    },
+
+    // The on-device strip that used this pack credit failed: give it back.
+    // Only the account's own credit, once, within an hour.
+    'POST /api/usage/strip/refund': async (request, user) => {
+      const body = await readJson(request);
+      if (!body) return json({ error: 'Request too large' }, 413);
+      if (!user) return json({ error: 'Sign in first', code: 'auth_required' }, 401);
+      const refunded = config.paywall ? await store.refundCredit(user.id, body.credit, CREDIT_REFUND_SEC) : false;
+      return json({ ...(await account(await store.getUser(user.id))), refunded });
+    },
+
+    'POST /api/billing/checkout': async (request, user) => {
+      const body = await readJson(request);
+      if (!body) return json({ error: 'Request too large' }, 413);
+      if (!user) return json({ error: 'Sign in first', code: 'auth_required' }, 401);
+      const want = PLANS.includes(body.plan) ? body.plan : 'pro';
+      const interval = INTERVALS.includes(body.interval) ? body.interval : 'month';
+      const back = safeNext(body.next);
+      const site = baseUrl(request);
+      const done = `${site}${withQuery(back, `upgraded=${want}`)}`;
+      const current = planOf(user);
+      if (current === want && intervalForPrice(user.subscription_price_id) === interval) return json({ url: `${site}${back}` });
+
+      if (!stripe) {
+        if (!devBilling) return json({ error: 'Payments are not set up on this server yet' }, 503);
+        await store.setSubscription(user.id, {
+          id: `dev_sub_${user.id}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + (interval === 'year' ? 365 : 30) * 86400,
+          tier: want, priceId: `dev_${want}_${interval}`,
+        });
+        log.note('billing', `dev ${current === 'free' ? 'upgrade' : 'plan change'}: user ${user.id} is on ${want} (${interval}ly)`);
+        return json({ url: done });
+      }
+      const price = priceFor(want, interval);
+      if (!price) {
+        return json({ error: `The ${PLAN_NAME[want]} plan${interval === 'year' ? ' paid yearly' : ''} isn't set up on this server yet` }, 503);
+      }
+
+      try {
+        // Already paying: switch the existing subscription (Stripe prorates)
+        // on the Customer Portal's confirm page instead of starting a second one.
+        if (current !== 'free' && user.stripe_customer_id) {
+          return json({ url: await switchPlanUrl(user, want, price, done, `${site}${back}`) });
+        }
+        const session = await stripeApi('POST', 'checkout/sessions', {
+          mode: 'subscription',
+          line_items: [{ price, quantity: 1 }],
+          client_reference_id: String(user.id),
+          ...(user.stripe_customer_id ? { customer: user.stripe_customer_id } : { customer_email: user.email || undefined }),
+          subscription_data: { metadata: { user_id: String(user.id), plan: want, interval } },
+          allow_promotion_codes: 'true',
+          success_url: done,
+          cancel_url: `${site}${back}`,
+        });
+        return json({ url: session.url });
+      } catch (e) {
+        log.fail('billing', `checkout (${want}, ${interval}ly) for user ${user.id}: ${e.message}`);
+        return json({ error: 'Could not reach Stripe, please try again' }, 502);
+      }
+    },
+
+    // One strip pack: a one-time Stripe Checkout payment. The webhook adds the
+    // strips once Stripe says it's paid. Can be bought any number of times.
+    'POST /api/billing/pack': async (request, user) => {
+      const body = await readJson(request);
+      if (!body) return json({ error: 'Request too large' }, 413);
+      if (!user) return json({ error: 'Sign in first', code: 'auth_required' }, 401);
+      const back = safeNext(body.next);
+      const site = baseUrl(request);
+      // ?pack=N: the page waits until the account has N packs.
+      const done = `${site}${withQuery(back, `pack=${Number(user.strip_packs ?? 0) + 1}`)}`;
+
+      if (!stripe) {
+        if (!devBilling) return json({ error: 'Payments are not set up on this server yet' }, 503);
+        await store.grantStripPack(user.id, { id: `dev_pack_${crypto.randomUUID()}`, strips: packStrips });
+        log.note('billing', `dev strip pack: user ${user.id} got ${packStrips} on-device strips`);
+        return json({ url: done });
+      }
+      if (!packPrice) return json({ error: 'The strip pack isn\'t set up on this server yet' }, 503);
+      try {
+        const session = await stripeApi('POST', 'checkout/sessions', {
+          mode: 'payment',
+          line_items: [{ price: packPrice, quantity: 1 }],
+          client_reference_id: String(user.id),
+          ...(user.stripe_customer_id
+            ? { customer: user.stripe_customer_id }
+            : { customer_email: user.email || undefined, customer_creation: 'always' }),
+          metadata: { user_id: String(user.id), product: 'strip_pack', strips: String(packStrips) },
+          payment_intent_data: { metadata: { user_id: String(user.id), product: 'strip_pack', strips: String(packStrips) } },
+          allow_promotion_codes: 'true',
+          success_url: done,
+          cancel_url: `${site}${back}`,
+        });
+        return json({ url: session.url });
+      } catch (e) {
+        log.fail('billing', `strip pack checkout for user ${user.id}: ${e.message}`);
+        return json({ error: 'Could not reach Stripe, please try again' }, 502);
+      }
+    },
+
+    'POST /api/billing/portal': async (request, user) => {
+      const body = await readJson(request);
+      if (!body) return json({ error: 'Request too large' }, 413);
+      if (!user) return json({ error: 'Sign in first', code: 'auth_required' }, 401);
+      const back = `${baseUrl(request)}${safeNext(body.next)}`;
+      if (!stripe) {
+        if (!devBilling) return json({ error: 'Payments are not set up on this server yet' }, 503);
+        // Dev: "managing" the plan simply cancels it, to test the free state again.
+        await store.setSubscription(user.id, { id: `dev_sub_${user.id}`, status: 'canceled', periodEnd: null });
+        log.note('billing', `dev cancel: user ${user.id} is back on free`);
+        return json({ url: back });
+      }
+      if (!user.stripe_customer_id) return json({ error: 'No subscription to manage yet' }, 400);
+      try {
+        const session = await stripeApi('POST', 'billing_portal/sessions', { customer: user.stripe_customer_id, return_url: back });
+        return json({ url: session.url });
+      } catch (e) {
+        log.fail('billing', `portal for user ${user.id}: ${e.message}`);
+        return json({ error: 'Could not reach Stripe, please try again' }, 502);
+      }
+    },
+
+    'POST /api/billing/webhook': async (request) => {
+      if (!store) return json({ error: 'Accounts are off (PAYWALL=off)' }, 503);
+      if (!config.stripeWebhookSecret) return json({ error: 'STRIPE_WEBHOOK_SECRET is not set' }, 503);
+      const payload = Buffer.from(await request.arrayBuffer());
+      if (payload.length > MAX_WEBHOOK) return json({ error: 'Request too large' }, 413);
+      if (!verifyStripeSignature(payload, request.headers.get('stripe-signature'), config.stripeWebhookSecret)) {
+        log.fail('billing', 'webhook with a bad signature rejected');
+        return json({ error: 'Bad signature' }, 400);
+      }
+      let event;
+      try { event = JSON.parse(payload.toString('utf8')); } catch { return json({ error: 'Bad JSON' }, 400); }
+      try {
+        // Safe to run twice: every handler re-reads the subscription from Stripe.
+        await handleEvent(event);
+        return json({ received: true });
+      } catch (e) {
+        // Non-2xx makes Stripe retry later.
+        log.fail('billing', `webhook ${event.type} ${event.id}: ${e.message}`);
+        return json({ error: 'Handler failed' }, 500);
+      }
+    },
+  };
+
+  // Routes that work without reading the session (or read it themselves).
+  const NO_USER = new Set(['GET /api/auth/google', 'GET /api/auth/google/callback', 'GET /api/auth/dev', 'POST /api/auth/logout', 'POST /api/billing/webhook']);
+
+  /** True when handle() answers this path (any method). */
+  const handles = (pathname) => Object.keys(ROUTES).some((k) => k.slice(k.indexOf(' ') + 1) === pathname);
+
+  /** Answer an account route; null when the path isn't one. */
+  async function handle(request) {
+    const { pathname } = new URL(request.url);
+    if (!handles(pathname)) return null;
+    const key = `${request.method === 'HEAD' ? 'GET' : request.method} ${pathname}`;
+    const route = ROUTES[key];
+    if (!route) return json({ error: 'Method not allowed' }, 405);
+    try {
+      const user = NO_USER.has(key) ? null : await userFromCookies(request.headers.get('cookie'));
+      return await route(request, user);
+    } catch (e) {
+      // A database outage answers 503 instead of hanging or letting work through.
+      log.fail('account', `${request.method} ${pathname}: ${e.message}`);
+      return json(UNAVAILABLE, 503);
+    }
+  }
+
+  return {
+    config, store, handle, handles, use, admit, userFromCookies, account, limits, trialsPerDay,
+    sessionToken, readSession, handleEvent, tierForPrice, intervalForPrice,
+  };
+}
+
+function withQuery(p, q) {
+  const [pathAndQuery, hash] = p.split('#');
+  return `${pathAndQuery}${pathAndQuery.includes('?') ? '&' : '?'}${q}${hash !== undefined ? `#${hash}` : ''}`;
+}
+
+module.exports = {
+  createAccountsCore, loadConfig, parseCookies, stripeForm, verifyStripeSignature, safeNext, withQuery, SERVER_KINDS,
+};

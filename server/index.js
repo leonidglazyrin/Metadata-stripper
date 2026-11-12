@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const { createDownloadRouter, dirSize } = require('./downloaders');
 const log = require('./log');
 const { createAccounts } = require('./account');
+const site = require('./site');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 2048);
@@ -26,6 +27,24 @@ try {
   process.exit(1);
 }
 const workDir = path.join(os.tmpdir(), 'metadata-stripper');
+
+// Behind the Cloudflare Worker (worker/index.js), the Worker checks every
+// request (session, plan or free trial, the link or upload) before it wakes
+// this container, and stamps it with INTERNAL_SECRET. As defence in depth,
+// anything without that stamp is refused here. Unset (npm run dev, or
+// self-hosting the image on its own): no check, and this server does the
+// Worker's job itself, including the site-wide free trial cap.
+const INTERNAL_SECRET = process.env.INTERNAL_SECRET || '';
+const behindWorker = Boolean(INTERNAL_SECRET);
+if (behindWorker) {
+  const want = crypto.createHash('sha256').update(INTERNAL_SECRET).digest();
+  app.use((req, res, next) => {
+    const got = crypto.createHash('sha256').update(String(req.get('x-sharona-internal') || '')).digest();
+    if (crypto.timingSafeEqual(got, want)) return next();
+    log.fail('internal', `${req.method} ${req.originalUrl.slice(0, 200)} refused: not sent by the Worker`);
+    res.status(403).json({ error: 'Forbidden' });
+  });
+}
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -296,7 +315,9 @@ app.use('/api', accounts.router);
 
 // The quota is checked before the upload starts, so nobody uploads a big
 // file just to be told to upgrade. A failed strip gives the use back.
-const stripGate = [accounts.gate('server_strip'), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
+// Behind the Worker, the Worker already took today's free trial slot.
+const gateOpts = { trialCap: !behindWorker };
+const stripGate = [accounts.gate('server_strip', gateOpts), (req, res, next) => { req.quota.refundUnlessSent(res); next(); }];
 
 app.post('/api/strip', stripGate, upload.single('file'), async (req, res) => {
   const f = req.file;
@@ -362,7 +383,7 @@ app.post('/api/strip', stripGate, upload.single('file'), async (req, res) => {
 // ---------------------------------------------------------------------------
 
 const downloads = createDownloadRouter(workDir, {
-  gate: accounts.gate('download'),
+  gate: accounts.gate('download', gateOpts),
   currentUser: accounts.currentUser,
   // Each account's download rows, so they show on every device it signs in on.
   history: accounts.store && typeof accounts.store.listDownloads === 'function' ? accounts.store : null,
@@ -392,8 +413,7 @@ function siteUrl(req) {
 }
 
 // Shown on the Privacy Policy and Terms. Set CONTACT_EMAIL in production.
-const CONTACT_EMAIL = /^[^\s@<>"]+@[^\s@<>"]+$/.test(process.env.CONTACT_EMAIL || '') ? process.env.CONTACT_EMAIL : '';
-const contactEmail = (site) => CONTACT_EMAIL || `support@${new URL(site).hostname.replace(/^www\./, '')}`;
+const contactEmail = (base) => site.contactEmailFor(process.env.CONTACT_EMAIL, base);
 
 const pageCache = new Map();
 async function sendPage(req, res, next, file, status = 200) {
@@ -403,12 +423,12 @@ async function sendPage(req, res, next, file, status = 200) {
       html = await fs.readFile(path.join(distDir, file), 'utf8');
       if (process.env.NODE_ENV === 'production') pageCache.set(file, html);
     }
-    const site = siteUrl(req);
+    const base = siteUrl(req);
     res
       .status(status)
       .type('html')
       .set('Cache-Control', 'no-cache')
-      .send(html.replaceAll('__SITE_URL__', site).replaceAll('__CONTACT_EMAIL__', contactEmail(site)));
+      .send(site.fillPage(html, base, contactEmail(base)));
   } catch (e) {
     next(e.code === 'ENOENT' ? undefined : e);
   }
@@ -421,8 +441,8 @@ app.use(express.static(distDir, { index: false, redirect: false }));
 app.get('/', (req, res, next) => sendPage(req, res, next, 'index.html'));
 // The landing page in other languages: /es/, /fr/ ... (built to dist/<code>/).
 // Unknown codes fall through to the 404 page.
-app.get(/^\/([a-z]{2})(\/?)$/, (req, res, next) => {
-  const [, code, slash] = req.path.match(/^\/([a-z]{2})(\/?)$/);
+app.get(site.LANG_PAGE, (req, res, next) => {
+  const [, code, slash] = req.path.match(site.LANG_PAGE);
   if (!slash) return res.redirect(301, `/${code}/`);
   sendPage(req, res, next, `${code}/index.html`);
 });
@@ -438,7 +458,7 @@ async function getContentPages() {
   }
   return contentPages;
 }
-app.get(/^\/(guides|privacy|terms)(\/[a-z0-9-]*)*\/?$/, async (req, res, next) => {
+app.get(site.CONTENT_PAGE, async (req, res, next) => {
   const p = req.path.endsWith('/') ? req.path : `${req.path}/`;
   const page = (await getContentPages()).find((x) => x.path === p);
   if (!page) return next();
@@ -449,7 +469,7 @@ app.get('/app', (req, res, next) => (req.originalUrl.split('?')[0] === '/app' ? 
 app.get(/^\/app\/.*/, (req, res, next) => sendPage(req, res, next, 'app/index.html'));
 
 app.get('/robots.txt', (req, res) => {
-  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /api/\n\nSitemap: ${siteUrl(req)}/sitemap.xml\n`);
+  res.type('text/plain').send(site.robotsTxt(siteUrl(req)));
 });
 // Languages of the landing page, written by the build (see vite.config.mts).
 let landingLangs;
@@ -465,25 +485,11 @@ async function getLandingLangs() {
 }
 
 app.get('/sitemap.xml', async (req, res) => {
-  const base = siteUrl(req);
-  const langs = await getLandingLangs();
-  // Each language version lists every other one (and x-default) as an alternate.
-  const alternates = [
-    ...langs.map((l) => `    <xhtml:link rel="alternate" hreflang="${l.code}" href="${base}${l.path}"/>`),
-    `    <xhtml:link rel="alternate" hreflang="x-default" href="${base}/"/>`,
-  ].join('\n');
-  const urls = [
-    ...langs.map((l) => `  <url>\n    <loc>${base}${l.path}</loc>\n    <priority>${l.path === '/' ? '1.0' : '0.9'}</priority>\n${alternates}\n  </url>`),
-    `  <url>\n    <loc>${base}/app/</loc>\n    <priority>0.8</priority>\n  </url>`,
-    ...(await getContentPages()).map((p) => `  <url>\n    <loc>${base}${p.path}</loc>\n    <priority>${p.priority}</priority>\n  </url>`),
-  ].join('\n');
-  res
-    .type('application/xml')
-    .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls}\n</urlset>\n`);
+  res.type('application/xml').send(site.sitemapXml(siteUrl(req), await getLandingLangs(), await getContentPages()));
 });
 
 app.get(/^\/(?!api\/).*/, (_req, res) => {
-  res.status(404).type('html').send('<!doctype html><meta charset="utf-8"><title>Not found · Sharona</title><meta name="robots" content="noindex"><p style="font:16px system-ui;padding:40px">Page not found. <a href="/">Go to Sharona</a></p>');
+  res.status(404).type('html').send(site.NOT_FOUND_HTML);
 });
 
 app.use((err, req, res, _next) => {
