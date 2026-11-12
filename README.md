@@ -86,6 +86,24 @@ npm start          # API + built frontend on http://localhost:3000
 npm test           # server tests (accounts, quota, Google and Stripe mocked)
 ```
 
+### Local mode: everything free, no accounts (`npm run dev:local`)
+
+To use the app yourself on your Mac with no sign-in, no limits and no paywall:
+
+```bash
+brew install ffmpeg yt-dlp   # once: server strips of videos and downloads need them
+npm install
+npm run dev:local            # open http://localhost:5173/app/ (hot reload while you edit)
+# or
+npm run local                # build once, then http://localhost:3000/app/
+```
+
+Every tool works and nothing is counted: on-device strips, server strips and downloads from every platform. Nothing needs setting up: no D1 database, Google or Stripe. `.env` isn't read, and any account, billing or D1 variable in your shell is ignored, so it can't touch production data. The server listens on `127.0.0.1` only.
+
+Local mode is on only with `LOCAL_UNLIMITED=1` (which both scripts set; the logic is all in `server/local-mode.js`), and the server refuses to start with it anywhere that looks like a deployment: `NODE_ENV=production`, behind the Worker (`INTERNAL_SECRET`), on Workers Builds or Cloudflare Containers, on Fly, Railway, Render, Cloud Run, Heroku or Kubernetes, or with `HOST` set to a non-loopback address. The Cloudflare Worker ignores it and never passes it to the container, and `npm test` checks that `wrangler.jsonc` never sets it.
+
+Every branch other than main also gets a Cloudflare Preview with its own database and container, dev sign-in and free test upgrades: see [docs/previews.md](docs/previews.md).
+
 In dev, sign-in and upgrades are simulated until you set the Google and Stripe variables (see [docs/accounts-and-billing.md](docs/accounts-and-billing.md) and `.env.example`).
 
 The terminal running the server logs every download (platform, mode, link, file, size, time) and every strip (file name, mode, size before → after, time, what was removed), plus failures. Set `NO_COLOR=1` to turn off colors.
@@ -125,6 +143,7 @@ docker run -p 3000:3000 --env-file .env sharona
 | `STRIPE_PRICE_ID_PACK` | | The $2 one-time strip pack price (10 on-device strips per purchase) |
 | `PACK_STRIPS` | `10` | On-device strips each pack adds |
 | `PAYWALL` | on | `off` disables sign-in and limits |
+| `LOCAL_UNLIMITED` | | `1`: local mode (set by `npm run dev:local`). Refused in production, see above |
 | `FREE_STRIPS`, `FREE_SERVER_STRIPS`, `FREE_DOWNLOADS` | from the `app_settings` table (1, 1, 1) | Free on-device strips, server strips and downloads per account. Leave unset to manage them in D1 without a deploy |
 | `FREE_TRIALS_PER_DAY` | from the `app_settings` table (10) | Free server strips + downloads per UTC day for the whole site. Pro is never counted |
 | `CONTAINER_SECRET` | derived from `SESSION_SECRET` | Worker only: the value of `X-Sharona-Internal` it stamps on requests to the container (passed to it as `INTERNAL_SECRET`) |

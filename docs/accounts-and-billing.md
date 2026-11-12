@@ -269,7 +269,14 @@ On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, bil
 
 One container instance (`standard-2`) serves all traffic, because a download job lives in the memory and disk of the container that started it. It sleeps after 15 minutes without requests and wakes in a few seconds on the next one; set `SLEEP_AFTER` in `vars` to change that.
 
+## Branch previews
+
+Every branch except main gets its own Preview on Cloudflare, with a separate `sharona-preview` database, a small container of its own, dev sign-in and free test upgrades. Setup, what differs from production, and cleanup: [docs/previews.md](previews.md).
+
 ## Dev mode
+
+For your own use with no accounts at all, run `npm run dev:local` instead (see the README): no database, sign-in or limits.
+
 
 There is no local database: point `npm run dev` at a D1 database too (a second database, e.g. `npx wrangler d1 create sharona-dev`, keeps test accounts out of production). With `NODE_ENV` not `production` and no Google/Stripe variables: **Sign in** logs into a local test account (`/api/auth/dev?email=…` gives you more), **Get Basic** / **Get Pro** turn that plan on at once, monthly or yearly (and switch between them), **Get 10 strips (dev, free)** adds a strip pack, and **Cancel plan (dev)** turns it off. In production missing Google/Stripe settings make sign-in and checkout answer "not set up" instead; set `PAYWALL=off` to run without accounts (and without D1) until they are configured.
 
