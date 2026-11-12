@@ -143,7 +143,7 @@ export function Shell({
   return (
     <div className="page doc-page">
       <header className="card doc-head">
-        <a className="wordmark" href={langPath(lang)} aria-label={`${SITE_NAME} ${ui.home}`}>sharona</a>
+        <a className="wordmark" href={langPath(lang)} aria-label={`${SITE_NAME} ${ui.home}`}>SynthIDStripper</a>
         <nav className="nav" aria-label={ui.navLabel}>
           <a href={`${langPrefix(lang)}/guides/`}>{ui.guides}</a>
           <a href={`${langPath(lang)}#pricing`}>{ui.pricing}</a>
@@ -241,21 +241,44 @@ export function PackCard({ lang, top }: { lang: string; top?: boolean }) {
 }
 
 /**
- * The plans promo (the $2 strip pack, Basic and Pro) shown on every guide and
- * content page. Copy comes from the landing page's pricing strings, so it
- * matches the pricing section in every language.
+ * The download guides' top card: downloads run on our server and need Pro, so
+ * the $2 strip pack would not help these readers. Styled like PackCard.
  */
-export function PlansPromo({ lang }: { lang: string }) {
+export function ProDownloadCard({ lang, tool }: { lang: string; tool: string }) {
   const ui = pagesUi(lang);
   const p = getDict(lang).pricing;
   return (
+    <div className="price-pack pack-top">
+      <span className="price-pack-badge">{ui.promo.download.badge}</span>
+      <div>
+        <p className="price-name">{p.pro.name}</p>
+        <p className="price-pack-text">{fill(ui.promo.download.cardText)}</p>
+      </div>
+      <p className="price-tag"><b>{PRICES.pro}</b> {p.perMonth}</p>
+      <a className="cta" href={`${APP}#${tool}`}>{ui.promo.download.cta}</a>
+    </div>
+  );
+}
+
+/**
+ * The plans promo (the $2 strip pack, Basic and Pro) shown on every guide and
+ * content page. Copy comes from the landing page's pricing strings, so it
+ * matches the pricing section in every language. On download guides
+ * (`downloads`) it shows only Pro, the one plan that includes downloads.
+ */
+export function PlansPromo({ lang, downloads }: { lang: string; downloads?: boolean }) {
+  const ui = pagesUi(lang);
+  const p = getDict(lang).pricing;
+  const copy = downloads ? ui.promo.download : ui.promo;
+  const plans = downloads ? (['pro'] as const) : (['basic', 'pro'] as const);
+  return (
     <aside className="card promo" aria-labelledby="promo-h">
       <p className="eyebrow">{ui.promo.eyebrow}</p>
-      <h2 id="promo-h" className="display xs"><Pair p={[fill(ui.promo.title[0]), fill(ui.promo.title[1])]} /></h2>
-      <p className="lede">{fill(ui.promo.text)}</p>
-      <PackCard lang={lang} />
-      <div className="price-plans">
-        {(['basic', 'pro'] as const).map((id) => {
+      <h2 id="promo-h" className="display xs"><Pair p={[fill(copy.title[0]), fill(copy.title[1])]} /></h2>
+      <p className="lede">{fill(copy.text)}</p>
+      {!downloads && <PackCard lang={lang} />}
+      <div className={`price-plans${downloads ? ' price-plans-one' : ''}`}>
+        {plans.map((id) => {
           const plan = p[id];
           return (
             <div key={id} className={`price${id === 'pro' ? ' price-best' : ''}`}>
@@ -293,6 +316,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
     .map((r) => r && localGuide(r, lang))
     .filter((r): r is Guide => Boolean(r));
   const showToc = g.sections.length >= 4;
+  const downloads = g.kind === 'download';
   return (
     <Shell
       lang={lang}
@@ -309,7 +333,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
           </div>
         </div>
         {g.intro.map((p) => <p key={p} className="lede doc-lede"><Rich s={p} lang={lang} /></p>)}
-        <PackCard lang={lang} top />
+        {downloads ? <ProDownloadCard lang={lang} tool={g.tool} /> : <PackCard lang={lang} top />}
 
         {showToc && (
           <nav className="toc" aria-label={ui.contents}>
@@ -346,7 +370,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
         )}
       </article>
 
-      <PlansPromo lang={lang} />
+      <PlansPromo lang={lang} downloads={downloads} />
 
       {related.length > 0 && (
         <nav className="card doc-related" aria-labelledby="related">

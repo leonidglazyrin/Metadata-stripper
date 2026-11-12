@@ -65,6 +65,13 @@ export const ja: PagesTranslation = {
       text: '最初の除去とダウンロードは無料です。その後はSynthID除去10回を$2で試すか、BasicまたはProで無制限に使えます。',
       orYearly: 'または {price} / 年',
       seePlans: 'すべてのプランを比較',
+      download: {
+        badge: 'ダウンロード無制限',
+        title: ['ダウンロードを無制限に。', 'Proで。'],
+        text: '最初の動画ダウンロードは無料です。ダウンロードは当社のサーバーで行うため、その後はProが必要です。YouTube、X、TikTok、Instagramから無制限にダウンロードでき、除去も速くなります。',
+        cardText: 'YouTube、X、TikTok、Instagramから動画を無制限にダウンロード。サーバーでの除去も約4倍速くなります。いつでも解約できます。',
+        cta: '無制限にダウンロード',
+      },
     },
   },
   guides: {

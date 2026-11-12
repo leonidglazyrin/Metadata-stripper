@@ -21,7 +21,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
         <section className="card hero" aria-labelledby="top">
           <header className="card-head">
             <a className="wordmark" href={langPath(lang)} aria-label={fill(t.nav.home)}>
-              sharona
+              SynthIDStripper
             </a>
             <nav className="nav" aria-label={t.nav.label}>
               <NavLinks t={t} lang={lang} />
@@ -105,7 +105,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
             </figure>
             <figure className="shot">
               <span className="shot-tag good">{t.detection.cleanTag}</span>
-              <img src="/tiktok-ai-label-optional.jpg" width={1073} height={280} loading="lazy" decoding="async"
+              <img src="/tiktok-ai-label-optional.jpg?v=2" width={1072} height={299} loading="lazy" decoding="async"
                    alt={fill(t.detection.shotOptionalAlt)} />
               <figcaption><b>{fill(t.detection.afterTitle)}</b> {fill(t.detection.afterText)}</figcaption>
             </figure>

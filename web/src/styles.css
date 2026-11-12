@@ -63,6 +63,7 @@ button, input { font: inherit; color: inherit; }
   line-height: 1;
   color: var(--blue);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .display {
@@ -392,6 +393,7 @@ button, input { font: inherit; color: inherit; }
 }
 @media (max-width: 560px) {
   .page { padding: 16px 12px 32px; gap: 12px; }
+  .wordmark { font-size: clamp(16px, 4.8vw, 26px); }
   .card { border-radius: 22px; }
   .tool-head { flex-direction: column; gap: 14px; }
   .chip { font-size: 15px; padding: 6px 14px 6px 7px; }

@@ -55,6 +55,14 @@ export type PagesUi = {
     /** "or {price} / year" under a monthly price. */
     orYearly: string;
     seePlans: string;
+    /** Download guides: downloads run on the server and need Pro, so they get a Pro promo instead of the strip pack. */
+    download: {
+      badge: string;
+      title: Pair;
+      text: string;
+      cardText: string;
+      cta: string;
+    };
   };
 };
 

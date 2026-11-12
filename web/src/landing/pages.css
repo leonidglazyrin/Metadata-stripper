@@ -68,7 +68,7 @@
   .foot-cols, .guide-list, .doc-steps .steps { grid-template-columns: minmax(0, 1fr); }
   .doc-head .nav { display: none; }
   .doc-head .head-cta { margin-left: auto; }
-  .doc-head .wordmark { font-size: 26px; }
+  .doc-head .wordmark { font-size: clamp(16px, 4.8vw, 26px); }
   .doc-top { flex-direction: column; gap: 14px; }
   .doc-steps { padding: 18px; }
   .toc ol { columns: 1; }
@@ -82,3 +82,18 @@
 .promo-more { margin-left: auto; color: var(--blue); font-weight: 700; text-decoration: none; }
 .promo-more:hover { text-decoration: underline; }
 .pack-top { margin-top: 30px; }
+.price-plans-one { grid-template-columns: minmax(0, 1fr); max-width: 460px; }
+
+/* Narrow phones: keep the wordmark, language and "Open tools" on one row. */
+@media (max-width: 420px) {
+  .hero .card-head, .doc-head { gap: 8px 10px; }
+  .doc-head { padding-left: 14px; padding-right: 14px; }
+  .card-head .head-cta, .doc-head .head-cta { padding: 9px 12px; }
+}
+@media (max-width: 359px) {
+  .card-head .head-cta, .doc-head .head-cta { display: none; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .doc-head { gap: 10px 14px; }
+  .doc-head .wordmark { font-size: 22px; }
+}

@@ -1,4 +1,4 @@
-// Deploys Sharona to Cloudflare: `npx wrangler deploy` builds the web app
+// Deploys SynthIDStripper to Cloudflare: `npx wrangler deploy` builds the web app
 // (npm run build → dist/, served by the Worker as static assets), builds the
 // Dockerfile (Docker must be running locally; Workers Builds does it for you
 // on push) and puts the Worker (worker/index.js) in front of it. The Worker

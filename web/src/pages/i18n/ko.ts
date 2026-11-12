@@ -65,6 +65,13 @@ export const ko: PagesTranslation = {
       text: '첫 제거와 다운로드는 무료입니다. 그다음에는 SynthID 제거 10회를 $2에 써 보거나 Basic 또는 Pro로 무제한 이용하세요.',
       orYearly: '또는 {price} / 년',
       seePlans: '모든 요금제 비교',
+      download: {
+        badge: '무제한 다운로드',
+        title: ['제한 없이 다운로드.', 'Pro로.'],
+        text: '첫 동영상 다운로드는 무료입니다. 다운로드는 저희 서버에서 처리되므로 그다음에는 Pro가 필요합니다. YouTube, X, TikTok, Instagram에서 무제한 다운로드하고 더 빠르게 제거하세요.',
+        cardText: 'YouTube, X, TikTok, Instagram 동영상 무제한 다운로드, 그리고 약 4배 빠른 서버 제거. 언제든지 해지할 수 있습니다.',
+        cta: '무제한 다운로드',
+      },
     },
   },
   guides: {

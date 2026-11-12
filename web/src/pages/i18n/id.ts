@@ -65,6 +65,13 @@ export const id: PagesTranslation = {
       text: 'Pembersihan dan unduhan pertamamu gratis. Setelah itu, coba 10 pembersihan SynthID seharga $2, atau pakai tanpa batas dengan Basic atau Pro.',
       orYearly: 'atau {price} / tahun',
       seePlans: 'Bandingkan semua paket',
+      download: {
+        badge: 'Unduhan tanpa batas',
+        title: ['Unduh tanpa batas.', 'Pakai Pro.'],
+        text: 'Unduhan video pertamamu gratis. Unduhan berjalan di server kami, jadi setelah itu kamu perlu Pro: unduhan tanpa batas dari YouTube, X, TikTok, dan Instagram, plus pembersihan lebih cepat.',
+        cardText: 'Unduhan video tanpa batas dari YouTube, X, TikTok, dan Instagram, plus pembersihan di server sekitar 4x lebih cepat. Batalkan kapan saja.',
+        cta: 'Unduh tanpa batas',
+      },
     },
   },
   guides: {

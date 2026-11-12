@@ -66,7 +66,7 @@ function startServer(t, env) {
   for (const k of [...DEPLOY_SIGNS, 'NODE_ENV', 'HOST', 'PAYWALL']) delete clean[k];
   // Its own temp dir: a server purges its work dir on startup, and other test
   // files start servers too.
-  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'sharona-local-'));
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'synthidstripper-local-'));
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
   const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
     env: { ...clean, TMPDIR: tmp, PORT: String(port), NO_COLOR: '1', ...env },

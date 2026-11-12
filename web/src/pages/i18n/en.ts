@@ -55,5 +55,12 @@ export const en: PagesUi = {
     text: 'Your first strips and downloads are free. After that, try 10 SynthID strips for $2, or go unlimited with Basic or Pro.',
     orYearly: 'or {price} / year',
     seePlans: 'Compare all plans',
+    download: {
+      badge: 'Unlimited downloads',
+      title: ['Download without limits.', 'Go Pro.'],
+      text: 'Your first video download is free. Downloads run on our server, so after that they need Pro: unlimited downloads from YouTube, X, TikTok and Instagram, plus faster stripping.',
+      cardText: 'Unlimited video downloads from YouTube, X, TikTok and Instagram, plus server stripping about 4x faster. Cancel anytime.',
+      cta: 'Get unlimited downloads',
+    },
   },
 };
