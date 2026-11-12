@@ -21,7 +21,11 @@ const ASSET_FILES = {
   '/app/index.html': ['text/html', '<title>app</title>__SITE_URL__'],
   '/es/index.html': ['text/html', '<title>es</title>'],
   '/guides/strip-synthid/index.html': ['text/html', '<title>guide</title>'],
-  '/pages.json': ['application/json', JSON.stringify([{ path: '/guides/strip-synthid/', priority: '0.7' }])],
+  '/es/guides/strip-synthid/index.html': ['text/html', '<title>guía</title>'],
+  '/pages.json': ['application/json', JSON.stringify([
+    { path: '/guides/strip-synthid/', priority: '0.7', alternates: [{ code: 'en', path: '/guides/strip-synthid/' }, { code: 'es', path: '/es/guides/strip-synthid/' }] },
+    { path: '/es/guides/strip-synthid/', priority: '0.7', alternates: [{ code: 'en', path: '/guides/strip-synthid/' }, { code: 'es', path: '/es/guides/strip-synthid/' }] },
+  ])],
   '/landing-langs.json': ['application/json', JSON.stringify([{ code: 'en', path: '/' }, { code: 'es', path: '/es/' }])],
   '/assets/app-123.js': ['text/javascript', 'console.log(1)'],
   '/assets/ffmpeg-core-1.wasm.part0': ['application/octet-stream', 'wasm'],
@@ -87,11 +91,18 @@ test('pages, static files and every on-device step are answered by the Worker al
   assert.equal((await s.call('GET', '/guides/strip-synthid')).headers.get('location'), '/guides/strip-synthid/');
   assert.equal((await s.call('GET', '/guides/strip-synthid/')).status, 200);
   assert.equal((await s.call('GET', '/guides/nope/')).status, 404);
+  assert.equal((await s.call('GET', '/es/guides/strip-synthid/')).status, 200);
+  assert.equal((await s.call('GET', '/es/guides/strip-synthid')).headers.get('location'), '/es/guides/strip-synthid/');
+  assert.equal((await s.call('GET', '/fr/guides/strip-synthid/')).status, 404);
   assert.equal((await s.call('GET', '/nope')).status, 404);
   const js = await s.call('GET', '/assets/app-123.js');
   assert.match(js.headers.get('cache-control'), /immutable/);
   assert.equal((await s.call('GET', '/assets/ffmpeg-core-1.wasm.part0')).status, 200);
-  assert.match(await (await s.call('GET', '/sitemap.xml')).text(), /<loc>https:\/\/sharona\.test\/es\/<\/loc>/);
+  const sitemap = await (await s.call('GET', '/sitemap.xml')).text();
+  assert.match(sitemap, /<loc>https:\/\/sharona\.test\/es\/<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/sharona\.test\/es\/guides\/strip-synthid\/<\/loc>/);
+  assert.match(sitemap, /hreflang="es" href="https:\/\/sharona\.test\/es\/guides\/strip-synthid\/"/);
+  assert.match(sitemap, /hreflang="x-default" href="https:\/\/sharona\.test\/guides\/strip-synthid\/"/);
   assert.match(await (await s.call('GET', '/robots.txt')).text(), /Disallow: \/api\//);
   assert.deepEqual(await (await s.call('GET', '/api/health')).json(), { ok: true });
   assert.equal((await (await s.call('GET', '/api/download/platforms')).json()).length, 4);
