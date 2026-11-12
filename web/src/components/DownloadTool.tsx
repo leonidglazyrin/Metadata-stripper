@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { useJobs, type Runner } from '../lib/jobs';
 import { apiUrl, formatSize, getBlob, RequestError, requestJson } from '../lib/request';
-import { gateError, refreshAccount, useAccountState } from '../lib/account';
+import { gateError, preflight, refreshAccount, useAccountState } from '../lib/account';
 import { load, save, useStored } from '../lib/storage';
 import type { Platform, ToolInfo } from '../tools';
 import { IconClose, ToolIcon } from './Icons';
@@ -377,7 +377,8 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     if (synced) void requestJson('DELETE', `/api/download/history/${platform}`).catch(() => {});
     clear();
   };
-  const onRetry = (id: string) => {
+  const onRetry = async (id: string) => {
+    if (!(await preflight('download'))) return;
     expiry.current.delete(id);
     retry(id);
   };
@@ -403,8 +404,10 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     ]);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!urls.length) return refs.current[0]?.focus();
+    // Signed out or out of free downloads: say so before sending anything.
+    if (!(await preflight('download'))) return;
     add(urls.map((url) => ({ input: { url, mode }, name: shortUrl(url) })));
     setFields(['']);
     focusNext.current = 0;
@@ -418,7 +421,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          submit();
+          void submit();
         }}
       >
         <div className="fields">
@@ -470,7 +473,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         icon={<ToolIcon tool={platform} size={26} />}
         linkOf={(j) => (j.input as Input).url}
         onRemove={onRemove}
-        onRetry={onRetry}
+        onRetry={(id) => void onRetry(id)}
         onClear={onClear}
         switchLabel={mode === 'audio' ? 'Get audio' : 'Get video'}
         canSwitch={(j) => canSwitch(j as (typeof jobs)[number])}

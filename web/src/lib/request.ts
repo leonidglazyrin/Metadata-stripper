@@ -18,6 +18,9 @@ export class RequestError extends Error {
   }
 }
 
+/** No answer at all: offline, or the connection dropped. */
+const NETWORK = 'Couldn’t reach the server. Check your connection and try again.';
+
 /** Base URL for the API; empty means same origin (or the Vite dev proxy). */
 const API = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
@@ -39,7 +42,7 @@ export async function requestJson<T>(method: string, path: string, body?: object
     });
   } catch (e) {
     if (signal?.aborted) throw e;
-    throw new RequestError('Network error, is the server running?');
+    throw new RequestError(NETWORK);
   }
   const text = await res.text();
   let data: unknown = null;
@@ -84,7 +87,7 @@ function requestForBlob(
     xhr.withCredentials = true;
     signal.addEventListener('abort', () => xhr.abort());
     xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
-    xhr.onerror = () => reject(new RequestError('Network error, is the server running?'));
+    xhr.onerror = () => reject(new RequestError(NETWORK));
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       const p = e.loaded / e.total;

@@ -313,6 +313,9 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
       credits: user ? { strip: Math.max(0, Number(user.strip_credits ?? 0)), packs: Number(user.strip_packs ?? 0) } : null,
       // The free allowance every account starts with (for the sign-in step).
       free: lim,
+      // Today's site-wide free server strips / downloads are all taken, so the
+      // page can say so before uploading anything. Null when it doesn't apply.
+      trialsFull: user && lim ? (await store.freeTrialsToday()) >= (await trialsPerDay()) : null,
       plans: PLANS.map((id) => ({
         id,
         name: PLAN_NAME[id],

@@ -4,7 +4,7 @@ import { load, save } from './lib/storage';
 import { HeroArt, ToolIcon } from './components/Icons';
 import StripTool from './components/StripTool';
 import DownloadTool from './components/DownloadTool';
-import { AccountBar, AccountNotice, PaywallDialog } from './components/Account';
+import { AccountBar, AccountNotice, PaywallDialog, SignInGate, useLocked } from './components/Account';
 import { initAccount } from './lib/account';
 
 function initialTool(): ToolId {
@@ -15,6 +15,8 @@ function initialTool(): ToolId {
 
 export default function App() {
   const [active, setActive] = useState<ToolId>(initialTool);
+  // Signed out: the sign-in card sits above the tool, which can't be used yet.
+  const locked = useLocked();
 
   useEffect(() => {
     void initAccount();
@@ -82,6 +84,8 @@ export default function App() {
         </div>
       </section>
 
+      <SignInGate />
+
       {TOOLS.map((t) => (
         // All tools stay mounted so switching chips never drops work in flight.
         <section
@@ -89,8 +93,11 @@ export default function App() {
           id={`panel-${t.id}`}
           role="tabpanel"
           aria-labelledby={`chip-${t.id}`}
-          className="card tool"
+          className={`card tool${locked ? ' tool-locked' : ''}`}
           hidden={t.id !== active}
+          // A file dropped on the locked tool must not open in the browser tab.
+          onDragOver={locked ? (e) => e.preventDefault() : undefined}
+          onDrop={locked ? (e) => e.preventDefault() : undefined}
         >
           <div className="tool-head">
             <ToolIcon tool={t.id} size={56} />
@@ -102,7 +109,9 @@ export default function App() {
             </div>
           </div>
 
-          {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} />}
+          <div className="tool-body" inert={locked} aria-disabled={locked || undefined}>
+            {t.id === 'strip' ? <StripTool /> : <DownloadTool tool={t} />}
+          </div>
         </section>
       ))}
 

@@ -3,7 +3,7 @@ import { useJobs, type Runner, type Update } from '../lib/jobs';
 
 type Where = 'server' | 'device';
 import { postForBlob, requestJson } from '../lib/request';
-import { gateError, refreshAccount } from '../lib/account';
+import { gateError, preflight, refreshAccount } from '../lib/account';
 import { useStored } from '../lib/storage';
 import { IconFile, IconPlus } from './Icons';
 import JobList from './JobList';
@@ -77,9 +77,14 @@ export default function StripTool() {
 
   const { jobs, add, remove, retry, clear, setPreview } = useJobs(runner);
 
-  const addFiles = (files: FileList | null) => {
+  // Asks the account first (sign-in, free uses, today's free trials), so a
+  // file that would be refused is never queued or uploaded.
+  const allowed = () => preflight(whereRef.current === 'device' ? 'strip' : 'server_strip');
+
+  const addFiles = async (files: ArrayLike<File> | null) => {
     if (!files?.length) return;
-    const list = [...files];
+    const list = Array.from(files);
+    if (!(await allowed())) return;
     const ids = add(
       list.map((f) => ({
         input: f,
@@ -117,7 +122,7 @@ export default function StripTool() {
         onDragLeave={(e) => onDrag(e, false)}
         onDrop={(e) => {
           onDrag(e, false);
-          addFiles(e.dataTransfer.files);
+          void addFiles(e.dataTransfer.files);
         }}
       >
         <input
@@ -127,7 +132,8 @@ export default function StripTool() {
           hidden
           accept="image/*,video/*,.heic,.heif,.mkv,.mts,.m2ts"
           onChange={(e) => {
-            addFiles(e.target.files);
+            // Copy the list before clearing the input, which empties it.
+            void addFiles(e.target.files ? Array.from(e.target.files) : null);
             e.target.value = '';
           }}
         />
@@ -157,7 +163,7 @@ export default function StripTool() {
         </div>
       </div>
 
-      <JobList jobs={jobs} icon={<IconFile />} onRemove={remove} onRetry={retry} onClear={clear} />
+      <JobList jobs={jobs} icon={<IconFile />} onRemove={remove} onRetry={(id) => void allowed().then((ok) => ok && retry(id))} onClear={clear} />
     </>
   );
 }

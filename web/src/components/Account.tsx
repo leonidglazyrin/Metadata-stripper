@@ -354,6 +354,65 @@ export function PaywallDialog() {
   );
 }
 
+/** Signed out with the paywall on: the tools are shown but locked behind SignInGate. */
+export function useLocked() {
+  const { account: a } = useAccountState();
+  return Boolean(a?.paywall && !a.signedIn);
+}
+
+/**
+ * Above the tools for a signed-out visitor: the free allowance, the plans and
+ * Google sign-in, in the page rather than a dialog. The tools stay visible
+ * underneath but can't be used until sign-in.
+ */
+export function SignInGate() {
+  const { account: a } = useAccountState();
+  if (!a?.paywall || a.signedIn) return null;
+  const free = a.free;
+  const pk = a.pack;
+  return (
+    <section className="card gate" aria-labelledby="gate-title">
+      <div className="gate-top">
+        <div className="gate-copy">
+          <h2 id="gate-title" className="display sm">Sign in to <span className="accent">start free</span></h2>
+          <p className="lede">
+            Every account gets <b>{n(free?.strip)} free on-device strip</b>, <b>{n(free?.server_strip)} free server strip</b> and{' '}
+            <b>{n(free?.download)} free video download</b>. No card needed.
+          </p>
+        </div>
+        <div className="gate-cta">
+          <button type="button" className="paywall-google" onClick={signIn} disabled={!a.signIn}>
+            <GoogleLogo />
+            {a.signIn === 'dev' ? 'Continue (dev account)' : 'Continue with Google'}
+          </button>
+          {!a.signIn && <p className="paywall-error">Sign-in isn’t set up on this server yet.</p>}
+        </div>
+      </div>
+      <div className="plans">
+        {(['basic', 'pro'] as const).map((id) => {
+          const p = planOf(a, id);
+          return (
+            <div key={id} className={`plan${id === 'pro' ? ' plan-best' : ''}`}>
+              <div className="plan-head">
+                <b>{p.name}</b>
+                <span className="plan-price"><b>{p.label}</b> / {p.interval}</span>
+              </div>
+              <ul className="paywall-perks">
+                {PERKS[id].map((perk) => <li key={perk}>{perk}</li>)}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+      {pk?.available && (
+        <p className="paywall-fine">
+          Or try it for {pk.label}: {pk.strips} SynthID strips on your device, paid once. Sign in first to buy plans or packs.
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** One-line message after checkout, dismissed by a click. */
 export function AccountNotice() {
   const { notice } = useAccountState();
