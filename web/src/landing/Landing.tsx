@@ -7,6 +7,8 @@ import { HeroArt, Tile, ToolIcon } from '../components/Icons';
 import { AI_SOURCES, PRICE, PRICES, SITE_NAME, YEARLY_PRICES } from './content';
 import { getDict, langPath, LANGS, type Dict } from './i18n';
 import { SiteFooter } from '../pages/Pages';
+import { guidePath } from '../pages/guides';
+import { langPrefix, pagesUi } from '../pages/i18n';
 import type { Faq } from './i18n/en';
 
 const APP = '/app/';
@@ -22,7 +24,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
               sharona
             </a>
             <nav className="nav" aria-label={t.nav.label}>
-              <NavLinks t={t} />
+              <NavLinks t={t} lang={lang} />
             </nav>
             <LangSwitch lang={lang} label={t.nav.language} />
             <a className="pill-btn head-cta" href={APP}>{t.nav.openTools}</a>
@@ -32,7 +34,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
                 <span className="burger" aria-hidden="true"><i /><i /><i /></span>
               </summary>
               <nav className="menu-panel" aria-label={t.nav.mobileLabel}>
-                <NavLinks t={t} />
+                <NavLinks t={t} lang={lang} />
                 <div className="menu-langs" aria-label={t.nav.language} role="group">
                   {LANGS.map((l) => (
                     <a key={l.code} href={langPath(l.code)} hrefLang={l.code} lang={l.code} title={l.name}
@@ -86,6 +88,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
           </div>
           <div className="card-cta">
             <a className="cta" href={`${APP}#strip`}>{t.synthid.cta}</a>
+            <a className="cta ghost" href={guidePath('what-is-synthid', lang)}>{t.synthid.learnMore}</a>
           </div>
         </section>
 
@@ -207,6 +210,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
         <FaqSection id="downloaders-faq" title={t.downloaderFaq.title} items={t.downloaderFaq.items} />
 
         <SiteFooter
+          lang={lang}
           tagline={t.footer.tagline}
           openLabel={t.footer.open}
           disclaimer={fill(t.footer.disclaimer)}
@@ -245,7 +249,7 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
   );
 }
 
-function NavLinks({ t }: { t: Dict }) {
+function NavLinks({ t, lang }: { t: Dict; lang: string }) {
   return (
     <>
       <a href="#synthid">{t.nav.synthid}</a>
@@ -254,6 +258,7 @@ function NavLinks({ t }: { t: Dict }) {
       <a href="#downloaders">{t.nav.downloaders}</a>
       <a href="#pricing">{t.nav.pricing}</a>
       <a href="#faq">{t.nav.faq}</a>
+      <a href={`${langPrefix(lang)}/guides/`}>{pagesUi(lang).guides}</a>
     </>
   );
 }
