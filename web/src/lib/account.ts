@@ -87,11 +87,26 @@ const subscribe = (l: () => void) => {
 
 export const useAccountState = () => useSyncExternalStore(subscribe, () => state);
 
+/** No answer, or a 5xx / 429: worth asking again in a moment. */
+const transient = (e: unknown) => !(e instanceof RequestError) || e.status === 0 || e.status === 429 || e.status >= 500;
+
+/**
+ * Re-read the account. A failed request never changes what is shown: the
+ * last known account stays (a hiccup must not look like being signed out).
+ * Before anything is known (the page load), a transient failure is retried
+ * a few times so the header settles on the real state.
+ */
 export async function refreshAccount() {
-  try {
-    set({ account: await requestJson<Account>('GET', '/api/me') });
-  } catch {
-    /* server unreachable: the tools report that themselves */
+  const tries = state.account ? 1 : 4;
+  for (let i = 0; i < tries; i++) {
+    try {
+      set({ account: await requestJson<Account>('GET', '/api/me') });
+      break;
+    } catch (e) {
+      /* server unreachable: the tools report that themselves */
+      if (!transient(e) || i === tries - 1) break;
+      await new Promise((ok) => setTimeout(ok, 500 * 2 ** i));
+    }
   }
   return state.account;
 }
@@ -148,6 +163,14 @@ export function gateError(e: unknown, kind: Kind): unknown {
   const pack = Boolean(data.pack);
   // The site-wide daily cap on free server strips and downloads is reached.
   const full = data.code === 'free_trials_full';
+  if (e.status === 401 && state.account?.signedIn) {
+    // We think we're signed in: check before asking to sign in again, so a
+    // one-off refusal doesn't look like being signed out.
+    void refreshAccount().then((a) => {
+      if (a?.paywall && !a.signedIn) openPaywall({ reason: 'auth', kind: k });
+    });
+    return new Error('Couldn’t confirm your sign-in, please try again');
+  }
   openPaywall({ reason: e.status === 401 ? 'auth' : 'upgrade', kind: k, plan, pack, full, message: full ? data.error : undefined });
   void refreshAccount();
   if (e.status === 401) return new Error('Sign in to keep going');

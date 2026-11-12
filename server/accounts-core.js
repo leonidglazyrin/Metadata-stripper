@@ -45,7 +45,11 @@ const log = require('./log');
 
 const COOKIE = 'sh_sess';
 const STATE_COOKIE = 'sh_oauth';
-const SESSION_DAYS = 30;
+// Sessions last a year and slide: a visit at least a day after the cookie
+// was issued gets a fresh one, so a regular visitor never has to sign in again.
+const SESSION_DAYS = 365;
+const SESSION_MS = SESSION_DAYS * 86400000;
+const RENEW_AFTER_MS = 86400000;
 
 function loadConfig(env = process.env) {
   const production = env.NODE_ENV === 'production';
@@ -187,10 +191,29 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
   const devBilling = !stripe && !config.production;
   const packAvailable = Boolean(stripe && packPrice) || devBilling;
 
+  // Sessions are signed with SESSION_SECRET. Without it, a secret made up per
+  // process would differ between Worker isolates and change on every deploy,
+  // signing people out at random on reload. So the first process to need one
+  // stores a random secret in D1 (app_settings.session_secret) and every
+  // other isolate, container and deploy reads the same one.
   let secret = config.sessionSecret;
+  let secretLoading = null;
   if (!secret) {
-    if (config.production && config.paywall) log.fail('account', 'SESSION_SECRET is not set: sessions end on every restart. Set it to a long random string.');
-    secret = crypto.randomBytes(32).toString('hex');
+    if (store && typeof store.sessionSecret === 'function') {
+      if (config.production && config.paywall) log.fail('account', 'SESSION_SECRET is not set: using the one stored in D1 (app_settings.session_secret). Set SESSION_SECRET to a long random string.');
+    } else {
+      if (config.production && config.paywall) log.fail('account', 'SESSION_SECRET is not set: sessions end on every restart. Set it to a long random string.');
+      secret = crypto.randomBytes(32).toString('hex');
+    }
+  }
+
+  /** Make sure the signing secret is known (reads or creates the stored one). */
+  async function ready() {
+    if (secret) return;
+    secretLoading ??= store.sessionSecret(crypto.randomBytes(32).toString('hex'))
+      .then((s) => { secret = s; })
+      .finally(() => { secretLoading = null; });
+    await secretLoading;
   }
 
   if (config.paywall) {
@@ -212,12 +235,14 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
   const sign = (data) => b64u(crypto.createHmac('sha256', secret).update(data).digest());
 
   function sessionToken(userId, now = Date.now()) {
-    const body = b64u(JSON.stringify({ u: userId, e: now + SESSION_DAYS * 86400000 }));
+    if (!secret) throw new Error('session secret not loaded');
+    const body = b64u(JSON.stringify({ u: userId, e: now + SESSION_MS }));
     return `${body}.${sign(body)}`;
   }
 
-  function readSession(token, now = Date.now()) {
-    if (!token) return null;
+  /** { u: user id, e: expiry ms } of a valid, unexpired token, or null. */
+  function sessionOf(token, now = Date.now()) {
+    if (!token || !secret) return null;
     const [body, mac] = token.split('.');
     if (!body || !mac) return null;
     const expected = Buffer.from(sign(body));
@@ -225,17 +250,32 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
     if (got.length !== expected.length || !crypto.timingSafeEqual(got, expected)) return null;
     try {
       const { u, e } = JSON.parse(Buffer.from(body, 'base64url').toString());
-      return e > now ? u : null;
+      return e > now ? { u, e } : null;
     } catch { return null; }
   }
+
+  const readSession = (token, now = Date.now()) => sessionOf(token, now)?.u ?? null;
 
   const secure = (request) => config.production || baseUrl(request).startsWith('https:');
   const cookieOpts = (request, maxAgeSec) => `Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure(request) ? '; Secure' : ''}`;
   /** A Set-Cookie header value. */
   const cookie = (request, name, value, maxAgeSec) => `${name}=${encodeURIComponent(value)}; ${cookieOpts(request, maxAgeSec)}`;
+  /** A fresh session cookie for this user. */
+  const sessionCookie = (request, userId) => cookie(request, COOKIE, sessionToken(userId), SESSION_DAYS * 86400);
+
+  /**
+   * Sliding renewal: a fresh session cookie when the request's one is valid
+   * and was issued over a day ago, else null.
+   */
+  function renewedCookie(request, now = Date.now()) {
+    const sess = sessionOf(parseCookies(request.headers.get('cookie'))[COOKIE], now);
+    if (!sess || sess.e - now > SESSION_MS - RENEW_AFTER_MS) return null;
+    return sessionCookie(request, sess.u);
+  }
 
   /** The signed-in account for a Cookie header, or null. */
   async function userFromCookies(cookieHeader) {
+    await ready();
     const id = readSession(parseCookies(cookieHeader)[COOKIE]);
     return id && store ? store.getUser(id) : null;
   }
@@ -638,7 +678,7 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
         if (info.email && info.email_verified === false) return fail('email not verified');
         const user = await store.upsertGoogleUser(info);
         log.ok('account', `user ${user.id} (${user.email}) signed in`);
-        return redirect(next, [clear, cookie(request, COOKIE, sessionToken(user.id), SESSION_DAYS * 86400)]);
+        return redirect(next, [clear, sessionCookie(request, user.id)]);
       } catch (e) {
         return fail(e.message);
       }
@@ -652,7 +692,7 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
       const email = /^[^\s@]+@[^\s@]+$/.test(q.get('email') || '') ? q.get('email') : 'dev@localhost';
       const user = await store.upsertGoogleUser({ sub: `dev:${email}`, email, name: 'Dev user' });
       log.note('account', `dev sign-in as user ${user.id} (${email})`);
-      return redirect(safeNext(q.get('next')), [cookie(request, COOKIE, sessionToken(user.id), SESSION_DAYS * 86400)]);
+      return redirect(safeNext(q.get('next')), [sessionCookie(request, user.id)]);
     },
 
     'POST /api/auth/logout': async (request) => withCookies(json(await account(null)), [cookie(request, COOKIE, '', 0)]),
@@ -825,8 +865,15 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
     const route = ROUTES[key];
     if (!route) return json({ error: 'Method not allowed' }, 405);
     try {
+      await ready();
       const user = NO_USER.has(key) ? null : await userFromCookies(request.headers.get('cookie'));
-      return await route(request, user);
+      const res = await route(request, user);
+      // Every page load asks /api/me, so that is where a session slides.
+      if (user && key === 'GET /api/me') {
+        const fresh = renewedCookie(request);
+        if (fresh) res.headers.append('Set-Cookie', fresh);
+      }
+      return res;
     } catch (e) {
       // A database outage answers 503 instead of hanging or letting work through.
       log.fail('account', `${request.method} ${pathname}: ${e.message}`);
@@ -835,7 +882,7 @@ function createAccountsCore({ config = loadConfig(), store, fetchImpl = fetch } 
   }
 
   return {
-    config, store, handle, handles, use, admit, userFromCookies, account, limits, trialsPerDay,
+    config, store, handle, handles, use, admit, userFromCookies, account, limits, trialsPerDay, ready,
     sessionToken, readSession, handleEvent, tierForPrice, intervalForPrice,
   };
 }

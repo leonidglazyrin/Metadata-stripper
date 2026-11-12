@@ -231,6 +231,21 @@ function createStore({ query, uuid = () => crypto.randomUUID() }) {
       ));
     },
 
+    /**
+     * The session signing secret kept in app_settings, for a deploy without
+     * SESSION_SECRET. The first caller's candidate wins; everyone gets that one.
+     */
+    async sessionSecret(candidate) {
+      await query(
+        "INSERT OR IGNORE INTO app_settings (key, value, note) VALUES ('session_secret', ?1, 'Signs session cookies when SESSION_SECRET is not set. Changing it signs everyone out.')",
+        [JSON.stringify(candidate)],
+      );
+      const row = await first("SELECT value FROM app_settings WHERE key = 'session_secret'");
+      const value = row ? JSON.parse(row.value) : '';
+      if (typeof value !== 'string' || value.length < 32) throw new Error('D1: app_settings.session_secret is missing or too short');
+      return value;
+    },
+
     /** Rows of the app_settings table as { key: value }, cached for a minute. */
     async settings(now = Date.now()) {
       if (settings && now - settingsAt < SETTINGS_TTL_MS) return settings;

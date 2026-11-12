@@ -150,7 +150,7 @@ test('tampered or expired session cookies are ignored', async () => {
   const forged = Buffer.from(JSON.stringify({ u: 1, e: Date.now() + 1e9 })).toString('base64url');
   assert.equal(accounts.readSession(`${forged}.${mac}`), null);
   assert.equal(accounts.readSession(`${body}.x${mac.slice(1)}`), null);
-  assert.equal(accounts.readSession(accounts.sessionToken('7', Date.now() - 31 * 86400000)), null);
+  assert.equal(accounts.readSession(accounts.sessionToken('7', Date.now() - 366 * 86400000)), null);
 });
 
 test('production without Google or Stripe refuses sign-in and checkout instead of faking them', async (t) => {
@@ -885,4 +885,42 @@ test('without the Worker in front, the server itself caps free trials per day', 
   await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro' } });
   assert.equal((await s.call('POST', '/api/strip')).status, 200);
   assert.equal((await s.call('POST', '/api/download')).status, 202);
+});
+
+test('a session lasts a year and slides forward on /api/me', async () => {
+  const accounts = createAccounts({ config: config(), store: storeFor(fakeD1()) });
+  const { core } = accounts;
+  const now = Date.now();
+  // Still valid 300 days in; gone after a year.
+  assert.equal(accounts.readSession(accounts.sessionToken('7', now - 300 * 86400000)), '7');
+  assert.equal(accounts.readSession(accounts.sessionToken('7', now - 366 * 86400000)), null);
+  const user = await core.store.upsertGoogleUser({ sub: 'g:slide', email: 'slide@test', name: 'Slide' });
+  const me = (tok) => core.handle(new Request('http://app.test/api/me', { headers: { cookie: `sh_sess=${encodeURIComponent(tok)}` } }));
+  // Issued just now: no new cookie.
+  const fresh = await me(accounts.sessionToken(user.id, now));
+  assert.equal((await fresh.json()).signedIn, true);
+  assert.deepEqual(fresh.headers.getSetCookie(), []);
+  // Issued 20 days ago: signed in, and a fresh year-long cookie comes back.
+  const old = await me(accounts.sessionToken(user.id, now - 20 * 86400000));
+  assert.equal((await old.json()).signedIn, true);
+  const [c] = old.headers.getSetCookie();
+  assert.match(c, /^sh_sess=.+; Path=\/; HttpOnly; SameSite=Lax; Max-Age=31536000/);
+  const renewed = decodeURIComponent(c.split(';')[0].slice('sh_sess='.length));
+  assert.equal(accounts.readSession(renewed, now + 360 * 86400000), user.id);
+});
+
+test('without SESSION_SECRET every process signs with the one secret stored in D1', async () => {
+  const db = fakeD1();
+  const a = createAccounts({ config: config({ sessionSecret: '' }), store: storeFor(db) });
+  const b = createAccounts({ config: config({ sessionSecret: '' }), store: storeFor(db) });
+  await Promise.all([a.core.ready(), b.core.ready()]);
+  const user = await a.store.upsertGoogleUser({ sub: 'g:iso', email: 'iso@test', name: 'Iso' });
+  // A cookie from one isolate (or an older deploy) works on another.
+  const tok = a.sessionToken(user.id);
+  assert.equal((await b.core.userFromCookies(`sh_sess=${encodeURIComponent(tok)}`))?.id, user.id);
+  const c = createAccounts({ config: config({ sessionSecret: '' }), store: storeFor(db) });
+  assert.equal((await c.core.userFromCookies(`sh_sess=${encodeURIComponent(tok)}`))?.id, user.id);
+  // An explicit SESSION_SECRET still wins.
+  const d = createAccounts({ config: config({ sessionSecret: 'other' }), store: storeFor(db) });
+  assert.equal(await d.core.userFromCookies(`sh_sess=${encodeURIComponent(tok)}`), null);
 });
