@@ -100,7 +100,11 @@ export const de: Translation = {
   },
   pricing: {
     perMonth: '/ Monat',
-    billing: 'Monatliche Abrechnung über Stripe. Jederzeit kündbar.',
+    perYear: '/ Jahr',
+    monthly: 'Monatlich',
+    yearly: 'Jährlich',
+    yearlySave: '2 Monate gratis',
+    billing: 'Monatliche oder jährliche Abrechnung über Stripe. Jederzeit kündbar.',
     stripeLabel: 'Zahlungen über Stripe',
     cta: 'Tools öffnen',
   },

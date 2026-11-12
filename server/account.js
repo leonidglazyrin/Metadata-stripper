@@ -4,9 +4,9 @@
 //
 //   Free   1 on-device strip, 1 server strip, 1 download per account
 //          (configurable in the app_settings table)
-//   Basic  $10/month: unlimited on-device stripping
-//   Pro    $20/month: unlimited everything (server stripping, downloads)
-//   Pack   $2 once: 10 more on-device strips. Can be bought again and again;
+//   Basic  $10/month or $100/year: unlimited on-device stripping
+//   Pro    $20/month or $200/year: unlimited everything (server stripping, downloads)
+//   Pack   $2 once: 10 on-device strips. Can be bought again and again;
 //          the strips add up and are used after the free ones, never while
 //          a plan already makes on-device stripping unlimited.
 //
@@ -17,8 +17,9 @@
 //   POST /api/auth/logout
 //   POST /api/usage/strip            count one on-device strip before it runs
 //   POST /api/usage/strip/refund     { credit } give back a pack credit whose strip failed
-//   POST /api/billing/checkout       { plan } → { url } of Stripe Checkout, or
-//                                    of the Portal's confirm page to switch plan
+//   POST /api/billing/checkout       { plan, interval } → { url } of Stripe Checkout,
+//                                    or of the Portal's confirm page to switch plan
+//                                    (interval: 'month' (default) or 'year')
 //   POST /api/billing/pack           → { url } of Stripe Checkout for one strip pack
 //   POST /api/billing/portal         → { url } of the Stripe Customer Portal
 //   POST /api/billing/webhook        Stripe events: turn the license on / off
@@ -53,6 +54,9 @@ function loadConfig(env = process.env) {
     // STRIPE_PRICE_ID is the older name of the Pro price.
     stripePriceBasic: env.STRIPE_PRICE_ID_BASIC || '',
     stripePricePro: env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || '',
+    // Yearly prices. Unset: that plan is sold monthly only.
+    stripePriceBasicYearly: env.STRIPE_PRICE_ID_BASIC_YEARLY || '',
+    stripePriceProYearly: env.STRIPE_PRICE_ID_PRO_YEARLY || '',
     // One-time price of the strip pack, and how many on-device strips it adds.
     stripePricePack: env.STRIPE_PRICE_ID_PACK || '',
     packStrips: limitFromEnv(env.PACK_STRIPS) || DEFAULT_PACK_STRIPS,
@@ -71,6 +75,8 @@ function loadConfig(env = process.env) {
       basic: env.PRICE_LABEL_BASIC || '$10',
       pro: env.PRICE_LABEL_PRO || env.PRICE_LABEL || '$20',
       pack: env.PRICE_LABEL_PACK || '$2',
+      basicYearly: env.PRICE_LABEL_BASIC_YEARLY || '$100',
+      proYearly: env.PRICE_LABEL_PRO_YEARLY || '$200',
     },
   };
 }
@@ -88,6 +94,7 @@ const CREDIT_REFUND_SEC = 3600;
 
 const KINDS = ['strip', 'server_strip', 'download'];
 const PLANS = ['basic', 'pro'];
+const INTERVALS = ['month', 'year'];
 const PLAN_NAME = { free: 'Free', basic: 'Basic', pro: 'Pro' };
 /** Cheapest plan with no limit on each kind. */
 const NEEDS = { strip: 'basic', server_strip: 'pro', download: 'pro' };
@@ -158,7 +165,10 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     });
   }
   const google = Boolean(config.googleId && config.googleSecret);
+  // Monthly price per plan (the main one), and the yearly one when set.
   const priceOf = { basic: config.stripePriceBasic, pro: config.stripePricePro };
+  const yearlyOf = { basic: config.stripePriceBasicYearly || '', pro: config.stripePriceProYearly || '' };
+  const priceFor = (plan, interval) => (interval === 'year' ? yearlyOf[plan] : priceOf[plan]);
   const packPrice = config.stripePricePack;
   const packStrips = config.packStrips || DEFAULT_PACK_STRIPS;
   const stripe = Boolean(config.stripeKey && (priceOf.basic || priceOf.pro || packPrice));
@@ -177,7 +187,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       + `billing ${stripe ? 'Stripe' : devBilling ? 'DEV (upgrade is free and instant)' : 'NOT CONFIGURED'}, `
       + `accounts in D1 (${config.d1DatabaseId || 'custom store'}), free tier from `
       + `${KINDS.some((k) => config[ENV[k]] !== null) ? 'FREE_* env' : 'the app_settings table'}`
-      + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}, strip pack: ${packPrice ? `${packStrips} strips` : 'off'}` : ''}`);
+      + `${stripe ? `, plans: ${PLANS.filter((p) => priceOf[p]).join(' + ') || 'none'}, yearly: ${PLANS.filter((p) => yearlyOf[p]).join(' + ') || 'off'}, strip pack: ${packPrice ? `${packStrips} strips` : 'off'}` : ''}`);
     if (stripe && PLANS.some((p) => !priceOf[p])) {
       log.fail('billing', `STRIPE_PRICE_ID_${PLANS.find((p) => !priceOf[p]).toUpperCase()} is not set: that plan can't be bought`);
     }
@@ -234,13 +244,20 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     return out;
   }
 
-  /** The plan a Stripe price pays for. */
+  /** The plan a Stripe price pays for: monthly and yearly prices map to the same plan. */
   function tierForPrice(priceId) {
-    if (priceId && priceId === priceOf.basic) return 'basic';
-    if (priceId && priceId === priceOf.pro) return 'pro';
+    if (priceId && (priceId === priceOf.basic || priceId === yearlyOf.basic)) return 'basic';
+    if (priceId && (priceId === priceOf.pro || priceId === yearlyOf.pro)) return 'pro';
     // A price we don't know (e.g. an old one): keep the customer fully served.
-    if (priceId) log.fail('billing', `price ${priceId} is neither STRIPE_PRICE_ID_BASIC nor STRIPE_PRICE_ID_PRO; treating it as Pro`);
+    if (priceId) log.fail('billing', `price ${priceId} is not one of STRIPE_PRICE_ID_BASIC(_YEARLY) / STRIPE_PRICE_ID_PRO(_YEARLY); treating it as Pro`);
     return 'pro';
+  }
+
+  /** Whether a subscription's price is billed monthly or yearly. Dev prices end in _year. */
+  function intervalForPrice(priceId) {
+    if (!priceId) return 'month';
+    if (priceId === yearlyOf.basic || priceId === yearlyOf.pro) return 'year';
+    return devBilling && priceId.startsWith('dev_') && priceId.endsWith('_year') ? 'year' : 'month';
   }
 
   /** Wrap an async route so a database outage answers 503 instead of hanging. */
@@ -286,6 +303,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         status: user.subscription_status,
         renewsAt: user.current_period_end ? user.current_period_end * 1000 : null,
         cancelAtPeriodEnd: Boolean(user.cancel_at_period_end),
+        interval: intervalForPrice(user.subscription_price_id),
         manageable: Boolean(user.stripe_customer_id) || devBilling,
       } : null,
       // On-device strips left from strip packs, and packs bought so far.
@@ -298,6 +316,8 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         label: config.priceLabels[id],
         interval: 'month',
         available: Boolean(priceOf[id]) || devBilling,
+        // The yearly price, or null when STRIPE_PRICE_ID_<PLAN>_YEARLY is unset.
+        yearly: yearlyOf[id] || devBilling ? { label: config.priceLabels[`${id}Yearly`], interval: 'year', available: true } : null,
       })),
       // The one-time strip pack.
       pack: { label: config.priceLabels.pack, strips: packStrips, available: packAvailable },
@@ -333,7 +353,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
       const needs = NEEDS[kind];
       const upgrade = needs === 'basic' ? 'Basic or Pro' : 'Pro';
       const pack = kind === 'strip' && packAvailable;
-      const orPack = pack ? `, or get ${packStrips} more for ${config.priceLabels.pack}` : '';
+      const orPack = pack ? `, or try ${packStrips} on-device strips for ${config.priceLabels.pack}` : '';
       return res.status(402).json({
         error: n === 0
           ? `Upgrade to ${upgrade} to ${verb[kind]}${orPack}.`
@@ -583,41 +603,46 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     const user = await currentUser(req);
     if (!user) return res.status(401).json({ error: 'Sign in first', code: 'auth_required' });
     const want = PLANS.includes(req.body?.plan) ? req.body.plan : 'pro';
+    const interval = INTERVALS.includes(req.body?.interval) ? req.body.interval : 'month';
     const back = safeNext(req.body?.next);
     const site = baseUrl(req);
     const done = `${site}${withQuery(back, `upgraded=${want}`)}`;
     const current = planOf(user);
-    if (current === want) return res.json({ url: `${site}${back}` });
+    if (current === want && intervalForPrice(user.subscription_price_id) === interval) return res.json({ url: `${site}${back}` });
 
     if (!stripe) {
       if (!devBilling) return res.status(503).json({ error: 'Payments are not set up on this server yet' });
       await store.setSubscription(user.id, {
-        id: `dev_sub_${user.id}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + 30 * 86400, tier: want,
+        id: `dev_sub_${user.id}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + (interval === 'year' ? 365 : 30) * 86400,
+        tier: want, priceId: `dev_${want}_${interval}`,
       });
-      log.note('billing', `dev ${current === 'free' ? 'upgrade' : 'plan change'}: user ${user.id} is on ${want}`);
+      log.note('billing', `dev ${current === 'free' ? 'upgrade' : 'plan change'}: user ${user.id} is on ${want} (${interval}ly)`);
       return res.json({ url: done });
     }
-    if (!priceOf[want]) return res.status(503).json({ error: `The ${PLAN_NAME[want]} plan isn't set up on this server yet` });
+    const price = priceFor(want, interval);
+    if (!price) {
+      return res.status(503).json({ error: `The ${PLAN_NAME[want]} plan${interval === 'year' ? ' paid yearly' : ''} isn't set up on this server yet` });
+    }
 
     try {
       // Already paying: switch the existing subscription (Stripe prorates)
       // on the Customer Portal's confirm page instead of starting a second one.
       if (current !== 'free' && user.stripe_customer_id) {
-        return res.json({ url: await switchPlanUrl(user, want, done, `${site}${back}`) });
+        return res.json({ url: await switchPlanUrl(user, want, price, done, `${site}${back}`) });
       }
       const session = await stripeApi('POST', 'checkout/sessions', {
         mode: 'subscription',
-        line_items: [{ price: priceOf[want], quantity: 1 }],
+        line_items: [{ price, quantity: 1 }],
         client_reference_id: String(user.id),
         ...(user.stripe_customer_id ? { customer: user.stripe_customer_id } : { customer_email: user.email || undefined }),
-        subscription_data: { metadata: { user_id: String(user.id), plan: want } },
+        subscription_data: { metadata: { user_id: String(user.id), plan: want, interval } },
         allow_promotion_codes: 'true',
         success_url: done,
         cancel_url: `${site}${back}`,
       });
       res.json({ url: session.url });
     } catch (e) {
-      log.fail('billing', `checkout (${want}) for user ${user.id}: ${e.message}`);
+      log.fail('billing', `checkout (${want}, ${interval}ly) for user ${user.id}: ${e.message}`);
       res.status(502).json({ error: 'Could not reach Stripe, please try again' });
     }
   }));
@@ -661,7 +686,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
   }));
 
   /** A Customer Portal link that goes straight to "confirm the new plan". */
-  async function switchPlanUrl(user, want, doneUrl, backUrl) {
+  async function switchPlanUrl(user, want, price, doneUrl, backUrl) {
     try {
       const sub = await stripeApi('GET', `subscriptions/${encodeURIComponent(user.subscription_id)}`);
       const item = sub.items?.data?.[0];
@@ -671,11 +696,11 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
         return_url: backUrl,
         flow_data: {
           type: 'subscription_update_confirm',
-          subscription_update_confirm: { subscription: sub.id, items: [{ id: item.id, price: priceOf[want], quantity: 1 }] },
+          subscription_update_confirm: { subscription: sub.id, items: [{ id: item.id, price, quantity: 1 }] },
           after_completion: { type: 'redirect', redirect: { return_url: doneUrl } },
         },
       });
-      log.note('billing', `user ${user.id} is switching ${planOf(user)} → ${want}`);
+      log.note('billing', `user ${user.id} is switching ${planOf(user)} → ${want} (${intervalForPrice(price)}ly)`);
       return session.url;
     } catch (e) {
       // E.g. plan switching isn't turned on in the portal settings: open the
@@ -728,7 +753,7 @@ function createAccounts({ config = loadConfig(), store, fetchImpl = fetch } = {}
     }
   });
 
-  return { router, gate, currentUser, account, limits, store, sessionToken, readSession, handleEvent, tierForPrice };
+  return { router, gate, currentUser, account, limits, store, sessionToken, readSession, handleEvent, tierForPrice, intervalForPrice };
 }
 
 function withQuery(p, q) {

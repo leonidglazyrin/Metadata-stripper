@@ -100,7 +100,11 @@ export const ko: Translation = {
   },
   pricing: {
     perMonth: '/ 월',
-    billing: 'Stripe로 매월 결제됩니다. 언제든 해지할 수 있습니다.',
+    perYear: '/ 년',
+    monthly: '월간',
+    yearly: '연간',
+    yearlySave: '2개월 무료',
+    billing: 'Stripe로 매월 또는 매년 결제됩니다. 언제든 해지할 수 있습니다.',
     stripeLabel: 'Stripe 결제',
     cta: '도구 열기',
   },

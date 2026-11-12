@@ -100,7 +100,11 @@ export const pt: Translation = {
   },
   pricing: {
     perMonth: '/ mês',
-    billing: 'Cobrança mensal pelo Stripe. Cancele quando quiser.',
+    perYear: '/ ano',
+    monthly: 'Mensal',
+    yearly: 'Anual',
+    yearlySave: '2 meses grátis',
+    billing: 'Cobrança mensal ou anual pelo Stripe. Cancele quando quiser.',
     stripeLabel: 'Pagamentos pela Stripe',
     cta: 'Abrir as ferramentas',
   },

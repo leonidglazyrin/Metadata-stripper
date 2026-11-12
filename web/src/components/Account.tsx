@@ -12,6 +12,7 @@ import {
   stripCredits,
   useAccountState,
   type Account,
+  type Interval,
   type Kind,
   type Plan,
   type PlanId,
@@ -146,14 +147,19 @@ export function AccountBar() {
               {a.subscription.cancelAtPeriodEnd ? 'Ends' : 'Renews'} {new Date(a.subscription.renewsAt).toLocaleDateString()}
             </small>
           )}
+          {a.plan === 'free' && a.pack?.available && (
+            <button type="button" role="menuitem" className="acct-try" disabled={pack.busy} onClick={() => pack.run(buyStripPack)}>
+              {pack.busy ? 'Opening…' : (
+                <>
+                  <b>Try it for {a.pack.label}</b>
+                  <small>{a.pack.strips} SynthID strips, paid once</small>
+                </>
+              )}
+            </button>
+          )}
           {a.plan !== 'pro' && (
             <button type="button" role="menuitem" onClick={() => { setOpen(false); openPaywall({ reason: 'upgrade', plan: 'pro' }); }}>
               {a.plan === 'free' ? 'See plans' : `Upgrade to Pro · ${planOf(a, 'pro').label}/month`}
-            </button>
-          )}
-          {a.plan === 'free' && a.pack?.available && (
-            <button type="button" role="menuitem" disabled={pack.busy} onClick={() => pack.run(buyStripPack)}>
-              {pack.busy ? 'Opening…' : `Buy ${a.pack.strips} on-device strips · ${a.pack.label}`}
             </button>
           )}
           {pack.error && <small className="acct-error">{pack.error}</small>}
@@ -194,6 +200,7 @@ export function PaywallDialog() {
   const ref = useRef<HTMLDialogElement>(null);
   const checkout = useAction();
   const [picked, setPicked] = useState<PlanId | 'pack' | null>(null);
+  const [interval, setBilling] = useState<Interval>('month');
 
   useEffect(() => {
     const d = ref.current;
@@ -202,6 +209,15 @@ export function PaywallDialog() {
     if (!paywall && d.open) d.close();
     if (!paywall) setPicked(null);
   }, [paywall]);
+
+  // Open on the interval the subscriber already pays, monthly otherwise.
+  const subInterval = a?.subscription?.interval ?? 'month';
+  useEffect(() => {
+    if (paywall) setBilling(subInterval);
+  }, [paywall, subInterval]);
+  // The toggle shows only when the server sells at least one plan yearly.
+  const yearlyOffered = (a?.plans ?? []).some((p) => p.yearly);
+  const billed: Interval = yearlyOffered ? interval : 'month';
 
   // Signed in on another tab, or the quota changed: show the right step.
   const reason = paywall?.reason === 'auth' && a?.signedIn ? 'upgrade' : paywall?.reason;
@@ -215,9 +231,9 @@ export function PaywallDialog() {
     ? `You’ve used your free ${paywall.kind === 'strip' ? 'on-device strip' : paywall.kind === 'server_strip' ? 'server strip' : 'download'}. `
     : '';
 
-  const buy = (id: PlanId) => {
+  const buy = (id: PlanId, iv: Interval) => {
     setPicked(id);
-    void checkout.run(() => startCheckout(id));
+    void checkout.run(() => startCheckout(id, iv));
   };
   const buyPack = () => {
     setPicked('pack');
@@ -252,16 +268,50 @@ export function PaywallDialog() {
             <>
               <h2 className="display sm">Pick a <span className="accent">plan</span></h2>
               {hit && <p className="lede">{hit}</p>}
+              {showPack && pk && (
+                <div className="pack pack-try">
+                  <span className="pack-badge">Try it for {pk.label}</span>
+                  <div className="pack-text">
+                    <b>{pk.strips} SynthID strips for {pk.label}</b>
+                    <span>
+                      On-device strips with metadata and SynthID removal. Paid once, no subscription. Buy again anytime, they add up.
+                      {credits > 0 && ` You have ${credits} left.`}
+                    </span>
+                  </div>
+                  <button type="button" className="paywall-cta try" disabled={!pk.available || checkout.busy} onClick={buyPack}>
+                    {checkout.busy && picked === 'pack'
+                      ? 'Opening…'
+                      : a?.dev.billing
+                        ? `Get ${pk.strips} strips (dev, free)`
+                        : `Try it · ${pk.label}`}
+                  </button>
+                  {!pk.available && <small className="plan-off">Not available yet</small>}
+                </div>
+              )}
+              {yearlyOffered && (
+                <div className="bill-toggle" role="radiogroup" aria-label="Billing">
+                  {(['month', 'year'] as const).map((iv) => (
+                    <button key={iv} type="button" role="radio" aria-checked={billed === iv} onClick={() => setBilling(iv)}>
+                      {iv === 'month' ? 'Monthly' : 'Yearly'}
+                      {iv === 'year' && <span className="bill-save">2 months free</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="plans">
                 {(['basic', 'pro'] as const).map((id) => {
                   const p = planOf(a, id);
-                  const isCurrent = current === id;
+                  // Yearly only for plans that have a yearly price; the rest stay monthly.
+                  const iv: Interval = billed === 'year' && p.yearly ? 'year' : 'month';
+                  const label = iv === 'year' && p.yearly ? p.yearly.label : p.label;
+                  const available = iv === 'year' && p.yearly ? p.yearly.available : p.available;
+                  const isCurrent = current === id && subInterval === iv;
                   const busy = checkout.busy && picked === id;
                   return (
                     <div key={id} className={`plan${id === best ? ' plan-best' : ''}`}>
                       <div className="plan-head">
                         <b>{p.name}</b>
-                        <span className="plan-price"><b>{p.label}</b> / {p.interval}</span>
+                        <span className="plan-price"><b>{label}</b> / {iv}</span>
                       </div>
                       <ul className="paywall-perks">
                         {PERKS[id].map((perk) => <li key={perk}>{perk}</li>)}
@@ -269,8 +319,8 @@ export function PaywallDialog() {
                       <button
                         type="button"
                         className={id === best ? 'paywall-cta' : 'paywall-cta alt'}
-                        disabled={isCurrent || !p.available || checkout.busy}
-                        onClick={() => buy(id)}
+                        disabled={isCurrent || !available || checkout.busy}
+                        onClick={() => buy(id, iv)}
                       >
                         {isCurrent
                           ? 'Your plan'
@@ -280,35 +330,18 @@ export function PaywallDialog() {
                               ? `Get ${p.name} (dev, free)`
                               : current === 'free'
                                 ? `Get ${p.name}`
-                                : `Switch to ${p.name}`}
+                                : current === id
+                                  ? `Switch to ${iv === 'year' ? 'yearly' : 'monthly'}`
+                                  : `Switch to ${p.name}`}
                       </button>
-                      {!p.available && <small className="plan-off">Not available yet</small>}
+                      {!available && <small className="plan-off">Not available yet</small>}
                     </div>
                   );
                 })}
               </div>
-              {showPack && pk && (
-                <div className="pack">
-                  <div className="pack-text">
-                    <b>Just a few files? Strip pack</b>
-                    <span>
-                      {pk.strips} more on-device strips for <b>{pk.label}</b>, paid once. Buy as many as you like, they add up.
-                      {credits > 0 && ` You have ${credits} left.`}
-                    </span>
-                  </div>
-                  <button type="button" className="paywall-cta alt" disabled={!pk.available || checkout.busy} onClick={buyPack}>
-                    {checkout.busy && picked === 'pack'
-                      ? 'Opening…'
-                      : a?.dev.billing
-                        ? `Get ${pk.strips} strips (dev, free)`
-                        : `Buy ${pk.strips} strips · ${pk.label}`}
-                  </button>
-                  {!pk.available && <small className="plan-off">Not available yet</small>}
-                </div>
-              )}
               {checkout.error && <p className="paywall-error">{checkout.error}</p>}
               <p className="paywall-fine">
-                Plans are billed monthly. Cancel or change plan anytime.{showPack ? ' Strip packs are a one-time payment.' : ''}
+                Plans are billed {yearlyOffered ? 'monthly or yearly' : 'monthly'}. Cancel or change plan anytime.{showPack ? ' Strip packs are a one-time payment.' : ''}
               </p>
               <StripeBadge />
             </>

@@ -100,7 +100,11 @@ export const id: Translation = {
   },
   pricing: {
     perMonth: '/ bulan',
-    billing: 'Ditagih bulanan melalui Stripe. Bisa dibatalkan kapan saja.',
+    perYear: '/ tahun',
+    monthly: 'Bulanan',
+    yearly: 'Tahunan',
+    yearlySave: 'Gratis 2 bulan',
+    billing: 'Ditagih bulanan atau tahunan melalui Stripe. Bisa dibatalkan kapan saja.',
     stripeLabel: 'Pembayaran lewat Stripe',
     cta: 'Buka alat',
   },

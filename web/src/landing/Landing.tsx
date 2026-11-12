@@ -4,7 +4,7 @@
 
 import type { ReactNode } from 'react';
 import { HeroArt, Tile, ToolIcon } from '../components/Icons';
-import { AI_SOURCES, PRICE, PRICES, SITE_NAME } from './content';
+import { AI_SOURCES, PRICE, PRICES, SITE_NAME, YEARLY_PRICES } from './content';
 import { getDict, langPath, LANGS, type Dict } from './i18n';
 import { SiteFooter } from '../pages/Pages';
 import type { Faq } from './i18n/en';
@@ -161,6 +161,23 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
             <Pair p={[fill(t.pricing.title[0]), fill(t.pricing.title[1])]} />
           </h2>
           <p className="price-free">{t.pricing.free}</p>
+          {/* The $2 pack first: the easiest way to pay and try it. */}
+          <div className="price-pack">
+            <span className="price-pack-badge">{t.pricing.pack.badge}</span>
+            <div>
+              <p className="price-name">{t.pricing.pack.name}</p>
+              <p className="price-pack-text">{t.pricing.pack.text}</p>
+            </div>
+            <p className="price-tag"><b>{PRICES.pack}</b> {t.pricing.pack.once}</p>
+            <a className="cta" href={`${APP}#strip`}>{t.pricing.pack.cta}</a>
+          </div>
+          {/* Monthly / yearly without JavaScript: two radios and sibling selectors in landing.css. */}
+          <input type="radio" name="billing" id="bill-month" className="bill-radio" defaultChecked />
+          <input type="radio" name="billing" id="bill-year" className="bill-radio" />
+          <div className="price-toggle">
+            <label htmlFor="bill-month">{t.pricing.monthly}</label>
+            <label htmlFor="bill-year">{t.pricing.yearly} <span className="price-save">{t.pricing.yearlySave}</span></label>
+          </div>
           <div className="price-plans">
             {(['basic', 'pro'] as const).map((id) => {
               const plan = t.pricing[id];
@@ -170,7 +187,8 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
                     {plan.name}
                     {'badge' in plan && plan.badge && <span className="price-badge">{plan.badge}</span>}
                   </p>
-                  <p className="price-tag"><b>{PRICES[id]}</b> {t.pricing.perMonth}</p>
+                  <p className="price-tag price-month"><b>{PRICES[id]}</b> {t.pricing.perMonth}</p>
+                  <p className="price-tag price-year"><b>{YEARLY_PRICES[id]}</b> {t.pricing.perYear}</p>
                   <ul className="price-list">
                     {plan.features.map((f) => <li key={f}>{f}</li>)}
                   </ul>
@@ -178,14 +196,6 @@ export default function Landing({ siteUrl, lang }: { siteUrl: string; lang: stri
                 </div>
               );
             })}
-          </div>
-          <div className="price-pack">
-            <div>
-              <p className="price-name">{t.pricing.pack.name}</p>
-              <p className="price-pack-text">{t.pricing.pack.text}</p>
-            </div>
-            <p className="price-tag"><b>{PRICES.pack}</b> {t.pricing.pack.once}</p>
-            <a className="cta ghost" href={`${APP}#strip`}>{t.pricing.pack.cta}</a>
           </div>
           <p className="price-foot">
             {t.pricing.billing}
@@ -490,6 +500,19 @@ function jsonLd(siteUrl: string, lang: string, t: Dict) {
               priceCurrency: 'USD',
               unitCode: 'MON',
               referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
+            },
+          })),
+          ...(['basic', 'pro'] as const).map((id) => ({
+            '@type': 'Offer',
+            name: `${t.pricing[id].name} (${t.pricing.yearly})`,
+            price: priceNumber(YEARLY_PRICES[id]),
+            priceCurrency: 'USD',
+            priceSpecification: {
+              '@type': 'UnitPriceSpecification',
+              price: priceNumber(YEARLY_PRICES[id]),
+              priceCurrency: 'USD',
+              unitCode: 'ANN',
+              referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'ANN' },
             },
           })),
           {

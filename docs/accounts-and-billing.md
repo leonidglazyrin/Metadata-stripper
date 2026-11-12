@@ -6,16 +6,18 @@ Every visitor signs in with Google. Each account gets, for life:
 - **1 free server strip** (about 4x faster),
 - **1 free video download**.
 
-You can change all three in the database without a deploy (see below). After that the tools offer two monthly plans through Stripe:
+You can change all three in the database without a deploy (see below). After that the tools offer two plans through Stripe, each billed monthly or yearly (yearly = two months free):
 
-| Plan | Price | Unlimited | Still limited to the free allowance |
-| --- | --- | --- | --- |
-| **Basic** | $10/month | On-device stripping | Server strips, downloads |
-| **Pro** | $20/month | Everything: on-device and server stripping, downloads | Nothing |
+| Plan | Monthly | Yearly | Unlimited | Still limited to the free allowance |
+| --- | --- | --- | --- | --- |
+| **Basic** | $10/month | $100/year | On-device stripping | Server strips, downloads |
+| **Pro** | $20/month | $200/year | Everything: on-device and server stripping, downloads | Nothing |
 
-There is also a **strip pack**: **$2, paid once, for 10 more on-device strips**. It can be bought any number of times and the strips add up on the account. Pack strips are used only after the free on-device strips are spent, and never while Basic or Pro already makes on-device stripping unlimited (so a subscriber's pack strips stay saved for after the plan ends). They never cover server strips or downloads.
+The yearly option only shows for a plan whose `STRIPE_PRICE_ID_<PLAN>_YEARLY` is set. The upgrade dialog has a Monthly / Yearly switch (hidden when no plan has a yearly price); the landing page's pricing section has the same switch (built without JavaScript, always shown).
 
-People subscribe with Stripe Checkout. Switching plan (Basic to Pro or back) and cancelling happen in the Stripe Customer Portal: "Switch to Pro" in the upgrade dialog opens the portal's confirm page for the new price on the same subscription (Stripe prorates), and "Manage subscription" in the account menu opens the portal's home page.
+There is also a **strip pack**: **10 SynthID strips for $2, paid once** (on-device strips, metadata removed too). It's shown first, as "Try it for $2", in the pricing section, the upgrade dialog and the account menu, as the cheapest way to pay and try. It can be bought any number of times and the strips add up on the account. Pack strips are used only after the free on-device strips are spent, and never while Basic or Pro already makes on-device stripping unlimited (so a subscriber's pack strips stay saved for after the plan ends). They never cover server strips or downloads.
+
+People subscribe with Stripe Checkout (`POST /api/billing/checkout` with `{ plan: 'basic' | 'pro', interval: 'month' | 'year' }`, monthly when `interval` is missing). Switching plan (Basic to Pro or back, or monthly to yearly) and cancelling happen in the Stripe Customer Portal: "Switch to Pro" in the upgrade dialog opens the portal's confirm page for the new price on the same subscription (Stripe prorates), and "Manage subscription" in the account menu opens the portal's home page.
 
 ## How it works
 
@@ -31,7 +33,7 @@ People subscribe with Stripe Checkout. Switching plan (Basic to Pro or back) and
   - **On-device strip** (kind `strip`): the file never reaches the server, so the page calls `POST /api/usage/strip` first, which counts the use. Someone editing the page's JavaScript could skip this; the server-side tools can't be bypassed. A free use isn't given back, but a **pack credit** is: when the free ones are spent, the same call spends a pack credit and returns its id, and if the strip then fails in the browser the page sends it to `POST /api/usage/strip/refund` (only the account's own credit, once, within an hour).
 - **Strip packs** (`migrations/0003_strip_packs.sql`) are a ledger: `strip_pack_purchases` has one row per paid pack (its id is the Stripe Checkout session id) and `strip_credit_uses` one row per credit spent (`refunded_at` set when given back). Credits left = strips bought − uses not given back, shown as `strip_credits` in the `accounts` view. Spending a credit is one `INSERT … WHERE <credits left> > 0`, so two parallel strips can't both take the last one, and the webhook's `INSERT … ON CONFLICT DO NOTHING` on the session id means a webhook delivered twice adds the strips once.
 - The license is the Stripe subscription: statuses `active`, `trialing` and `past_due` (while Stripe retries a card) count as paid, with a day of slack past the period end. The webhook re-reads the subscription from Stripe on every event, so retries and out-of-order deliveries are safe.
-- **Which plan** comes from the subscription's price: the webhook compares it with `STRIPE_PRICE_ID_BASIC` and `STRIPE_PRICE_ID_PRO` and writes `basic` or `pro` into `subscriptions.tier`. A price that matches neither is treated as Pro and logged, so a paying customer is never locked out by a config mistake. The check-and-count statement in `consume()` reads that tier, so the limit can't be raced.
+- **Which plan** comes from the subscription's price: the webhook compares it with `STRIPE_PRICE_ID_BASIC` / `STRIPE_PRICE_ID_BASIC_YEARLY` (both Basic) and `STRIPE_PRICE_ID_PRO` / `STRIPE_PRICE_ID_PRO_YEARLY` (both Pro) and writes `basic` or `pro` into `subscriptions.tier`. A price that matches neither is treated as Pro and logged, so a paying customer is never locked out by a config mistake. The check-and-count statement in `consume()` reads that tier, so the limit can't be raced.
 - When a tool hits a limit, the server answers 402 with the plan that lifts it (`basic` for on-device strips, `pro` for the rest), and the upgrade dialog highlights that plan. For on-device strips it also says `pack: true` when the strip pack can be bought, and the dialog offers it under the plans.
 
 ## 1. Cloudflare D1 database
@@ -96,7 +98,7 @@ To give one person more free uses, lower their count: `UPDATE usage_counters SET
    - Authorized redirect URIs: `https://your-domain/api/auth/google/callback` (and `http://localhost:5173/api/auth/google/callback` for dev)
 4. Copy the client ID and secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
 
-## 3. Stripe: three prices, the webhook and the Customer Portal
+## 3. Stripe: five prices, the webhook and the Customer Portal
 
 Do all of this in **Test mode** first (toggle at the top right of the [Stripe dashboard](https://dashboard.stripe.com/)), then repeat it in Live mode.
 
@@ -104,12 +106,14 @@ Do all of this in **Test mode** first (toggle at the top right of the [Stripe da
    - Name: *Sharona Basic*. Description (shown at checkout): *Unlimited on-device stripping.*
    - Pricing: **Recurring**, **$10.00 USD**, billing period **Monthly**.
    - Save, open the product, and copy the price ID (`price_…`, in the Pricing section) into `STRIPE_PRICE_ID_BASIC`.
+   - On the same product, **+ Add another price**: **Recurring**, **$100.00 USD**, billing period **Yearly**. Copy its price ID into `STRIPE_PRICE_ID_BASIC_YEARLY`.
 2. **Pro product.** **+ Add product** again:
    - Name: *Sharona Pro*. Description: *Unlimited stripping on our server (about 4x faster) and video downloads.*
    - Pricing: **Recurring**, **$20.00 USD**, **Monthly**.
-   - Copy its price ID into `STRIPE_PRICE_ID_PRO`. (If you already had a $20 Pro price in `STRIPE_PRICE_ID`, keep using it: either rename the variable or leave it, `STRIPE_PRICE_ID` still counts as the Pro price.)
+   - On the same product, **+ Add another price**: **Recurring**, **$200.00 USD**, **Yearly**. Copy it into `STRIPE_PRICE_ID_PRO_YEARLY`.
+   - Copy the monthly price ID into `STRIPE_PRICE_ID_PRO`. (If you already had a $20 Pro price in `STRIPE_PRICE_ID`, keep using it: either rename the variable or leave it, `STRIPE_PRICE_ID` still counts as the Pro price.)
 3. **Strip pack product.** **+ Add product** again:
-   - Name: *Sharona strip pack*. Description: *10 more on-device strips. Buy as many as you like, they add up.*
+   - Name: *Sharona strip pack*. Description: *10 SynthID strips, on your device. Buy as many as you like, they add up.*
    - Pricing: **One-off** (not Recurring), **$2.00 USD**.
    - Copy its price ID into `STRIPE_PRICE_ID_PACK`. Without it the pack shows "Not available yet" and the 402 doesn't offer it.
    - Don't add this product to the Customer Portal's plan list in step 6: it isn't a subscription.
@@ -131,11 +135,11 @@ Do all of this in **Test mode** first (toggle at the top right of the [Stripe da
 
      That is the full list: the server ignores every other event (no `invoice.*`, `payment_intent.*` or `charge.*`), so subscribing to more only costs requests. Renewals and failed payments still work without `invoice.*`, because Stripe also sends `customer.subscription.updated` when the status or period changes.
    - Save, click **Reveal** under *Signing secret*, and copy the `whsec_…` into `STRIPE_WEBHOOK_SECRET`.
-   - Plan switches arrive as `customer.subscription.updated` with the new price; the server maps it to Basic or Pro.
+   - Plan switches arrive as `customer.subscription.updated` with the new price; the server maps it to Basic or Pro (monthly and yearly prices of a plan give the same plan).
    - A strip pack arrives as `checkout.session.completed` with `mode: payment` and `metadata.product = strip_pack`; the strips are added once `payment_status` is `paid`. If you already have the endpoint, edit it and add `checkout.session.async_payment_succeeded`.
 6. **Customer Portal.** **Settings → Billing → Customer portal** (Test mode has its own copy of this page):
    - **Subscriptions → Cancel subscriptions**: on. Choose *At end of billing period* so people keep their plan until the period they paid for ends.
-   - **Subscriptions → Customers can switch plans**: on. Under **Products**, add **Sharona Basic** with its $10 monthly price and **Sharona Pro** with its $20 monthly price. Without this, "Switch to Pro" / "Switch to Basic" can't open the confirm page and falls back to the portal's home page.
+   - **Subscriptions → Customers can switch plans**: on. Under **Products**, add **Sharona Basic** with both its prices ($10 monthly, $100 yearly) and **Sharona Pro** with both of its ($20 monthly, $200 yearly). This also lets people move between monthly and yearly. Without this, "Switch to Pro" / "Switch to Basic" can't open the confirm page and falls back to the portal's home page.
    - **Proration**: *Prorate charges and credits* (recommended). Upgrades are charged the difference right away; downgrades become a credit on the next invoice.
    - **Payment methods → Customers can update payment methods**: on. Invoice history: on.
    - **Business information**: your terms and privacy policy links.
@@ -149,15 +153,78 @@ stripe listen --forward-to localhost:3000/api/billing/webhook   # prints a whsec
 # test card: 4242 4242 4242 4242, any future date, any CVC
 ```
 
-Test the strip pack: sign in, use the free on-device strip, click **Buy 10 strips · $2** in the dialog, pay with the test card, and check the account menu shows 10 pack strips; buy it again and check it shows 20.
+Test the strip pack: sign in, use the free on-device strip, click **Try it · $2** in the dialog, pay with the test card, and check the account menu shows 10 pack strips; buy it again and check it shows 20.
 
 Test both plans end to end: buy Basic, check that on-device strips are unlimited and the server strip still asks for Pro, click **Switch to Pro**, confirm, and check that everything is unlimited. Then cancel in **Manage subscription**.
 
 Go live by switching the dashboard to Live mode and repeating steps 1–6 there (live price IDs, live key, live webhook secret, live portal settings).
 
+## Stripe setup checklist (copy and tick)
+
+Everything in one place, for this deploy (`https://metadata-stripper.synthidstripper.workers.dev`). Do it all in **Test mode** first, then again in **Live mode** (Stripe keeps separate products, prices, keys, webhooks and portal settings per mode, so the IDs change).
+
+**Products and prices** (Stripe → Product catalog → + Add product)
+
+- [ ] **Sharona Basic**, recurring: $10.00 USD monthly → `STRIPE_PRICE_ID_BASIC`
+- [ ] same product, + Add another price: $100.00 USD yearly → `STRIPE_PRICE_ID_BASIC_YEARLY`
+- [ ] **Sharona Pro**, recurring: $20.00 USD monthly → `STRIPE_PRICE_ID_PRO`
+- [ ] same product, + Add another price: $200.00 USD yearly → `STRIPE_PRICE_ID_PRO_YEARLY`
+- [ ] **Sharona strip pack**, one-off: $2.00 USD → `STRIPE_PRICE_ID_PACK`
+
+**API key** (Developers → API keys)
+
+- [ ] Secret key `sk_test_…` (later `sk_live_…`) → `STRIPE_SECRET_KEY`
+
+**Webhook** (Developers → Webhooks → + Add endpoint)
+
+- [ ] Endpoint URL: `https://metadata-stripper.synthidstripper.workers.dev/api/billing/webhook`
+- [ ] Events (exactly these):
+  - `checkout.session.completed`
+  - `checkout.session.async_payment_succeeded`
+  - `customer.subscription.created`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `customer.subscription.paused` (optional)
+  - `customer.subscription.resumed` (optional)
+- [ ] Signing secret `whsec_…` → `STRIPE_WEBHOOK_SECRET`
+
+**Customer Portal** (Settings → Billing → Customer portal)
+
+- [ ] Cancel subscriptions: on, at end of billing period
+- [ ] Customers can switch plans: on. Products: **Sharona Basic** ($10/month and $100/year) and **Sharona Pro** ($20/month and $200/year). Not the strip pack.
+- [ ] Proration: prorate charges and credits
+- [ ] Customers can update payment methods: on. Invoice history: on
+- [ ] Business information: links to `/terms/` and `/privacy/`
+- [ ] Default redirect link: `https://metadata-stripper.synthidstripper.workers.dev/app/`. Save.
+
+**Secrets and vars on the Worker** (run from the repo; each asks for the value)
+
+```bash
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put STRIPE_PRICE_ID_BASIC
+npx wrangler secret put STRIPE_PRICE_ID_BASIC_YEARLY
+npx wrangler secret put STRIPE_PRICE_ID_PRO
+npx wrangler secret put STRIPE_PRICE_ID_PRO_YEARLY
+npx wrangler secret put STRIPE_PRICE_ID_PACK
+```
+
+The five price IDs aren't secret, so you can put them in `vars` in `wrangler.jsonc` instead. Also needed if not set yet: `SESSION_SECRET`, `CLOUDFLARE_API_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (secrets) and `SITE_URL`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID` (already in `vars`). Secrets apply on the next deploy (`npx wrangler deploy` or a push to main). Leaving a `_YEARLY` price unset hides yearly for that plan.
+
+**Test mode checks** (card `4242 4242 4242 4242`, any future date, any CVC)
+
+- [ ] Server log on start says `billing Stripe`, `plans: basic + pro`, `yearly: basic + pro`, `strip pack: 10 strips`
+- [ ] Sign in, use the free on-device strip, click **Try it · $2**, pay: the account menu shows 10 pack strips. Buy again: 20.
+- [ ] Buy **Basic monthly**: on-device stripping unlimited, server strip still asks for Pro
+- [ ] In the dialog, Yearly → **Switch to yearly** on Basic: portal confirm page shows $100/year; after confirming, still Basic
+- [ ] **Switch to Pro** (yearly): portal confirm page shows $200/year; after confirming, everything unlimited
+- [ ] **Manage subscription** → cancel: plan stays until the period end, then back to Free
+- [ ] Stripe → Webhooks → your endpoint: every delivery is `200`
+- [ ] Repeat the setup in Live mode, swap in the live key, live price IDs and live `whsec_…`, deploy, and do one real $2 pack purchase (refund it from the dashboard)
+
 ## 4. Server settings
 
-Set `SITE_URL`, `SESSION_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_PACK` and `STRIPE_WEBHOOK_SECRET` (see `.env.example`) in your host's environment settings. No volume or persistent disk is needed:
+Set `SITE_URL`, `SESSION_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_BASIC_YEARLY`, `STRIPE_PRICE_ID_PRO_YEARLY`, `STRIPE_PRICE_ID_PACK` and `STRIPE_WEBHOOK_SECRET` (see `.env.example`) in your host's environment settings. No volume or persistent disk is needed:
 
 ```bash
 docker run -p 3000:3000 --env-file .env sharona
@@ -183,14 +250,14 @@ On start the server logs which mode it's in, e.g. `Accounts: sign-in Google, bil
    npx wrangler secret put STRIPE_WEBHOOK_SECRET
    ```
 
-   Put `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO` and `STRIPE_PRICE_ID_PACK` in `vars` in `wrangler.jsonc` (they aren't secret), or set them as secrets too. The Worker hands every one of these to the server (the list is `PASS` in `worker/index.js`).
+   Put `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_BASIC_YEARLY`, `STRIPE_PRICE_ID_PRO_YEARLY` and `STRIPE_PRICE_ID_PACK` in `vars` in `wrangler.jsonc` (they aren't secret), or set them as secrets too. The Worker hands every one of these to the server (the list is `PASS` in `worker/index.js`).
 3. Push to main (or run `npx wrangler deploy`).
 
 One container instance (`standard-2`) serves all traffic, because a download job lives in the memory and disk of the container that started it. It sleeps after 15 minutes without requests and wakes in a few seconds on the next one; set `SLEEP_AFTER` in `vars` to change that.
 
 ## Dev mode
 
-There is no local database: point `npm run dev` at a D1 database too (a second database, e.g. `npx wrangler d1 create sharona-dev`, keeps test accounts out of production). With `NODE_ENV` not `production` and no Google/Stripe variables: **Sign in** logs into a local test account (`/api/auth/dev?email=…` gives you more), **Get Basic** / **Get Pro** turn that plan on at once (and switch between them), **Get 10 strips (dev, free)** adds a strip pack, and **Cancel plan (dev)** turns it off. In production missing Google/Stripe settings make sign-in and checkout answer "not set up" instead; set `PAYWALL=off` to run without accounts (and without D1) until they are configured.
+There is no local database: point `npm run dev` at a D1 database too (a second database, e.g. `npx wrangler d1 create sharona-dev`, keeps test accounts out of production). With `NODE_ENV` not `production` and no Google/Stripe variables: **Sign in** logs into a local test account (`/api/auth/dev?email=…` gives you more), **Get Basic** / **Get Pro** turn that plan on at once, monthly or yearly (and switch between them), **Get 10 strips (dev, free)** adds a strip pack, and **Cancel plan (dev)** turns it off. In production missing Google/Stripe settings make sign-in and checkout answer "not set up" instead; set `PAYWALL=off` to run without accounts (and without D1) until they are configured.
 
 ## A note on the D1 HTTP API limit
 
