@@ -86,6 +86,20 @@ npm start          # API + built frontend on http://localhost:3000
 npm test           # server tests (accounts, quota, Google and Stripe mocked)
 ```
 
+### On your Mac, with no accounts or limits
+
+```bash
+brew install node ffmpeg yt-dlp
+npm install
+npm run local      # http://localhost:3000/app/
+```
+
+`npm run local` builds the frontend and starts the server with `PAYWALL=off`:
+no sign-in, no Google, no Stripe, no database, and no free-use limits on
+anything (server and on-device stripping, downloads). Use `npm run local:dev`
+for the same with hot reload (Vite on http://localhost:5173). Only for your own
+machine: anyone who can reach the port can use it.
+
 In dev, sign-in and upgrades are simulated until you set the Google and Stripe variables (see [docs/accounts-and-billing.md](docs/accounts-and-billing.md) and `.env.example`).
 
 The terminal running the server logs every download (platform, mode, link, file, size, time) and every strip (file name, mode, size before → after, time, what was removed), plus failures. Set `NO_COLOR=1` to turn off colors.
@@ -94,6 +108,8 @@ The terminal running the server logs every download (platform, mode, link, file,
 17:47:35 strip    OK   "photo.jpg" → photo_clean.jpg [image, metadata only, q100] 1.2 KB → 563 B in 22ms · removed: EXIF, ICC color profile
 17:48:02 download OK   YouTube video https://www.youtube.com/watch?v=… → Channel_id.mp4 (24.3 MB) in 6.1s
 ```
+
+Branch previews on Cloudflare (every branch but `main`) are set up in [docs/previews.md](docs/previews.md).
 
 Or with Docker (ffmpeg and yt-dlp included):
 

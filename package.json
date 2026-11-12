@@ -7,9 +7,12 @@
     "dev": "concurrently -k -n api,web -c blue,green \"node --env-file-if-exists=.env --watch server/index.js\" \"vite\"",
     "dev:api": "node --env-file-if-exists=.env --watch server/index.js",
     "dev:web": "vite",
+    "local": "npm run build && PAYWALL=off node --env-file-if-exists=.env server/index.js",
+    "local:dev": "PAYWALL=off npm run dev",
     "build": "tsc --noEmit -p web && vite build",
     "start": "node --env-file-if-exists=.env server/index.js",
     "preview": "npm run build && npm start",
+    "preview:db": "wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc",
     "test": "node --test test/*.test.js"
   },
   "repository": {

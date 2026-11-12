@@ -1,0 +1,17 @@
+// Only for applying migrations/ to the preview database, never for deploys:
+//   npx wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc
+// (npm run preview:db). Must name the same database as "previews" in
+// wrangler.jsonc. Production migrations use wrangler.jsonc's top-level DB.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "metadata-stripper-preview-migrations",
+  "compatibility_date": "2026-11-01",
+  "d1_databases": [
+    {
+      "binding": "PREVIEW_DB",
+      "database_name": "sharona-preview",
+      "database_id": "PREVIEW_DB_ID",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
