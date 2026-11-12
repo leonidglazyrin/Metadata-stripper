@@ -161,6 +161,40 @@ test('production without Google or Stripe refuses sign-in and checkout instead o
   assert.equal((await s.call('GET', '/api/me')).data.signIn, null);
 });
 
+test('signed out, every free use and every purchase is refused with 401, even with Google and Stripe live', async (t) => {
+  // Production-like: real Google sign-in and Stripe, so nothing falls back to dev mode.
+  let stripeCalls = 0;
+  const fetchImpl = async () => { stripeCalls++; throw new Error('must not reach Stripe or Google'); };
+  const s = await start({
+    config: config({
+      production: true, googleId: 'g', googleSecret: 'gs', stripeKey: 'sk_test', stripeWebhookSecret: 'whsec',
+      stripePriceBasic: 'price_basic', stripePricePro: 'price_pro', stripePricePack: 'price_pack',
+    }),
+    fetchImpl,
+  });
+  t.after(s.close);
+  const routes = [
+    ['POST', '/api/usage/strip'], // free on-device strip
+    ['POST', '/api/strip'], // free server strip
+    ['POST', '/api/download'], // free download
+    ['POST', '/api/usage/strip/refund'],
+    ['POST', '/api/billing/checkout', { plan: 'basic' }], // $10
+    ['POST', '/api/billing/checkout', { plan: 'pro' }], // $20
+    ['POST', '/api/billing/pack', {}], // $2
+    ['POST', '/api/billing/portal', {}],
+  ];
+  for (const [method, path, body] of routes) {
+    const r = await s.call(method, path, { body, headers: { 'x-forwarded-for': '203.0.113.7' } });
+    assert.equal(r.status, 401, `${path} ${JSON.stringify(body ?? '')}`);
+    assert.equal(r.data.code, 'auth_required');
+  }
+  // A forged session cookie is no better than none.
+  const forged = await s.call('POST', '/api/billing/pack', { body: {}, headers: { cookie: 'sh_sess=eyJ1IjoiMSIsImUiOjk5OTk5OTk5OTk5OTl9.bad' } });
+  assert.equal(forged.status, 401);
+  assert.equal((await s.call('GET', '/api/auth/dev')).status, 404);
+  assert.equal(stripeCalls, 0);
+});
+
 test('PAYWALL=off lets everyone through without an account', async (t) => {
   const s = await start({ config: config({ paywall: false }) });
   t.after(s.close);

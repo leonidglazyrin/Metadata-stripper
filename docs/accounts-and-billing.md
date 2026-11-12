@@ -24,6 +24,7 @@ People subscribe with Stripe Checkout. Switching plan (Basic to Pro or back) and
 - Sign-in is the server's own Google OAuth flow. D1 is only the database.
 - `server/account.js` has the routes: Google sign-in, `/api/me`, the quota gate, Checkout, the Portal and the webhook.
 - Sessions are a signed, HttpOnly, SameSite=Lax cookie (30 days), signed with `SESSION_SECRET`. Every container must have the same `SESSION_SECRET`.
+- **Everything is per Google account, and signing in is required for all of it**: the free on-device strip, the free server strip, the free download, the $10 and $20 plans and the $2 pack. There is no anonymous, IP or cookie-only allowance: a request without a valid session cookie gets `401 auth_required` from `/api/usage/strip`, `/api/strip`, `/api/download/*`, `/api/billing/checkout`, `/api/billing/pack` and `/api/billing/portal` before any work or Stripe call happens (covered by a test in `test/account.test.js`). Usage counters, pack credits and subscriptions are rows keyed by the account id, and Checkout sessions carry that id in `client_reference_id` and metadata, so a payment always lands on the account that started it. The only ways around sign-in are explicit: `PAYWALL=off` (everything free for everyone) and dev mode, which never runs with `NODE_ENV=production` (set in the Dockerfile).
 - Limits are enforced on the server before any work starts. Each mode has its own counter (`kind` in `usage_counters`):
   - **Server strip** (`POST /api/strip`, kind `server_strip`): checked before the upload is accepted. If the strip fails, the use is given back.
   - **Downloads** (kind `download`, `POST /api/download/:platform/jobs` and the old one-shot routes): checked after the link is validated. A download that fails or is cancelled before it finishes is given back. "Get audio" counts as a download.
@@ -116,7 +117,19 @@ Do all of this in **Test mode** first (toggle at the top right of the [Stripe da
 4. **API key.** **Developers → API keys**: copy the secret key (`sk_test_…`, later `sk_live_…`) into `STRIPE_SECRET_KEY`. A restricted key works too if it has write access to Checkout Sessions, Customer portal sessions and Customers, and read access to Subscriptions.
 5. **Webhook.** **Developers → Webhooks → + Add endpoint** (in newer dashboards: **Workbench → Webhooks → Create an event destination**, type *Webhook endpoint*):
    - Endpoint URL: `https://your-domain/api/billing/webhook`
-   - Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded` (strip packs paid with a delayed method such as a bank debit), `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted` (optionally `customer.subscription.paused` and `customer.subscription.resumed`).
+   - Events: select **all seven** below. `checkout.session.async_payment_succeeded` alone is **not** enough: it only fires for strip packs paid with a delayed method, so with only that event card payments for packs and every subscription ($10 Basic, $20 Pro, switches and cancellations) would never reach the server.
+
+     | Event | What the server does (`handleEvent` in `server/account.js`) |
+     | --- | --- |
+     | `checkout.session.completed` | `mode: subscription`: links the Stripe customer to the account and turns Basic or Pro on. `mode: payment`: adds the $2 strip pack when `payment_status` is `paid` (cards, wallets). **Required.** |
+     | `checkout.session.async_payment_succeeded` | Adds a $2 strip pack paid with a delayed method (e.g. a bank debit), which is still unpaid at `completed`. **Required.** |
+     | `customer.subscription.created` | Turns the plan on (backup for `checkout.session.completed`). **Required.** |
+     | `customer.subscription.updated` | Renewals, plan switches (Basic ↔ Pro), `past_due`, cancel at period end. **Required.** |
+     | `customer.subscription.deleted` | Ends the plan; the account goes back to Free. **Required.** |
+     | `customer.subscription.paused` | Pauses the plan. Optional (only if you use pausing). |
+     | `customer.subscription.resumed` | Resumes the plan. Optional (only if you use pausing). |
+
+     That is the full list: the server ignores every other event (no `invoice.*`, `payment_intent.*` or `charge.*`), so subscribing to more only costs requests. Renewals and failed payments still work without `invoice.*`, because Stripe also sends `customer.subscription.updated` when the status or period changes.
    - Save, click **Reveal** under *Signing secret*, and copy the `whsec_…` into `STRIPE_WEBHOOK_SECRET`.
    - Plan switches arrive as `customer.subscription.updated` with the new price; the server maps it to Basic or Pro.
    - A strip pack arrives as `checkout.session.completed` with `mode: payment` and `metadata.product = strip_pack`; the strips are added once `payment_status` is `paid`. If you already have the endpoint, edit it and add `checkout.session.async_payment_succeeded`.
