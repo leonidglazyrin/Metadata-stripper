@@ -57,5 +57,49 @@
     "SITE_URL": "https://metadata-stripper.synthidstripper.workers.dev",
     "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
     "CLOUDFLARE_D1_DATABASE_ID": "7c9bd4b8-ee67-4223-bf5f-3022f455dbd1"
+  },
+
+  // Branch previews (`npx wrangler preview`, which Workers Builds runs for
+  // every branch but main). Nothing above applies to a Preview except
+  // `migrations`, `assets`, `build` and the compatibility settings, so this
+  // block repeats what a Preview needs, pointed at preview-only resources:
+  //   - its own D1 database (sharona-preview), never production accounts.
+  //     Shared by all Previews; migrations go on it with
+  //     `npm run db:preview:migrate` (wrangler.preview-migrations.jsonc).
+  //   - its own Durable Object namespace, container app and instances, made
+  //     per Preview by Cloudflare because the class is declared here.
+  //   - a small container (basic, one instance) that sleeps after 5 minutes.
+  // Google and Stripe are left unset: sign-in and checkout say "not set up"
+  // on Previews. SESSION_SECRET and CLOUDFLARE_API_TOKEN (a token for the
+  // preview database) are Preview secrets, set once with
+  // `npx wrangler preview base-config secret put NAME`.
+  // See docs/accounts-and-billing.md → "Branch previews".
+  "previews": {
+    "vars": {
+      // Empty: links and sign-in use the Preview's own URL.
+      "SITE_URL": "",
+      "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
+      "CLOUDFLARE_D1_DATABASE_ID": "REPLACE_WITH_PREVIEW_D1_ID",
+      "SLEEP_AFTER": "5m"
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "sharona-preview",
+        "database_id": "REPLACE_WITH_PREVIEW_D1_ID",
+        "migrations_dir": "migrations"
+      }
+    ],
+    "containers": [
+      {
+        "class_name": "SharonaServer",
+        "image": "./Dockerfile",
+        "instance_type": "basic",
+        "max_instances": 1
+      }
+    ],
+    "durable_objects": {
+      "bindings": [{ "name": "SERVER", "class_name": "SharonaServer" }]
+    }
   }
 }

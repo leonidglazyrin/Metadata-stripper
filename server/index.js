@@ -12,9 +12,23 @@ const { createDownloadRouter, dirSize } = require('./downloaders');
 const log = require('./log');
 const { createAccounts } = require('./account');
 const site = require('./site');
+const { applyLocalMode, FLAG: LOCAL_FLAG } = require('./local-mode');
+
+// npm run dev:local: no accounts, no limits (see server/local-mode.js). Runs
+// before anything reads the environment, and refuses to start on a server.
+let local;
+try {
+  local = applyLocalMode(process.env);
+} catch (e) {
+  log.fail('local', e.message);
+  process.exit(1);
+}
 
 const PORT = process.env.PORT || 3000;
 const MAX_MB = Number(process.env.MAX_UPLOAD_MB || 2048);
+
+// Local mode only listens on this computer; otherwise every interface.
+const HOST = local.enabled ? '127.0.0.1' : process.env.HOST || undefined;
 
 const app = express();
 app.set('trust proxy', process.env.TRUST_PROXY ?? 'loopback, linklocal, uniquelocal');
@@ -507,7 +521,21 @@ async function purgeOnStartup() {
   log.note('purge', `startup: removed ${names.length} leftover item${names.length === 1 ? '' : 's'} (${log.size(size)}) from ${workDir}`);
 }
 
-purgeOnStartup().catch((e) => log.fail('purge', `startup purge failed: ${e.message}`)).finally(() => app.listen(PORT, () => {
+/** Local mode: say up front if a tool the server strips or downloads need is missing. */
+function checkLocalTools() {
+  const check = (cmd, args, hint) => execFile(cmd, args, (err) => {
+    if (err) log.fail('local', `${cmd} not found: ${hint}`);
+  });
+  check('ffmpeg', ['-version'], 'server strips of videos and downloads need it (brew install ffmpeg)');
+  check(process.env.YTDLP_PATH || 'yt-dlp', ['--version'], 'downloads need it (brew install yt-dlp)');
+}
+
+purgeOnStartup().catch((e) => log.fail('purge', `startup purge failed: ${e.message}`)).finally(() => app.listen(PORT, HOST, () => {
+  if (local.enabled) {
+    log.info(`LOCAL UNLIMITED MODE (${LOCAL_FLAG}=1): no accounts, no sign-in, no limits. Listening on 127.0.0.1 only.`);
+    if (local.ignored.length) log.info(`Ignored in local mode: ${local.ignored.join(', ')}`);
+    checkLocalTools();
+  }
   log.info(`Sharona running on http://localhost:${PORT}  (tools at /app/)`);
   log.info('Logging every download and strip below.');
 }));

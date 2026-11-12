@@ -70,7 +70,10 @@ export function createApp({ env, forward, query, fetchImpl = fetch }) {
   const store = createStore({ query: query || d1Binding(env.DB) });
   // Always production rules here (no dev sign-in or free dev billing), and
   // the paywall is always on: nobody reaches the container without an account.
+  // LOCAL_UNLIMITED (npm run dev:local) means nothing here, and the Worker
+  // never passes it on to the container (PASS in worker/index.js).
   const config = { ...loadConfig({ ...env, NODE_ENV: env.NODE_ENV || 'production' }), paywall: true };
+  if (env.LOCAL_UNLIMITED) console.error('[local] LOCAL_UNLIMITED is set on the Worker and is ignored: the paywall stays on');
   const accounts = createAccountsCore({ config, store, fetchImpl });
   const secret = internalSecret(env);
   const maxUpload = Number(env.MAX_UPLOAD_MB || 2048) * MB;

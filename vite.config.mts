@@ -132,7 +132,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // 127.0.0.1, not localhost: npm run dev:local only listens on IPv4
+    // loopback, and macOS can resolve localhost to ::1 first.
     // xfwd: the API sees the page's own host, for sign-in and Stripe return links.
-    proxy: { '/api': { target: `http://localhost:${process.env.PORT || 3000}`, changeOrigin: true, xfwd: true } },
+    proxy: { '/api': { target: `http://127.0.0.1:${process.env.PORT || 3000}`, changeOrigin: true, xfwd: true } },
   },
 });
