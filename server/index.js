@@ -158,20 +158,101 @@ async function inspectVideo(file) {
 // Stripping
 // ---------------------------------------------------------------------------
 
-// Renders the pipeline to raw sRGB pixels, adds ±2 code values of uniform
-// noise to the colour channels (alpha left alone), and wraps it back into a
-// sharp instance for encoding. Expects 8-bit pixels (caller guards on depth).
-async function addImageNoise(img) {
+// Breaks up invisible pixel-level watermarks (SynthID and the like) that are
+// engineered to survive mild edits. A near-unity resize or a dusting of noise
+// leaves the watermark riding on the same pixel grid it was embedded on, so a
+// detector still reads it; the fix is to desynchronise that grid locally. A
+// smooth, multi-scale random displacement field — a few pixels across at its
+// widest, spread over long wavelengths so straight edges never visibly bend —
+// resamples every pixel off its original position, decorrelating the watermark
+// across low and high frequencies at once, and a trace of per-pixel noise
+// finishes scrambling what's left. Renders the pipeline to raw sRGB pixels and
+// wraps the result back into a sharp instance. Expects 8-bit pixels (caller
+// guards on depth); the picture stays visually indistinguishable.
+async function disruptWatermark(img) {
   const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
-  const ch = info.channels;
-  for (let i = 0; i < data.length; i += ch) {
-    const n = ((Math.random() * 5) | 0) - 2;
-    for (let c = 0; c < ch && c < 3; c++) {
-      const v = data[i + c] + n;
-      data[i + c] = v < 0 ? 0 : v > 255 ? 255 : v;
+  const { width: w, height: h, channels: ch } = info;
+  // Even channel counts (gray+alpha, RGBA) carry alpha last; it's warped but
+  // never noised. Odd counts are all colour.
+  const colorCh = ch % 2 === 0 ? ch - 1 : ch;
+  const out = Buffer.allocUnsafe(data.length);
+
+  // xorshift32 PRNG: deterministic within a call, fresh each run.
+  let seed = (Math.random() * 0x100000000) >>> 0 || 1;
+  const rnd = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 0x100000000;
+  };
+
+  // Three octaves of smooth value noise form the displacement field: coarse
+  // grids of random vectors, bilinearly interpolated so the field is seamless.
+  // Long wavelengths carry the larger amplitudes, so the warp stays invisible.
+  const diag = Math.hypot(w, h);
+  const peak = Math.min(7, Math.max(2.2, diag / 900));
+  const octaves = [
+    { cell: Math.max(24, diag / 14), amp: peak },
+    { cell: Math.max(14, diag / 45), amp: peak * 0.45 },
+    { cell: Math.max(9, diag / 130), amp: peak * 0.18 },
+  ].map(({ cell, amp }) => {
+    const gw = Math.floor((w - 1) / cell) + 2;
+    const gh = Math.floor((h - 1) / cell) + 2;
+    const vx = new Float32Array(gw * gh);
+    const vy = new Float32Array(gw * gh);
+    for (let i = 0; i < vx.length; i++) {
+      vx[i] = (rnd() * 2 - 1) * amp;
+      vy[i] = (rnd() * 2 - 1) * amp;
+    }
+    return { cell, gw, vx, vy };
+  });
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let dx = 0;
+      let dy = 0;
+      for (let k = 0; k < octaves.length; k++) {
+        const g = octaves[k];
+        const fx = x / g.cell;
+        const fy = y / g.cell;
+        const gx = fx | 0;
+        const gy = fy | 0;
+        const tx = fx - gx;
+        const ty = fy - gy;
+        const r0 = gy * g.gw + gx;
+        const r1 = r0 + g.gw;
+        const w00 = (1 - tx) * (1 - ty);
+        const w10 = tx * (1 - ty);
+        const w01 = (1 - tx) * ty;
+        const w11 = tx * ty;
+        dx += g.vx[r0] * w00 + g.vx[r0 + 1] * w10 + g.vx[r1] * w01 + g.vx[r1 + 1] * w11;
+        dy += g.vy[r0] * w00 + g.vy[r0 + 1] * w10 + g.vy[r1] * w01 + g.vy[r1 + 1] * w11;
+      }
+      let sx = x + dx;
+      let sy = y + dy;
+      sx = sx < 0 ? 0 : sx > w - 1 ? w - 1 : sx;
+      sy = sy < 0 ? 0 : sy > h - 1 ? h - 1 : sy;
+      const x0 = sx | 0;
+      const y0 = sy | 0;
+      const x1 = x0 + 1 < w ? x0 + 1 : x0;
+      const y1 = y0 + 1 < h ? y0 + 1 : y0;
+      const tx = sx - x0;
+      const ty = sy - y0;
+      const i00 = (y0 * w + x0) * ch;
+      const i10 = (y0 * w + x1) * ch;
+      const i01 = (y1 * w + x0) * ch;
+      const i11 = (y1 * w + x1) * ch;
+      const o = (y * w + x) * ch;
+      const n = ((rnd() * 7) | 0) - 3; // ±3 code values of noise
+      for (let c = 0; c < ch; c++) {
+        const top = data[i00 + c] * (1 - tx) + data[i10 + c] * tx;
+        const bot = data[i01 + c] * (1 - tx) + data[i11 + c] * tx;
+        let v = Math.round(top * (1 - ty) + bot * ty + (c < colorCh ? n : 0));
+        out[o + c] = v < 0 ? 0 : v > 255 ? 255 : v;
+      }
     }
   }
-  return sharp(data, { raw: { width: info.width, height: info.height, channels: ch } });
+  return sharp(out, { raw: { width: w, height: h, channels: ch } });
 }
 
 async function stripImage(input, ext, quality, synthid = false) {
@@ -185,27 +266,28 @@ async function stripImage(input, ext, quality, synthid = false) {
   img = img.toColorspace('srgb');
 
   if (synthid) {
-    // Disrupt invisible pixel-level watermarks (SynthID, etc.) with a light
-    // touch that still resamples every pixel: a near-unity resize-down→resize-up
-    // cycle (lanczos3, high-fidelity) that shifts the pixel grid enough to break
-    // the watermark lattice, a gentle sharpen that restores any softness the
-    // resample introduced, and a trace of additive noise (the still-image
-    // equivalent of the video filter's per-frame noise) that further scrambles
-    // the pattern. The result stays visually indistinguishable.
+    // Disrupt invisible pixel-level watermarks (SynthID, etc.). SynthID for
+    // images is built to survive a near-unity resize and a dusting of noise, so
+    // that isn't enough on its own; instead a smooth multi-scale warp
+    // desynchronises the pixel grid the watermark rides on (see
+    // disruptWatermark), then a gentle sharpen restores the softness the
+    // resample introduces. The result stays visually indistinguishable.
     const meta = await sharp(input, { animated, failOn: 'none' }).metadata();
-    const w = meta.width;
-    const h = meta.height;
-    if (w && h) {
-      const shrunkW = Math.max(1, Math.round(w * 0.99));
-      const shrunkH = Math.max(1, Math.round(h * 0.99));
+    if (!animated && meta.depth === 'uchar') {
+      img = await disruptWatermark(img);
+      img = img.sharpen({ sigma: 0.6, m1: 0.4, m2: 0.25 });
+    } else if (meta.width && meta.height) {
+      // Animated frames and >8-bit depths can't go through the raw-pixel warp
+      // here, so fall back to a resample-down→resample-up cycle plus a sharpen.
+      const w = meta.width;
+      const h = meta.height;
+      const shrunkW = Math.max(1, Math.round(w * 0.985));
+      const shrunkH = Math.max(1, Math.round(h * 0.985));
       img = img
         .resize(shrunkW, shrunkH, { kernel: 'lanczos3' })
-        .resize(w, h, { kernel: 'lanczos3' });
+        .resize(w, h, { kernel: 'lanczos3' })
+        .sharpen({ sigma: 0.5, m1: 0.3, m2: 0.2 });
     }
-    img = img.sharpen({ sigma: 0.5, m1: 0.3, m2: 0.2 });
-    // Noise needs raw 8-bit pixels; animated frames and >8-bit depths are left
-    // to the resample + sharpen alone.
-    if (!animated && meta.depth === 'uchar') img = await addImageNoise(img);
   }
 
   let outExt = ext;

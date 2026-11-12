@@ -148,7 +148,7 @@ export const GUIDES: Guide[] = [
         h: 'How {site} disrupts it',
         blocks: [
           {
-            p: 'The image is resampled with a near-unity resize-down then resize-up, a gentle sharpen and a trace of additive noise, then saved again at high quality. That moves every pixel and scrambles the watermark lattice, while every metadata block — EXIF, XMP, IPTC and C2PA — is removed.',
+            p: 'Every pixel is run through a smooth, multi-scale warp — nudged a fraction of a pixel to a few pixels off its original spot, too gently to see but enough to pull the watermark off the pixel grid it was embedded on — then given a trace of noise and a gentle sharpen and saved again at high quality. Desynchronising the grid breaks up the watermark far more thoroughly than a plain resize, which SynthID is built to shrug off, while every metadata block — EXIF, XMP, IPTC and C2PA — is removed.',
           },
         ],
       },
@@ -207,7 +207,7 @@ export const GUIDES: Guide[] = [
         h: 'How the strip works',
         blocks: [
           {
-            p: 'A near-unity resample moves every pixel, a gentle sharpen restores crispness, and a trace of noise scrambles the watermark lattice. The image is then re-encoded at high quality with no metadata at all — EXIF, XMP, IPTC and C2PA are gone.',
+            p: 'A smooth, multi-scale warp nudges every pixel off its original position — invisible to the eye, but enough to desynchronise the watermark from the pixel grid it rides on — then a trace of noise and a gentle sharpen finish the job. Pulling the watermark off its grid breaks it up far better than a plain resize, which SynthID survives by design. The image is re-encoded at high quality with no metadata at all — EXIF, XMP, IPTC and C2PA are gone.',
           },
         ],
       },
@@ -266,7 +266,7 @@ export const GUIDES: Guide[] = [
         h: 'How {site} cleans it',
         blocks: [
           {
-            p: 'Videos are re-encoded at a visually transparent quality (CRF 18) with a faint blur, a matching sharpen and a trace of noise between frames; images are resampled, noised and sharpened, then saved again at high quality. Either way every metadata block — C2PA included — is dropped. The result looks and plays the same.',
+            p: 'Videos are re-encoded at a visually transparent quality (CRF 18) with a faint blur, a matching sharpen and a trace of noise between frames; images are run through a smooth, invisible warp that nudges every pixel off the grid the watermark sits on, then noised, sharpened and saved again at high quality. Either way every metadata block — C2PA included — is dropped. The result looks and plays the same.',
           },
         ],
       },

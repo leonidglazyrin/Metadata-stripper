@@ -230,17 +230,106 @@ export function stripGif(b: Uint8Array): Uint8Array<ArrayBuffer> {
 
 /* ---------------- Canvas re-encode ---------------- */
 
-/** Adds ±2 code values of uniform noise to the RGB channels, in place. */
-function addNoise(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number) {
+/**
+ * Breaks up invisible pixel-level watermarks (SynthID and the like) that are
+ * engineered to survive mild edits. A near-unity resize or a dusting of noise
+ * leaves the watermark riding on the same pixel grid it was embedded on, so a
+ * detector still integrates it out and reads it; the fix is to desynchronise
+ * that grid locally. A smooth, multi-scale random displacement field — a few
+ * pixels across at its widest, spread over long wavelengths so straight edges
+ * never visibly bend — resamples every pixel off its original position, which
+ * decorrelates the watermark across low and high frequencies at once. A trace
+ * of per-pixel noise finishes scrambling what's left. The picture stays
+ * visually the same; the watermark's spatial coherence does not.
+ */
+function disruptWatermark(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number) {
   const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data; // Uint8ClampedArray: writes are clamped to 0–255
-  for (let i = 0; i < d.length; i += 4) {
-    const n = ((Math.random() * 5) | 0) - 2;
-    d[i] += n;
-    d[i + 1] += n;
-    d[i + 2] += n;
+  const src = img.data; // Uint8ClampedArray: writes are clamped to 0–255
+  const out = ctx.createImageData(w, h);
+  const dst = out.data;
+
+  // Deterministic within a call, fresh each run (new field every strip).
+  let seed = (Math.random() * 0x100000000) >>> 0 || 1;
+  const rnd = () => {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return (seed >>> 0) / 0x100000000;
+  };
+
+  // Three octaves of smooth value noise form the displacement field. Each is a
+  // coarse grid of random vectors, bilinearly interpolated so the field is
+  // continuous (no seams). Long wavelengths carry the larger amplitudes, so the
+  // local slope stays tiny and the warp is invisible even on hard edges, while
+  // together the octaves move pixels at every scale the watermark can live on.
+  const diag = Math.hypot(w, h);
+  const peak = Math.min(7, Math.max(2.2, diag / 900));
+  const octaves = [
+    { cell: Math.max(24, diag / 14), amp: peak },
+    { cell: Math.max(14, diag / 45), amp: peak * 0.45 },
+    { cell: Math.max(9, diag / 130), amp: peak * 0.18 },
+  ].map(({ cell, amp }) => {
+    const gw = Math.floor((w - 1) / cell) + 2;
+    const gh = Math.floor((h - 1) / cell) + 2;
+    const vx = new Float32Array(gw * gh);
+    const vy = new Float32Array(gw * gh);
+    for (let i = 0; i < vx.length; i++) {
+      vx[i] = (rnd() * 2 - 1) * amp;
+      vy[i] = (rnd() * 2 - 1) * amp;
+    }
+    return { cell, gw, vx, vy };
+  });
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let dx = 0;
+      let dy = 0;
+      for (let k = 0; k < octaves.length; k++) {
+        const g = octaves[k];
+        const fx = x / g.cell;
+        const fy = y / g.cell;
+        const gx = fx | 0;
+        const gy = fy | 0;
+        const tx = fx - gx;
+        const ty = fy - gy;
+        const r0 = gy * g.gw + gx;
+        const r1 = r0 + g.gw;
+        const w00 = (1 - tx) * (1 - ty);
+        const w10 = tx * (1 - ty);
+        const w01 = (1 - tx) * ty;
+        const w11 = tx * ty;
+        dx += g.vx[r0] * w00 + g.vx[r0 + 1] * w10 + g.vx[r1] * w01 + g.vx[r1 + 1] * w11;
+        dy += g.vy[r0] * w00 + g.vy[r0 + 1] * w10 + g.vy[r1] * w01 + g.vy[r1 + 1] * w11;
+      }
+      // Sample the source at the displaced position (bilinear, edges clamped).
+      let sx = x + dx;
+      let sy = y + dy;
+      sx = sx < 0 ? 0 : sx > w - 1 ? w - 1 : sx;
+      sy = sy < 0 ? 0 : sy > h - 1 ? h - 1 : sy;
+      const x0 = sx | 0;
+      const y0 = sy | 0;
+      const x1 = x0 + 1 < w ? x0 + 1 : x0;
+      const y1 = y0 + 1 < h ? y0 + 1 : y0;
+      const tx = sx - x0;
+      const ty = sy - y0;
+      const i00 = (y0 * w + x0) * 4;
+      const i10 = (y0 * w + x1) * 4;
+      const i01 = (y1 * w + x0) * 4;
+      const i11 = (y1 * w + x1) * 4;
+      const o = (y * w + x) * 4;
+      const n = ((rnd() * 7) | 0) - 3; // ±3 code values of noise
+      for (let c = 0; c < 3; c++) {
+        const top = src[i00 + c] * (1 - tx) + src[i10 + c] * tx;
+        const bot = src[i01 + c] * (1 - tx) + src[i11 + c] * tx;
+        dst[o + c] = top * (1 - ty) + bot * ty + n;
+      }
+      // Alpha is warped the same way but never noised.
+      const atop = src[i00 + 3] * (1 - tx) + src[i10 + 3] * tx;
+      const abot = src[i01 + 3] * (1 - tx) + src[i11 + 3] * tx;
+      dst[o + 3] = atop * (1 - ty) + abot * ty;
+    }
   }
-  ctx.putImageData(img, 0, 0);
+  ctx.putImageData(out, 0, 0);
 }
 
 export async function reencode(
@@ -263,19 +352,14 @@ export async function reencode(
     ctx.fillRect(0, 0, w, h);
   }
   if (synthid) {
-    // Same idea as the server: a near-unity shrink and re-grow resamples every
-    // pixel, then a trace of additive noise (the still-image equivalent of the
-    // video filter's per-frame noise) is laid over the top. Together they break
-    // up invisible watermark lattices such as SynthID while staying visually
-    // indistinguishable.
-    const sw = Math.max(1, Math.round(w * 0.99));
-    const sh = Math.max(1, Math.round(h * 0.99));
-    const small = new OffscreenCanvas(sw, sh);
-    const sctx = small.getContext('2d')!;
-    sctx.imageSmoothingQuality = 'high';
-    sctx.drawImage(bmp, 0, 0, sw, sh);
-    ctx.drawImage(small, 0, 0, w, h);
-    addNoise(ctx, w, h);
+    // Same idea as the server: locally desynchronise the pixel grid an invisible
+    // watermark (SynthID and similar) is embedded on, so a detector can no longer
+    // read it, while the picture stays visually indistinguishable. A near-unity
+    // resize — what this used to do — stays inside the watermark's robustness
+    // envelope and is read straight through, so it's replaced by a smooth
+    // multi-scale warp plus a trace of noise (see disruptWatermark).
+    ctx.drawImage(bmp, 0, 0);
+    disruptWatermark(ctx, w, h);
   } else {
     ctx.drawImage(bmp, 0, 0);
   }
