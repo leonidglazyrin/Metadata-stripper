@@ -216,6 +216,33 @@ test('free accounts get their one server strip and one download, within 10 free 
   assert.equal((await (await s.upload(basic)).json()).code, 'free_trials_full');
 });
 
+test('/api/me tells the page, before any upload, whether it would be refused', async () => {
+  const s = await setup({ FREE_TRIALS_PER_DAY: '1' });
+  const me = async (as) => (await s.call('GET', '/api/me', { as })).json();
+
+  // Signed out: the page shows sign-in and sends nothing.
+  const out = await me();
+  assert.equal(out.signedIn, false);
+  assert.equal(out.trialsFull, null);
+
+  const a = await s.signIn('a');
+  let m = await me(a);
+  assert.equal(m.usage.server_strip.used, 0);
+  assert.equal(m.usage.server_strip.limit, 1);
+  assert.equal(m.trialsFull, false);
+
+  // Someone takes today's one free trial: everyone else on free now sees it as full.
+  assert.equal((await s.upload(await s.signIn('b'))).status, 200);
+  m = await me(a);
+  assert.equal(m.trialsFull, true);
+  assert.equal((await (await s.upload(a)).json()).code, 'free_trials_full');
+
+  // Pro is unlimited and never limited by the cap.
+  assert.equal((await me(await s.signIn('pro', 'pro'))).trialsFull, null);
+  // None of these /api/me calls woke the container.
+  assert.equal(s.reached.length, 1);
+});
+
 test('the daily cap follows app_settings, and parallel requests cannot take more than it allows', async () => {
   const s = await setup();
   s.db.db.prepare("UPDATE app_settings SET value = '3' WHERE key = 'free_trials_per_day'").run();

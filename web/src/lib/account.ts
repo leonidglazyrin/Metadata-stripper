@@ -45,6 +45,8 @@ export interface Account {
   credits: { strip: number; packs: number } | null;
   /** The one-time strip pack: `strips` on-device strips for `label`. */
   pack: StripPack;
+  /** Today's site-wide free server strips and downloads are all taken; null when it doesn't apply. */
+  trialsFull?: boolean | null;
   /** Free uses every account starts with; null on Pro or with no paywall. */
   free: Record<Kind, number> | null;
   plans: Plan[];
@@ -151,6 +153,44 @@ export function gateError(e: unknown, kind: Kind): unknown {
   if (e.status === 401) return new Error('Sign in to keep going');
   if (full) return new Error(`Today’s free ${KIND_WORD[k]}s are taken, try tomorrow or upgrade to Pro`);
   return new Error(`Free ${KIND_WORD[k]} used, upgrade to ${plan === 'basic' ? 'Basic' : 'Pro'}${pack ? ` or try ${state.account?.pack?.label ?? '$2'} strips` : ''}`);
+}
+
+/**
+ * Before a file is queued or a byte uploaded: may this account run `kind`?
+ * Signed out, out of free uses, or today's free trials taken: opens the
+ * sign-in / plans dialog right away and answers false. The server checks
+ * again either way; this only saves an upload that would be refused.
+ */
+export async function preflight(kind: Kind): Promise<boolean> {
+  // Signed out is known from the page load: no request needed to say so.
+  let a = state.account;
+  if (a?.paywall && !a.signedIn) {
+    openPaywall({ reason: 'auth', kind });
+    return false;
+  }
+  // Fresh usage from /api/me (no file data). Unreachable: let the tool try and report it.
+  a = (await refreshAccount()) ?? a;
+  if (!a || !a.paywall) return true;
+  if (!a.signedIn) {
+    openPaywall({ reason: 'auth', kind });
+    return false;
+  }
+  const left = remaining(a, kind);
+  if (left === null) return true;
+  if (kind === 'strip') {
+    if (left > 0 || stripCredits(a) > 0) return true;
+    openPaywall({ reason: 'upgrade', kind, plan: 'basic', pack: Boolean(a.pack?.available) });
+    return false;
+  }
+  if (left === 0) {
+    openPaywall({ reason: 'upgrade', kind, plan: 'pro' });
+    return false;
+  }
+  if (a.trialsFull) {
+    openPaywall({ reason: 'upgrade', kind, plan: 'pro', full: true });
+    return false;
+  }
+  return true;
 }
 
 /** Free uses left, or null when unlimited (Pro, or no paywall). */
