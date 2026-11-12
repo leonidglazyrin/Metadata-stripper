@@ -79,14 +79,14 @@
       // Empty: links and sign-in use the Preview's own URL.
       "SITE_URL": "",
       "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
-      "CLOUDFLARE_D1_DATABASE_ID": "REPLACE_WITH_PREVIEW_D1_ID",
+      "CLOUDFLARE_D1_DATABASE_ID": "b821ff32-4b1c-4548-975b-b15482f278f3",
       "SLEEP_AFTER": "5m"
     },
     "d1_databases": [
       {
         "binding": "DB",
         "database_name": "sharona-preview",
-        "database_id": "REPLACE_WITH_PREVIEW_D1_ID",
+        "database_id": "b821ff32-4b1c-4548-975b-b15482f278f3",
         "migrations_dir": "migrations"
       }
     ],

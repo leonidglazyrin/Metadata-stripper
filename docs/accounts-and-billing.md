@@ -280,7 +280,7 @@ Workers Builds runs `npx wrangler preview` for every branch except main, which g
 One-time setup (already done for `sharona-preview` unless you start over):
 
 ```bash
-npx wrangler d1 create sharona-preview          # put its id in both REPLACE_WITH_PREVIEW_D1_ID spots
+npx wrangler d1 create sharona-preview          # then put its id in wrangler.jsonc (previews) and wrangler.preview-migrations.jsonc
 npm run db:preview:migrate                      # every file in migrations/, on the preview database
 npx wrangler preview base-config secret put SESSION_SECRET        # a new value, not production's
 npx wrangler preview base-config secret put CLOUDFLARE_API_TOKEN  # D1 · Edit token (lets the container count server strips)
