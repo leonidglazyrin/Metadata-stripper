@@ -134,6 +134,8 @@ export const id: Translation = {
     free: 'Setiap akun mendapat 1 pembersihan gratis di perangkat, 1 pembersihan gratis di server, dan 1 unduhan video gratis. Pembersihan server dan unduhan gratis dibatasi per hari untuk semua orang.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'Tanpa unduhan video dari YouTube, X, TikTok, atau Instagram (khusus Pro)',
       features: [
         'Pembersihan tanpa batas di perangkat',
         'File tidak pernah keluar dari perangkatmu',

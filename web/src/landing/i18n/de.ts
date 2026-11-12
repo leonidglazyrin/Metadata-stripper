@@ -134,6 +134,8 @@ export const de: Translation = {
     free: 'Jedes Konto erhält 1 kostenlose Bereinigung auf dem Gerät, 1 kostenlose Bereinigung auf dem Server und 1 kostenlosen Video-Download. Kostenlose Server-Bereinigungen und Downloads sind für alle pro Tag begrenzt.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'Keine Video-Downloads von YouTube, X, TikTok oder Instagram (nur Pro)',
       features: [
         'Unbegrenzte Bereinigung auf dem Gerät',
         'Ihre Dateien verlassen nie Ihr Gerät',

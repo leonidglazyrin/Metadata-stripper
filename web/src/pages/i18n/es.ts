@@ -65,6 +65,14 @@ export const es: PagesTranslation = {
       text: 'Tus primeras limpiezas y descargas son gratis. Después, prueba 10 limpiezas de SynthID por $2 o pásate a ilimitado con Basic o Pro.',
       orYearly: 'o {price} / año',
       seePlans: 'Comparar todos los planes',
+      download: {
+        badge: 'Descargas ilimitadas',
+        title: ['Descarga sin límites.', 'Pásate a Pro.'],
+        text: 'Tu primera descarga de vídeo es gratis. Las descargas se hacen en nuestro servidor, así que después necesitas Pro: descargas ilimitadas de YouTube, X, TikTok e Instagram, y limpieza más rápida.',
+        cardText: 'Descargas de vídeo ilimitadas de YouTube, X, TikTok e Instagram, y limpieza en el servidor unas 4 veces más rápida. Cancela cuando quieras.',
+        billing: 'Facturación mensual o anual. Cancela o cambia de plan cuando quieras.',
+        cta: 'Descargas ilimitadas',
+      },
     },
   },
   guides: {

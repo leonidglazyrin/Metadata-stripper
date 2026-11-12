@@ -143,7 +143,7 @@ export function Shell({
   return (
     <div className="page doc-page">
       <header className="card doc-head">
-        <a className="wordmark" href={langPath(lang)} aria-label={`${SITE_NAME} ${ui.home}`}>sharona</a>
+        <a className="wordmark" href={langPath(lang)} aria-label={`${SITE_NAME} ${ui.home}`}>SynthIDStripper</a>
         <nav className="nav" aria-label={ui.navLabel}>
           <a href={`${langPrefix(lang)}/guides/`}>{ui.guides}</a>
           <a href={`${langPath(lang)}#pricing`}>{ui.pricing}</a>
@@ -241,13 +241,35 @@ export function PackCard({ lang, top }: { lang: string; top?: boolean }) {
 }
 
 /**
- * The plans promo (the $2 strip pack, Basic and Pro) shown on every guide and
- * content page. Copy comes from the landing page's pricing strings, so it
- * matches the pricing section in every language.
+ * The download guides' top card: downloads run on our server and need Pro, so
+ * the $2 strip pack would not help these readers. Styled like PackCard.
  */
-export function PlansPromo({ lang }: { lang: string }) {
+export function ProDownloadCard({ lang, tool }: { lang: string; tool: string }) {
   const ui = pagesUi(lang);
   const p = getDict(lang).pricing;
+  return (
+    <div className="price-pack pack-top">
+      <span className="price-pack-badge">{ui.promo.download.badge}</span>
+      <div>
+        <p className="price-name">{p.pro.name}</p>
+        <p className="price-pack-text">{fill(ui.promo.download.cardText)}</p>
+      </div>
+      <p className="price-tag"><b>{PRICES.pro}</b> {p.perMonth}</p>
+      <a className="cta" href={`${APP}#${tool}`}>{ui.promo.download.cta}</a>
+    </div>
+  );
+}
+
+/**
+ * The plans promo (the $2 strip pack, Basic and Pro) shown on every guide and
+ * content page. Copy comes from the landing page's pricing strings, so it
+ * matches the pricing section in every language. On download guides
+ * (`downloads` is the guide's tool) it shows the Pro promo instead.
+ */
+export function PlansPromo({ lang, downloads }: { lang: string; downloads?: string }) {
+  const ui = pagesUi(lang);
+  const p = getDict(lang).pricing;
+  if (downloads) return <ProPromo lang={lang} tool={downloads} />;
   return (
     <aside className="card promo" aria-labelledby="promo-h">
       <p className="eyebrow">{ui.promo.eyebrow}</p>
@@ -269,6 +291,7 @@ export function PlansPromo({ lang }: { lang: string }) {
               </p>
               <ul className="price-list">
                 {plan.features.map((f) => <li key={f}>{f}</li>)}
+                    {'missing' in plan && <li className="no">{plan.missing}</li>}
               </ul>
               <a className={id === 'pro' ? 'cta' : 'cta ghost'} href={APP}>{p.cta}</a>
             </div>
@@ -277,6 +300,47 @@ export function PlansPromo({ lang }: { lang: string }) {
       </div>
       <p className="price-foot">
         {p.billing}
+        <StripeBadge label={p.stripeLabel} />
+        <a className="promo-more" href={`${langPath(lang)}#pricing`}>{ui.promo.seePlans}</a>
+      </p>
+    </aside>
+  );
+}
+
+/**
+ * The download guides' promo: only Pro includes downloads, so it is one wide
+ * Pro card (price and button on the left, what you get on the right) instead
+ * of the strip pack and two plans.
+ */
+function ProPromo({ lang, tool }: { lang: string; tool: string }) {
+  const ui = pagesUi(lang);
+  const p = getDict(lang).pricing;
+  const d = ui.promo.download;
+  // Downloads first; "Everything in Basic" means little without Basic beside it.
+  const perks = [p.pro.features[2], p.pro.features[1], p.basic.features[0], p.basic.features[2]];
+  return (
+    <aside className="card promo" aria-labelledby="promo-h">
+      <p className="eyebrow">{ui.promo.eyebrow}</p>
+      <h2 id="promo-h" className="display xs"><Pair p={[fill(d.title[0]), fill(d.title[1])]} /></h2>
+      <p className="lede">{fill(d.text)}</p>
+      <div className="price price-best price-wide">
+        <div className="price-wide-main">
+          <p className="price-name">
+            {p.pro.name}
+            <span className="price-badge">{d.badge}</span>
+          </p>
+          <p className="price-tag"><b>{PRICES.pro}</b> {p.perMonth}</p>
+          <p className="promo-year">
+            {ui.promo.orYearly.replace('{price}', YEARLY_PRICES.pro)} <span className="price-save">{p.yearlySave}</span>
+          </p>
+          <a className="cta" href={`${APP}#${tool}`}>{d.cta}</a>
+        </div>
+        <ul className="price-list">
+          {perks.map((f) => <li key={f}>{f}</li>)}
+        </ul>
+      </div>
+      <p className="price-foot">
+        {d.billing}
         <StripeBadge label={p.stripeLabel} />
         <a className="promo-more" href={`${langPath(lang)}#pricing`}>{ui.promo.seePlans}</a>
       </p>
@@ -293,6 +357,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
     .map((r) => r && localGuide(r, lang))
     .filter((r): r is Guide => Boolean(r));
   const showToc = g.sections.length >= 4;
+  const downloads = g.kind === 'download';
   return (
     <Shell
       lang={lang}
@@ -309,7 +374,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
           </div>
         </div>
         {g.intro.map((p) => <p key={p} className="lede doc-lede"><Rich s={p} lang={lang} /></p>)}
-        <PackCard lang={lang} top />
+        {downloads ? <ProDownloadCard lang={lang} tool={g.tool} /> : <PackCard lang={lang} top />}
 
         {showToc && (
           <nav className="toc" aria-label={ui.contents}>
@@ -346,7 +411,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
         )}
       </article>
 
-      <PlansPromo lang={lang} />
+      <PlansPromo lang={lang} downloads={downloads ? g.tool : undefined} />
 
       {related.length > 0 && (
         <nav className="card doc-related" aria-labelledby="related">

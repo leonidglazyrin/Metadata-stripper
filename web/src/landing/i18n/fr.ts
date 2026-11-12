@@ -134,6 +134,8 @@ export const fr: Translation = {
     free: 'Chaque compte a droit à 1 nettoyage gratuit sur l’appareil, 1 nettoyage gratuit sur le serveur et 1 téléchargement vidéo gratuit. Les nettoyages serveur et téléchargements gratuits sont limités par jour pour tout le monde.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'Pas de téléchargement vidéo depuis YouTube, X, TikTok ou Instagram (Pro uniquement)',
       features: [
         'Nettoyages illimités sur l’appareil',
         'Vos fichiers ne quittent jamais votre appareil',

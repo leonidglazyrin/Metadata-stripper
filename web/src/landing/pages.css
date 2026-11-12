@@ -68,7 +68,7 @@
   .foot-cols, .guide-list, .doc-steps .steps { grid-template-columns: minmax(0, 1fr); }
   .doc-head .nav { display: none; }
   .doc-head .head-cta { margin-left: auto; }
-  .doc-head .wordmark { font-size: 26px; }
+  .doc-head .wordmark { font-size: clamp(16px, 4.8vw, 26px); }
   .doc-top { flex-direction: column; gap: 14px; }
   .doc-steps { padding: 18px; }
   .toc ol { columns: 1; }
@@ -82,3 +82,26 @@
 .promo-more { margin-left: auto; color: var(--blue); font-weight: 700; text-decoration: none; }
 .promo-more:hover { text-decoration: underline; }
 .pack-top { margin-top: 30px; }
+
+/* Narrow phones: keep the wordmark, language and "Open tools" on one row. */
+@media (max-width: 420px) {
+  .hero .card-head, .doc-head { gap: 8px 10px; }
+  .doc-head { padding-left: 14px; padding-right: 14px; }
+  .card-head .head-cta, .doc-head .head-cta { padding: 9px 12px; }
+}
+@media (max-width: 359px) {
+  .card-head .head-cta, .doc-head .head-cta { display: none; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .doc-head { gap: 10px 14px; }
+  .doc-head .wordmark { font-size: 22px; }
+}
+
+/* Download guides: one wide Pro card, price on the left, perks on the right. */
+.price.price-wide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); align-items: center; gap: 18px 48px; margin-top: 20px; padding: 30px 34px; }
+.price-wide .price-list { margin: 0; font-size: 16px; gap: 12px; }
+.price.price-wide .cta { margin-top: 20px; }
+.price-wide-main { display: flex; flex-direction: column; align-items: flex-start; }
+@media (max-width: 640px) {
+  .price.price-wide { grid-template-columns: minmax(0, 1fr); padding: 22px; }
+}

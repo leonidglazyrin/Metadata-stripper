@@ -2,7 +2,7 @@
 // lives in ./i18n (one dictionary per language); {site} and {price} in those
 // strings are filled in from here.
 
-export const SITE_NAME = 'Sharona';
+export const SITE_NAME = 'SynthIDStripper';
 
 /** Monthly prices of the two plans and the strip pack, shown in the pricing section of every language. */
 export const PRICES = { basic: '$10', pro: '$20', pack: '$2' } as const;

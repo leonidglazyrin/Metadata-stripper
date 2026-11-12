@@ -106,7 +106,7 @@ To give one person more free uses, lower their count: `UPDATE usage_counters SET
 ## 2. Google OAuth client
 
 1. Open [Google Cloud console](https://console.cloud.google.com/) → pick or create a project.
-2. **APIs & Services → OAuth consent screen**: User type *External*, app name *Sharona*, your support email, scopes `openid`, `email`, `profile` (all non-sensitive, so no review needed). Publish the app when you go live (in *Testing* only listed test users can sign in).
+2. **APIs & Services → OAuth consent screen**: User type *External*, app name *SynthIDStripper*, your support email, scopes `openid`, `email`, `profile` (all non-sensitive, so no review needed). Publish the app when you go live (in *Testing* only listed test users can sign in).
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → *Web application*.
    - Authorized JavaScript origins: `https://your-domain` (and `http://localhost:5173` for dev)
    - Authorized redirect URIs: `https://your-domain/api/auth/google/callback` (and `http://localhost:5173/api/auth/google/callback` for dev)
@@ -117,17 +117,17 @@ To give one person more free uses, lower their count: `UPDATE usage_counters SET
 Do all of this in **Test mode** first (toggle at the top right of the [Stripe dashboard](https://dashboard.stripe.com/)), then repeat it in Live mode.
 
 1. **Basic product.** **Product catalog → + Add product**:
-   - Name: *Sharona Basic*. Description (shown at checkout): *Unlimited on-device stripping.*
+   - Name: *SynthIDStripper Basic*. Description (shown at checkout): *Unlimited on-device stripping.*
    - Pricing: **Recurring**, **$10.00 USD**, billing period **Monthly**.
    - Save, open the product, and copy the price ID (`price_…`, in the Pricing section) into `STRIPE_PRICE_ID_BASIC`.
    - On the same product, **+ Add another price**: **Recurring**, **$100.00 USD**, billing period **Yearly**. Copy its price ID into `STRIPE_PRICE_ID_BASIC_YEARLY`.
 2. **Pro product.** **+ Add product** again:
-   - Name: *Sharona Pro*. Description: *Unlimited stripping on our server (about 4x faster) and video downloads.*
+   - Name: *SynthIDStripper Pro*. Description: *Unlimited stripping on our server (about 4x faster) and video downloads.*
    - Pricing: **Recurring**, **$20.00 USD**, **Monthly**.
    - On the same product, **+ Add another price**: **Recurring**, **$200.00 USD**, **Yearly**. Copy it into `STRIPE_PRICE_ID_PRO_YEARLY`.
    - Copy the monthly price ID into `STRIPE_PRICE_ID_PRO`. (If you already had a $20 Pro price in `STRIPE_PRICE_ID`, keep using it: either rename the variable or leave it, `STRIPE_PRICE_ID` still counts as the Pro price.)
 3. **Strip pack product.** **+ Add product** again:
-   - Name: *Sharona strip pack*. Description: *10 SynthID strips, on your device. Buy as many as you like, they add up.*
+   - Name: *SynthIDStripper strip pack*. Description: *10 SynthID strips, on your device. Buy as many as you like, they add up.*
    - Pricing: **One-off** (not Recurring), **$2.00 USD**.
    - Copy its price ID into `STRIPE_PRICE_ID_PACK`. Without it the pack shows "Not available yet" and the 402 doesn't offer it.
    - Don't add this product to the Customer Portal's plan list in step 6: it isn't a subscription.
@@ -153,7 +153,7 @@ Do all of this in **Test mode** first (toggle at the top right of the [Stripe da
    - A strip pack arrives as `checkout.session.completed` with `mode: payment` and `metadata.product = strip_pack`; the strips are added once `payment_status` is `paid`. If you already have the endpoint, edit it and add `checkout.session.async_payment_succeeded`.
 6. **Customer Portal.** **Settings → Billing → Customer portal** (Test mode has its own copy of this page):
    - **Subscriptions → Cancel subscriptions**: on. Choose *At end of billing period* so people keep their plan until the period they paid for ends.
-   - **Subscriptions → Customers can switch plans**: on. Under **Products**, add **Sharona Basic** with both its prices ($10 monthly, $100 yearly) and **Sharona Pro** with both of its ($20 monthly, $200 yearly). This also lets people move between monthly and yearly. Without this, "Switch to Pro" / "Switch to Basic" can't open the confirm page and falls back to the portal's home page.
+   - **Subscriptions → Customers can switch plans**: on. Under **Products**, add **SynthIDStripper Basic** with both its prices ($10 monthly, $100 yearly) and **SynthIDStripper Pro** with both of its ($20 monthly, $200 yearly). This also lets people move between monthly and yearly. Without this, "Switch to Pro" / "Switch to Basic" can't open the confirm page and falls back to the portal's home page.
    - **Proration**: *Prorate charges and credits* (recommended). Upgrades are charged the difference right away; downgrades become a credit on the next invoice.
    - **Payment methods → Customers can update payment methods**: on. Invoice history: on.
    - **Business information**: your terms and privacy policy links.
@@ -179,11 +179,11 @@ Everything in one place, for this deploy (`https://metadata-stripper.synthidstri
 
 **Products and prices** (Stripe → Product catalog → + Add product)
 
-- [ ] **Sharona Basic**, recurring: $10.00 USD monthly → `STRIPE_PRICE_ID_BASIC`
+- [ ] **SynthIDStripper Basic**, recurring: $10.00 USD monthly → `STRIPE_PRICE_ID_BASIC`
 - [ ] same product, + Add another price: $100.00 USD yearly → `STRIPE_PRICE_ID_BASIC_YEARLY`
-- [ ] **Sharona Pro**, recurring: $20.00 USD monthly → `STRIPE_PRICE_ID_PRO`
+- [ ] **SynthIDStripper Pro**, recurring: $20.00 USD monthly → `STRIPE_PRICE_ID_PRO`
 - [ ] same product, + Add another price: $200.00 USD yearly → `STRIPE_PRICE_ID_PRO_YEARLY`
-- [ ] **Sharona strip pack**, one-off: $2.00 USD → `STRIPE_PRICE_ID_PACK`
+- [ ] **SynthIDStripper strip pack**, one-off: $2.00 USD → `STRIPE_PRICE_ID_PACK`
 
 **API key** (Developers → API keys)
 
@@ -205,7 +205,7 @@ Everything in one place, for this deploy (`https://metadata-stripper.synthidstri
 **Customer Portal** (Settings → Billing → Customer portal)
 
 - [ ] Cancel subscriptions: on, at end of billing period
-- [ ] Customers can switch plans: on. Products: **Sharona Basic** ($10/month and $100/year) and **Sharona Pro** ($20/month and $200/year). Not the strip pack.
+- [ ] Customers can switch plans: on. Products: **SynthIDStripper Basic** ($10/month and $100/year) and **SynthIDStripper Pro** ($20/month and $200/year). Not the strip pack.
 - [ ] Proration: prorate charges and credits
 - [ ] Customers can update payment methods: on. Invoice history: on
 - [ ] Business information: links to `/terms/` and `/privacy/`
@@ -241,7 +241,7 @@ The five price IDs aren't secret, so you can put them in `vars` in `wrangler.jso
 Set `SITE_URL`, `SESSION_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_BASIC`, `STRIPE_PRICE_ID_PRO`, `STRIPE_PRICE_ID_BASIC_YEARLY`, `STRIPE_PRICE_ID_PRO_YEARLY`, `STRIPE_PRICE_ID_PACK` and `STRIPE_WEBHOOK_SECRET` (see `.env.example`) in your host's environment settings. No volume or persistent disk is needed:
 
 ```bash
-docker run -p 3000:3000 --env-file .env sharona
+docker run -p 3000:3000 --env-file .env synthidstripper
 ```
 
 If the paywall is on and the D1 variables are missing, the server refuses to start with a message saying so. If D1 can't be reached while running, sign-in and the tools answer "Accounts are unavailable right now" (HTTP 503) instead of letting work through for free.

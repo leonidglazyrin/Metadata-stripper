@@ -134,6 +134,8 @@ export const ko: Translation = {
     free: '모든 계정에 기기 정리 1회, 서버 정리 1회, 동영상 다운로드 1회가 무료로 제공됩니다. 무료 서버 정리와 다운로드는 모든 사용자에게 하루 한도가 있습니다.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'YouTube, X, TikTok, Instagram 동영상 다운로드 미포함 (Pro 전용)',
       features: [
         '기기에서 무제한 정리',
         '파일이 기기 밖으로 나가지 않음',

@@ -134,6 +134,8 @@ export const tr: Translation = {
     free: 'Her hesaba 1 ücretsiz cihazda temizleme, 1 ücretsiz sunucuda temizleme ve 1 ücretsiz video indirme verilir. Ücretsiz sunucu temizlemeleri ve indirmeler herkes için günlük olarak sınırlıdır.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'YouTube, X, TikTok veya Instagram’dan video indirme yok (yalnızca Pro)',
       features: [
         'Cihazda sınırsız temizleme',
         'Dosyaların cihazından hiç çıkmaz',

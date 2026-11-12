@@ -41,7 +41,7 @@ function sitemapXml(base, langs, pages) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls}\n</urlset>\n`;
 }
 
-const NOT_FOUND_HTML = '<!doctype html><meta charset="utf-8"><title>Not found · Sharona</title><meta name="robots" content="noindex"><p style="font:16px system-ui;padding:40px">Page not found. <a href="/">Go to Sharona</a></p>';
+const NOT_FOUND_HTML = '<!doctype html><meta charset="utf-8"><title>Not found · SynthIDStripper</title><meta name="robots" content="noindex"><p style="font:16px system-ui;padding:40px">Page not found. <a href="/">Go to Sharona</a></p>';
 
 // Guides also exist under a language prefix: /es/guides/…
 const CONTENT_PAGE = /^\/(?:[a-z]{2}\/)?(guides|privacy|terms)(\/[a-z0-9-]*)*\/?$/;

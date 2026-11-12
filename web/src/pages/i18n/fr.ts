@@ -65,6 +65,14 @@ export const fr: PagesTranslation = {
       text: 'Vos premiers nettoyages et téléchargements sont gratuits. Ensuite, essayez 10 nettoyages SynthID pour 2 $, ou passez en illimité avec Basic ou Pro.',
       orYearly: 'ou {price} / an',
       seePlans: 'Comparer toutes les offres',
+      download: {
+        badge: 'Téléchargements illimités',
+        title: ['Téléchargez sans limite.', 'Passez à Pro.'],
+        text: 'Votre premier téléchargement vidéo est gratuit. Les téléchargements passent par notre serveur, donc ensuite il faut Pro : téléchargements illimités depuis YouTube, X, TikTok et Instagram, et nettoyage plus rapide.',
+        cardText: 'Téléchargements vidéo illimités depuis YouTube, X, TikTok et Instagram, plus le nettoyage sur serveur environ 4x plus rapide. Résiliable à tout moment.',
+        billing: 'Facturé au mois ou à l’année. Résiliez ou changez d’offre à tout moment.',
+        cta: 'Télécharger sans limite',
+      },
     },
   },
   guides: {

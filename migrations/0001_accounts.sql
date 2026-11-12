@@ -1,4 +1,4 @@
--- Sharona accounts, paid plans and free-usage tracking (Cloudflare D1).
+-- SynthIDStripper accounts, paid plans and free-usage tracking (Cloudflare D1).
 --
 --   basic ($10/month): unlimited on-device stripping.
 --   pro   ($20/month): unlimited everything: on-device and server stripping,

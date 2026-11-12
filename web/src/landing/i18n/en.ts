@@ -146,6 +146,8 @@ export const en = {
     free: 'Every account gets 1 free on-device strip, 1 free server strip and 1 free video download. Free server strips and downloads are limited per day for everyone.',
     basic: {
       name: 'Basic',
+      /** Shown with a yellow minus: Basic has no downloads. */
+      missing: 'No video downloads from YouTube, X, TikTok or Instagram (Pro only)',
       features: [
         'Unlimited on-device stripping',
         'Files never leave your device',

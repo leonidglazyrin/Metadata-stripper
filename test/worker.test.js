@@ -13,7 +13,7 @@ const { spawn } = require('child_process');
 const { d1Http, createStore } = require('../server/store');
 const { fakeD1 } = require('./fake-d1');
 
-const SITE = 'https://sharona.test';
+const SITE = 'https://synthidstripper.test';
 const SECRET = 'session-secret-for-tests';
 
 const ASSET_FILES = {
@@ -83,9 +83,9 @@ test('pages, static files and every on-device step are answered by the Worker al
   const s = await setup();
   const res = await s.call('GET', '/');
   assert.equal(res.status, 200);
-  assert.equal(await res.text(), `<a href="${SITE}/app/">support@sharona.test</a>`);
+  assert.equal(await res.text(), `<a href="${SITE}/app/">support@synthidstripper.test</a>`);
   assert.equal((await s.call('GET', '/app/')).status, 200);
-  assert.match(await (await s.call('GET', '/app/#strip')).text(), /sharona\.test/);
+  assert.match(await (await s.call('GET', '/app/#strip')).text(), /synthidstripper\.test/);
   assert.equal((await s.call('GET', '/app')).headers.get('location'), '/app/');
   assert.equal((await s.call('GET', '/es')).headers.get('location'), '/es/');
   assert.equal((await s.call('GET', '/es/')).status, 200);
@@ -100,10 +100,10 @@ test('pages, static files and every on-device step are answered by the Worker al
   assert.match(js.headers.get('cache-control'), /immutable/);
   assert.equal((await s.call('GET', '/assets/ffmpeg-core-1.wasm.part0')).status, 200);
   const sitemap = await (await s.call('GET', '/sitemap.xml')).text();
-  assert.match(sitemap, /<loc>https:\/\/sharona\.test\/es\/<\/loc>/);
-  assert.match(sitemap, /<loc>https:\/\/sharona\.test\/es\/guides\/strip-synthid\/<\/loc>/);
-  assert.match(sitemap, /hreflang="es" href="https:\/\/sharona\.test\/es\/guides\/strip-synthid\/"/);
-  assert.match(sitemap, /hreflang="x-default" href="https:\/\/sharona\.test\/guides\/strip-synthid\/"/);
+  assert.match(sitemap, /<loc>https:\/\/synthidstripper\.test\/es\/<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/synthidstripper\.test\/es\/guides\/strip-synthid\/<\/loc>/);
+  assert.match(sitemap, /hreflang="es" href="https:\/\/synthidstripper\.test\/es\/guides\/strip-synthid\/"/);
+  assert.match(sitemap, /hreflang="x-default" href="https:\/\/synthidstripper\.test\/guides\/strip-synthid\/"/);
   assert.match(await (await s.call('GET', '/robots.txt')).text(), /Disallow: \/api\//);
   assert.deepEqual(await (await s.call('GET', '/api/health')).json(), { ok: true });
   assert.equal((await (await s.call('GET', '/api/download/platforms')).json()).length, 4);
@@ -365,7 +365,7 @@ test('a branch preview: dev sign-in and test upgrade, its own URL, kept out of s
   assert.equal(me.signIn, 'dev');
   assert.deepEqual(me.dev, { auth: true, billing: true });
   // Links use the request's own origin (SITE_URL is empty).
-  assert.match(await (await s.call('GET', '/app/')).text(), /https:\/\/sharona\.test/);
+  assert.match(await (await s.call('GET', '/app/')).text(), /https:\/\/synthidstripper\.test/);
   assert.equal(await (await s.call('GET', '/robots.txt')).text(), 'User-agent: *\nDisallow: /\n');
   // Sign in without Google, upgrade without Stripe, then a download goes through.
   const signIn = await s.call('GET', '/api/auth/dev?email=tester@preview&next=/app/');

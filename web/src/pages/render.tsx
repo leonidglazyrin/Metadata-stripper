@@ -67,7 +67,7 @@ function guidePage(base: Guide, lang: string): Page {
         dateModified: g.updated,
         author: publisher,
         publisher,
-        image: `${S}/og-image.png`,
+        image: `${S}/og-image.png?v=2`,
         articleSection: ui.kind[g.kind],
         ...(g.explainer ? { about: { '@type': 'Thing', name: 'SynthID' } } : {}),
       },

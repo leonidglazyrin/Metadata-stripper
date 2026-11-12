@@ -536,6 +536,6 @@ purgeOnStartup().catch((e) => log.fail('purge', `startup purge failed: ${e.messa
     if (local.ignored.length) log.info(`Ignored in local mode: ${local.ignored.join(', ')}`);
     checkLocalTools();
   }
-  log.info(`Sharona running on http://localhost:${PORT}  (tools at /app/)`);
+  log.info(`SynthIDStripper running on http://localhost:${PORT}  (tools at /app/)`);
   log.info('Logging every download and strip below.');
 }));
