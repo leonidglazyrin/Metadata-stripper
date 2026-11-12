@@ -57,6 +57,7 @@ async function setup(env = {}) {
   async function signIn(name, plan) {
     const u = await store.upsertGoogleUser({ sub: `g:${name}`, email: `${name}@test`, name });
     if (plan) await store.setSubscription(u.id, { id: `sub_${name}`, status: 'active', periodEnd: Math.floor(Date.now() / 1000) + 86400, tier: plan });
+    await app.accounts.ready();
     users[name] = { id: u.id, cookie: `sh_sess=${encodeURIComponent(app.accounts.sessionToken(u.id))}` };
     return users[name];
   }

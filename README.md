@@ -135,7 +135,7 @@ docker run -p 3000:3000 --env-file .env sharona
 | `YTDLP_IPV6` | | Set to `1` to let yt-dlp use IPv6. By default it's forced to IPv4, because on networks with broken IPv6 yt-dlp hangs for minutes with no output |
 | `ALLOWED_ORIGINS` | | Comma-separated origins allowed to call the API when the frontend is hosted elsewhere |
 | `VITE_API_URL` | | Build-time: API base URL if the frontend is hosted separately (must be the same site, e.g. `api.example.com` for `example.com`, so the session cookie is sent) |
-| `SESSION_SECRET` | random per start | **Required in production.** Signs the session cookie |
+| `SESSION_SECRET` | stored in D1 (`app_settings.session_secret`) | **Required in production.** Signs the session cookie |
 | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` | (required unless `PAYWALL=off`) | D1 database for accounts, subscriptions and usage. See `docs/accounts-and-billing.md` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | | Stripe API key and webhook signing secret |
