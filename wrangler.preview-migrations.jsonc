@@ -10,7 +10,7 @@
     {
       "binding": "PREVIEW_DB",
       "database_name": "sharona-preview",
-      "database_id": "PREVIEW_DB_ID",
+      "database_id": "b821ff32-4b1c-4548-975b-b15482f278f3",
       "migrations_dir": "migrations"
     }
   ]

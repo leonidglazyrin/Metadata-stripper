@@ -36,7 +36,7 @@ Preview URLs (below) if you don't want that.
    run again whenever `migrations/` gets a new file):
 
    ```bash
-   npx wrangler d1 create sharona-preview   # only the first time; put its id in both preview configs
+   npx wrangler d1 create sharona-preview   # only the first time (done: b821ff32-…)
    npm run preview:db                       # applies migrations/ to sharona-preview
    ```
 

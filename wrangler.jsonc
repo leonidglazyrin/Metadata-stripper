@@ -76,7 +76,7 @@
       "NODE_ENV": "development",
       "SITE_URL": "",
       "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
-      "CLOUDFLARE_D1_DATABASE_ID": "PREVIEW_DB_ID",
+      "CLOUDFLARE_D1_DATABASE_ID": "b821ff32-4b1c-4548-975b-b15482f278f3",
       "SLEEP_AFTER": "3m",
       "MAX_UPLOAD_MB": "500",
       "MAX_DOWNLOAD_MB": "500"
@@ -85,7 +85,7 @@
       {
         "binding": "DB",
         "database_name": "sharona-preview",
-        "database_id": "PREVIEW_DB_ID"
+        "database_id": "b821ff32-4b1c-4548-975b-b15482f278f3"
       }
     ],
     "durable_objects": {
