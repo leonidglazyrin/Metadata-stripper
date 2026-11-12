@@ -86,7 +86,7 @@ export default function App() {
         </div>
       </section>
 
-      <SignInGate />
+      <SignInGate downloads={active !== 'strip'} />
 
       {TOOLS.map((t) => (
         // All tools stay mounted so switching chips never drops work in flight.

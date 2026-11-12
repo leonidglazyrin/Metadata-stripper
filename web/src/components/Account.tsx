@@ -243,6 +243,9 @@ export function PaywallDialog() {
   };
   // The pack only adds on-device strips, so offer it for that limit (or when
   // the dialog was opened from the account bar) and only without a plan.
+  // Downloads run on our server and only Pro includes them, so that limit
+  // offers Pro alone: Basic and the strip pack wouldn't lift it.
+  const plans: PlanId[] = paywall?.kind === 'download' ? ['pro'] : ['basic', 'pro'];
   const pk = a?.pack;
   const showPack = Boolean(pk) && current === 'free' && (!paywall?.kind || paywall.kind === 'strip');
   const credits = stripCredits(a);
@@ -300,8 +303,8 @@ export function PaywallDialog() {
                   ))}
                 </div>
               )}
-              <div className="plans">
-                {(['basic', 'pro'] as const).map((id) => {
+              <div className={plans.length === 1 ? 'plans plans-one' : 'plans'}>
+                {plans.map((id) => {
                   const p = planOf(a, id);
                   // Yearly only for plans that have a yearly price; the rest stay monthly.
                   const iv: Interval = billed === 'year' && p.yearly ? 'year' : 'month';
@@ -365,20 +368,30 @@ export function useLocked() {
  * Google sign-in, in the page rather than a dialog. The tools stay visible
  * underneath but can't be used until sign-in.
  */
-export function SignInGate() {
+export function SignInGate({ downloads }: { downloads?: boolean }) {
   const { account: a } = useAccountState();
   if (!a?.paywall || a.signedIn) return null;
   const free = a.free;
   const pk = a.pack;
+  // On a downloader only Pro helps (downloads run on our server), so show just
+  // Pro and leave out Basic and the on-device strip pack.
+  const plans: PlanId[] = downloads ? ['pro'] : ['basic', 'pro'];
   return (
     <section className="card gate" aria-labelledby="gate-title">
       <div className="gate-top">
         <div className="gate-copy">
           <h2 id="gate-title" className="display sm">Sign in to <span className="accent">start free</span></h2>
-          <p className="lede">
-            Every account gets <b>{n(free?.strip)} free on-device strip</b>, <b>{n(free?.server_strip)} free server strip</b> and{' '}
-            <b>{n(free?.download)} free video download</b>. No card needed.
-          </p>
+          {downloads ? (
+            <p className="lede">
+              Every account gets <b>{n(free?.download)} free video download</b>. No card needed. Downloads run on our server, so
+              after that you need <b>Pro</b> for unlimited downloads.
+            </p>
+          ) : (
+            <p className="lede">
+              Every account gets <b>{n(free?.strip)} free on-device strip</b>, <b>{n(free?.server_strip)} free server strip</b> and{' '}
+              <b>{n(free?.download)} free video download</b>. No card needed.
+            </p>
+          )}
         </div>
         <div className="gate-cta">
           <button type="button" className="paywall-google" onClick={signIn} disabled={!a.signIn}>
@@ -388,8 +401,8 @@ export function SignInGate() {
           {!a.signIn && <p className="paywall-error">Sign-in isn’t set up on this server yet.</p>}
         </div>
       </div>
-      <div className="plans">
-        {(['basic', 'pro'] as const).map((id) => {
+      <div className={plans.length === 1 ? 'plans plans-one' : 'plans'}>
+        {plans.map((id) => {
           const p = planOf(a, id);
           return (
             <div key={id} className={`plan${id === 'pro' ? ' plan-best' : ''}`}>
@@ -404,7 +417,7 @@ export function SignInGate() {
           );
         })}
       </div>
-      {pk?.available && (
+      {!downloads && pk?.available && (
         <p className="paywall-fine">
           Or try it for {pk.label}: {pk.strips} SynthID strips on your device, paid once. Sign in first to buy plans or packs.
         </p>
