@@ -173,7 +173,12 @@ export function AccountBar() {
 }
 
 const PERKS: Record<PlanId, string[]> = {
-  basic: ['Unlimited on-device stripping', 'Files never leave your device', 'Metadata, C2PA and SynthID removed'],
+  basic: [
+    'Unlimited on-device stripping',
+    'Files never leave your device',
+    'Metadata and C2PA removed',
+    'Access to SynthID stripping (slow, as it’s limited by web browsers’ capabilities; we don’t slow it down)',
+  ],
   pro: [
     'Everything in Basic',
     'Unlimited server stripping, about 4x faster',
