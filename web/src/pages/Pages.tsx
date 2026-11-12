@@ -222,6 +222,25 @@ export const StripeBadge = ({ label }: { label: string }) => (
 );
 
 /**
+ * The highlighted $2 strip pack, styled like the one on the home page. Shown
+ * near the top of every guide and content page, and again in the plans promo.
+ */
+export function PackCard({ lang, top }: { lang: string; top?: boolean }) {
+  const p = getDict(lang).pricing;
+  return (
+    <div className={`price-pack${top ? ' pack-top' : ''}`}>
+      <span className="price-pack-badge">{p.pack.badge}</span>
+      <div>
+        <p className="price-name">{p.pack.name}</p>
+        <p className="price-pack-text">{p.pack.text}</p>
+      </div>
+      <p className="price-tag"><b>{PRICES.pack}</b> {p.pack.once}</p>
+      <a className="cta" href={`${APP}#strip`}>{p.pack.cta}</a>
+    </div>
+  );
+}
+
+/**
  * The plans promo (the $2 strip pack, Basic and Pro) shown on every guide and
  * content page. Copy comes from the landing page's pricing strings, so it
  * matches the pricing section in every language.
@@ -234,15 +253,7 @@ export function PlansPromo({ lang }: { lang: string }) {
       <p className="eyebrow">{ui.promo.eyebrow}</p>
       <h2 id="promo-h" className="display xs"><Pair p={[fill(ui.promo.title[0]), fill(ui.promo.title[1])]} /></h2>
       <p className="lede">{fill(ui.promo.text)}</p>
-      <div className="price-pack">
-        <span className="price-pack-badge">{p.pack.badge}</span>
-        <div>
-          <p className="price-name">{p.pack.name}</p>
-          <p className="price-pack-text">{p.pack.text}</p>
-        </div>
-        <p className="price-tag"><b>{PRICES.pack}</b> {p.pack.once}</p>
-        <a className="cta" href={`${APP}#strip`}>{p.pack.cta}</a>
-      </div>
+      <PackCard lang={lang} />
       <div className="price-plans">
         {(['basic', 'pro'] as const).map((id) => {
           const plan = p[id];
@@ -298,6 +309,7 @@ export function GuidePage({ guide: g, lang = DEFAULT_LANG }: { guide: Guide; lan
           </div>
         </div>
         {g.intro.map((p) => <p key={p} className="lede doc-lede"><Rich s={p} lang={lang} /></p>)}
+        <PackCard lang={lang} top />
 
         {showToc && (
           <nav className="toc" aria-label={ui.contents}>
@@ -390,6 +402,7 @@ export function GuidesIndex({ lang = DEFAULT_LANG }: { lang?: string }) {
       <section className="card doc" lang={lang}>
         <h1 className="display sm"><Pair p={[fill(ui.index.title[0]), fill(ui.index.title[1])]} /></h1>
         <p className="lede">{fill(ui.index.lede)}</p>
+        <PackCard lang={lang} top />
       </section>
       {kinds.map((kind) => (
         <section key={kind} className="card" aria-labelledby={`g-${kind}`}>
@@ -413,6 +426,7 @@ export function LegalPage({ doc }: { doc: LegalDoc }) {
         <h1 className="display sm">{doc.title}</h1>
         <p className="doc-date">Last updated <time dateTime={doc.updated}>{longDate(doc.updated, 'en-US')}</time></p>
         {doc.intro.map((p) => <p key={p} className="lede doc-lede"><Rich s={p} /></p>)}
+        <PackCard lang={lang} top />
         <nav className="toc" aria-label="Contents">
           <ol>{doc.sections.map((s) => <li key={s.h}><a href={`#${slugify(s.h)}`}>{fill(s.h).replace(/^\d+\.\s*/, '')}</a></li>)}</ol>
         </nav>

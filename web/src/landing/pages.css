@@ -81,3 +81,4 @@
 .promo .price-list { margin-top: 12px; }
 .promo-more { margin-left: auto; color: var(--blue); font-weight: 700; text-decoration: none; }
 .promo-more:hover { text-decoration: underline; }
+.pack-top { margin-top: 30px; }
