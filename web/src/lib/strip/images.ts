@@ -230,25 +230,105 @@ export function stripGif(b: Uint8Array): Uint8Array<ArrayBuffer> {
 
 /* ---------------- Canvas re-encode ---------------- */
 
+// Strength of the on-device SynthID disruption. Raise these for a harsher strip
+// at the cost of more visible texture; lower them to stay closer to the source.
+const CORE_T = 12; // detail below ≈this many code values is treated as watermark and crushed
+const SHARP = 1.0; // gain on the surviving (edge) detail (1 = keep edges, don't re-amplify)
+const LP_PASSES = 2; // width of the low/high-pass split: more passes core a wider band
+const GRAIN = 6; // ± code values of fresh high-frequency grain over the result
+const VN_PEAK = 4; // ± code values of smooth low/mid-frequency value noise (buries the low-freq remnant)
+
+/** One separable 3-tap [1,2,1] low-pass of the RGB channels; alpha copied. */
+function blurPass(src: Uint8ClampedArray, dst: Uint8ClampedArray, tmp: Float32Array, w: number, h: number) {
+  const n = w * h;
+  for (let c = 0; c < 3; c++) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const i = row + x;
+        const l = x > 0 ? i - 1 : i;
+        const r = x < w - 1 ? i + 1 : i;
+        tmp[i] = (src[(l << 2) + c] + 2 * src[(i << 2) + c] + src[(r << 2) + c]) * 0.25;
+      }
+    }
+    for (let y = 0; y < h; y++) {
+      const up = (y > 0 ? y - 1 : y) * w;
+      const mid = y * w;
+      const dn = (y < h - 1 ? y + 1 : y) * w;
+      for (let x = 0; x < w; x++) dst[((mid + x) << 2) + c] = (tmp[up + x] + 2 * tmp[mid + x] + tmp[dn + x]) * 0.25;
+    }
+  }
+  for (let i = 0; i < n; i++) dst[(i << 2) + 3] = src[(i << 2) + 3];
+}
+
+/** `passes` low-pass passes; returns whichever buffer holds the result. */
+function lowPass(src: Uint8ClampedArray, w: number, h: number, passes: number): Uint8ClampedArray {
+  const tmp = new Float32Array(w * h);
+  const a = new Uint8ClampedArray(src.length);
+  const b = passes > 1 ? new Uint8ClampedArray(src.length) : a;
+  let inp = src;
+  let outp = a;
+  for (let p = 0; p < passes; p++) {
+    blurPass(inp, outp, tmp, w, h);
+    inp = outp;
+    outp = outp === a ? b : a;
+  }
+  return inp;
+}
+
+/** A smooth n-octave scalar field sampler built from random control grids. */
+function scalarField(w: number, h: number, rnd: () => number, octs: { cell: number; amp: number }[]) {
+  const grids = octs.map(({ cell, amp }) => {
+    const gw = Math.floor((w - 1) / cell) + 2;
+    const gh = Math.floor((h - 1) / cell) + 2;
+    const v = new Float32Array(gw * gh);
+    for (let i = 0; i < v.length; i++) v[i] = (rnd() * 2 - 1) * amp;
+    return { cell, gw, v };
+  });
+  return (x: number, y: number) => {
+    let s = 0;
+    for (let k = 0; k < grids.length; k++) {
+      const g = grids[k];
+      const fx = x / g.cell;
+      const fy = y / g.cell;
+      const gx = fx | 0;
+      const gy = fy | 0;
+      const tx = fx - gx;
+      const ty = fy - gy;
+      const r0 = gy * g.gw + gx;
+      const r1 = r0 + g.gw;
+      s +=
+        g.v[r0] * (1 - tx) * (1 - ty) + g.v[r0 + 1] * tx * (1 - ty) + g.v[r1] * (1 - tx) * ty + g.v[r1 + 1] * tx * ty;
+    }
+    return s;
+  };
+}
+
 /**
- * Breaks up invisible pixel-level watermarks (SynthID and the like) that are
- * engineered to survive mild edits. A near-unity resize or a dusting of noise
- * leaves the watermark riding on the same pixel grid it was embedded on, so a
- * detector still integrates it out and reads it; the fix is to desynchronise
- * that grid locally. A smooth, multi-scale random displacement field — a few
- * pixels across at its widest, spread over long wavelengths so straight edges
- * never visibly bend — resamples every pixel off its original position, which
- * decorrelates the watermark across low and high frequencies at once. A trace
- * of per-pixel noise finishes scrambling what's left. The picture stays
- * visually the same; the watermark's spatial coherence does not.
+ * Harsh, on-device disruption of a pixel-level watermark (SynthID and the like).
+ * Without a generative model to repaint the image there is nothing to resynthesise
+ * the watermark-carrying noise layer, so instead we attack it three ways at once
+ * with pure signal processing. The caller has already run a real downscale→upscale
+ * resample (a low-pass that drops the finest watermark detail); here we then:
+ *   1. desynchronise — a smooth multi-scale displacement field pulls every pixel
+ *      off the grid the watermark was embedded on, so what survives is misaligned;
+ *   2. crush amplitude — split into a low-pass and a high-pass and apply a smooth
+ *      amplitude gate (d³/(d²+T²)) to the high-pass: small-amplitude detail, which
+ *      is exactly where an invisible watermark lives, is driven to ~0, while real
+ *      edges (large amplitude) pass through almost untouched;
+ *   3. bury the remnant — a watermark is broadband, and the share of it that sits
+ *      in the low frequencies can't be filtered out without visibly wrecking the
+ *      image, so instead we drown it: a smooth multi-octave value field lowers its
+ *      signal-to-noise in the low/mid band, and fresh per-pixel grain does the same
+ *      up top.
+ * The picture ends up a touch softer, lightly grained and faintly mottled — that
+ * is the cost of destroying as much of the watermark as classical processing can.
  */
 function disruptWatermark(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number) {
   const img = ctx.getImageData(0, 0, w, h);
   const src = img.data; // Uint8ClampedArray: writes are clamped to 0–255
-  const out = ctx.createImageData(w, h);
-  const dst = out.data;
 
-  // Deterministic within a call, fresh each run (new field every strip).
+  // Deterministic within a call, fresh each run (new field + grain every strip).
   let seed = (Math.random() * 0x100000000) >>> 0 || 1;
   const rnd = () => {
     seed ^= seed << 13;
@@ -257,17 +337,17 @@ function disruptWatermark(ctx: OffscreenCanvasRenderingContext2D, w: number, h: 
     return (seed >>> 0) / 0x100000000;
   };
 
-  // Three octaves of smooth value noise form the displacement field. Each is a
-  // coarse grid of random vectors, bilinearly interpolated so the field is
-  // continuous (no seams). Long wavelengths carry the larger amplitudes, so the
-  // local slope stays tiny and the warp is invisible even on hard edges, while
-  // together the octaves move pixels at every scale the watermark can live on.
+  // --- 1) Geometric desync: three octaves of smooth value noise form a
+  // displacement field (coarse random grids, bilinearly interpolated so it is
+  // seamless). Long wavelengths carry the larger amplitudes, so lines stay
+  // straight while pixels move at every scale the watermark can live on.
+  const warped = new Uint8ClampedArray(src.length);
   const diag = Math.hypot(w, h);
-  const peak = Math.min(7, Math.max(2.2, diag / 900));
+  const peak = Math.min(9, Math.max(3, diag / 700));
   const octaves = [
     { cell: Math.max(24, diag / 14), amp: peak },
-    { cell: Math.max(14, diag / 45), amp: peak * 0.45 },
-    { cell: Math.max(9, diag / 130), amp: peak * 0.18 },
+    { cell: Math.max(14, diag / 45), amp: peak * 0.5 },
+    { cell: Math.max(9, diag / 130), amp: peak * 0.22 },
   ].map(({ cell, amp }) => {
     const gw = Math.floor((w - 1) / cell) + 2;
     const gh = Math.floor((h - 1) / cell) + 2;
@@ -301,7 +381,6 @@ function disruptWatermark(ctx: OffscreenCanvasRenderingContext2D, w: number, h: 
         dx += g.vx[r0] * w00 + g.vx[r0 + 1] * w10 + g.vx[r1] * w01 + g.vx[r1 + 1] * w11;
         dy += g.vy[r0] * w00 + g.vy[r0 + 1] * w10 + g.vy[r1] * w01 + g.vy[r1 + 1] * w11;
       }
-      // Sample the source at the displaced position (bilinear, edges clamped).
       let sx = x + dx;
       let sy = y + dy;
       sx = sx < 0 ? 0 : sx > w - 1 ? w - 1 : sx;
@@ -317,19 +396,39 @@ function disruptWatermark(ctx: OffscreenCanvasRenderingContext2D, w: number, h: 
       const i01 = (y1 * w + x0) * 4;
       const i11 = (y1 * w + x1) * 4;
       const o = (y * w + x) * 4;
-      const n = ((rnd() * 7) | 0) - 3; // ±3 code values of noise
-      for (let c = 0; c < 3; c++) {
+      for (let c = 0; c < 4; c++) {
         const top = src[i00 + c] * (1 - tx) + src[i10 + c] * tx;
         const bot = src[i01 + c] * (1 - tx) + src[i11 + c] * tx;
-        dst[o + c] = top * (1 - ty) + bot * ty + n;
+        warped[o + c] = top * (1 - ty) + bot * ty;
       }
-      // Alpha is warped the same way but never noised.
-      const atop = src[i00 + 3] * (1 - tx) + src[i10 + 3] * tx;
-      const abot = src[i01 + 3] * (1 - tx) + src[i11 + 3] * tx;
-      dst[o + 3] = atop * (1 - ty) + abot * ty;
     }
   }
-  ctx.putImageData(out, 0, 0);
+
+  // --- 2) Low/high-pass split and amplitude-core the high-pass; 3) bury the
+  // low-frequency remnant (which no edit can remove without wrecking the image)
+  // under a smooth multi-octave value field, plus per-pixel grain up top.
+  // Written back into the source buffer (no longer needed).
+  const lp = lowPass(warped, w, h, LP_PASSES);
+  const vnoise = scalarField(w, h, rnd, [
+    { cell: Math.max(20, diag / 20), amp: VN_PEAK },
+    { cell: Math.max(10, diag / 70), amp: VN_PEAK * 0.5 },
+  ]);
+  const t2 = CORE_T * CORE_T;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) << 2;
+      const vn = vnoise(x, y); // smooth low/mid-frequency burial, shared across channels
+      const g = ((rnd() * (2 * GRAIN + 1)) | 0) - GRAIN; // high-frequency grain
+      for (let c = 0; c < 3; c++) {
+        const base = lp[o + c];
+        const d = warped[o + c] - base; // high-pass detail
+        const cored = (d * d * d) / (d * d + t2); // ≈0 for |d|≪T, ≈d for |d|≫T
+        src[o + c] = base + cored * SHARP + vn + g;
+      }
+      src[o + 3] = warped[o + 3];
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 export async function reencode(
@@ -352,19 +451,31 @@ export async function reencode(
     ctx.fillRect(0, 0, w, h);
   }
   if (synthid) {
-    // Same idea as the server: locally desynchronise the pixel grid an invisible
-    // watermark (SynthID and similar) is embedded on, so a detector can no longer
-    // read it, while the picture stays visually indistinguishable. A near-unity
-    // resize — what this used to do — stays inside the watermark's robustness
-    // envelope and is read straight through, so it's replaced by a smooth
-    // multi-scale warp plus a trace of noise (see disruptWatermark).
-    ctx.drawImage(bmp, 0, 0);
+    // Harsh, on-device SynthID disruption (no model, nothing uploaded). SynthID
+    // rides in the image's low-level noise layer and is built to survive gentle
+    // edits, so a light touch is read straight through. Instead: first a real
+    // downscale→upscale resample — a genuine low-pass that discards the finest
+    // watermark detail and forces every pixel through interpolation — then a warp
+    // + amplitude coring + fresh grain (see disruptWatermark) that crush and
+    // replace what is left. Finally the file is saved at a lower quality so the
+    // encoder's own quantisation scrambles the pattern further.
+    const r = 0.85;
+    const sw = Math.max(1, Math.round(w * r));
+    const sh = Math.max(1, Math.round(h * r));
+    const small = new OffscreenCanvas(sw, sh);
+    const sctx = small.getContext('2d')!;
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(bmp, 0, 0, sw, sh);
+    ctx.drawImage(small, 0, 0, w, h);
     disruptWatermark(ctx, w, h);
   } else {
     ctx.drawImage(bmp, 0, 0);
   }
   bmp.close();
-  const out = await canvas.convertToBlob({ type, quality });
+  // Lossy re-encode at a lower quality for SynthID mode adds DCT quantisation on
+  // top of the pixel work; PNG is lossless so quality does not apply there.
+  const q = synthid && type !== 'image/png' ? 0.85 : quality;
+  const out = await canvas.convertToBlob({ type, quality: q });
   // Chrome tags canvas JPEG / WebP output with its own sRGB ICC profile
   // ("Google Inc. 2016"). Drop it too, so the file carries no metadata at all.
   if (type === 'image/png') return out;

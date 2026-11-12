@@ -123,7 +123,7 @@ export const GUIDES: Guide[] = [
     cta: 'Clean a Gemini image now',
     intro: [
       'Images made with Gemini — including the Nano Banana image model — carry Google’s invisible SynthID watermark in the pixels, and usually an IPTC “Digital Source Type” tag and other metadata that mark them as AI-generated.',
-      '{site} resamples and re-encodes the image to disrupt the SynthID watermark, and strips the metadata that labels it. The picture looks the same. Because SynthID for images is built to survive resizing and re-saving, a detector may still find it, so results are not guaranteed.',
+      '{site} works the pixels hard — on your device, with no second AI model — to disrupt the SynthID watermark, and strips the metadata that labels it. The picture comes out a touch softer and lightly grained. Because SynthID for images is built to survive editing, a detector may still find it, so results are not guaranteed.',
     ],
     steps: [
       { name: 'Open the SynthID stripper', text: 'Go to the Strip tab in {site}.' },
@@ -148,7 +148,7 @@ export const GUIDES: Guide[] = [
         h: 'How {site} disrupts it',
         blocks: [
           {
-            p: 'Every pixel is run through a smooth, multi-scale warp — nudged a fraction of a pixel to a few pixels off its original spot, too gently to see but enough to pull the watermark off the pixel grid it was embedded on — then given a trace of noise and a gentle sharpen and saved again at high quality. Desynchronising the grid breaks up the watermark far more thoroughly than a plain resize, which SynthID is built to shrug off, while every metadata block — EXIF, XMP, IPTC and C2PA — is removed.',
+            p: 'SynthID rides in the image’s low-level noise. With no second AI model repainting the picture, {site} attacks that layer directly, on your device: it resamples the image, runs a smooth multi-scale warp to pull every pixel off the grid the watermark sits on, then crushes the fine, low-amplitude detail the watermark lives in while keeping real edges, and finally buries whatever is left under fresh grain before saving at a lower quality. It is deliberately much harsher than a plain resize, so the picture comes out a touch softer and lightly grained — the trade for shredding as much of the watermark as pixel-level processing can. Every metadata block — EXIF, XMP, IPTC and C2PA — is removed either way.',
           },
         ],
       },
@@ -156,14 +156,14 @@ export const GUIDES: Guide[] = [
         h: 'Why it may still be detected',
         blocks: [
           {
-            note: 'SynthID for images is designed to survive resizing and re-compression, so a hard case can still trip Google’s detector even after cleaning. {site} weakens the watermark as much as it can without visibly changing the picture; the metadata is removed either way.',
+            note: 'SynthID for images is designed to survive editing. A share of the watermark sits in the picture’s low frequencies, which can’t be filtered out without wrecking the image, so {site} buries that remnant under noise rather than removing it. That drives a detector’s confidence down hard, but on a stubborn image Google’s own detector may still find it — no on-device tool can promise otherwise. The metadata is removed for certain.',
           },
         ],
       },
     ],
     faq: [
       { q: 'Is Nano Banana the same as Gemini for this?', a: 'Yes. Nano Banana is a Gemini image model, and its output carries SynthID the same way. The same steps apply.' },
-      { q: 'Does removing SynthID change how the image looks?', a: 'No visible change. The resample, noise and re-encode are near-lossless and the picture looks the same in normal viewing.' },
+      { q: 'Does removing SynthID change how the image looks?', a: 'Slightly. To break the watermark without another AI model, the image is resampled, warped and re-grained, so it comes out a touch softer and lightly grained. It still looks right in normal viewing, but it is not pixel-identical — that softening is what disrupts the watermark.' },
       { q: 'What if the image is still flagged as AI?', a: 'That is the pixel watermark being stubborn, not the metadata. The EXIF, XMP, IPTC and C2PA tags are fully removed; the watermark is only weakened, with no guarantee.' },
     ],
     related: ['remove-synthid-from-imagen-images', 'remove-synthid-from-google-veo', 'remove-c2pa-content-credentials'],
@@ -181,7 +181,7 @@ export const GUIDES: Guide[] = [
     cta: 'Clean an Imagen image now',
     intro: [
       'Imagen is Google’s text-to-image model, used in Gemini, ImageFX and across Google’s apps. Every image it makes carries an invisible SynthID watermark in the pixels, along with metadata — often an IPTC “Digital Source Type” tag and C2PA Content Credentials — that marks it as AI-generated.',
-      '{site} resamples and re-encodes the image to disrupt SynthID and removes all of the metadata. The result looks the same. SynthID is built to survive editing, so a detector may still find it; the metadata is removed for certain.',
+      '{site} works the pixels hard — on your device, with no second AI model — to disrupt SynthID, and removes all of the metadata. The result comes out a touch softer and lightly grained. SynthID is built to survive editing, so a detector may still find it; the metadata is removed for certain.',
     ],
     steps: [
       { name: 'Open the SynthID stripper', text: 'Go to the Strip tab in {site}.' },
@@ -207,7 +207,7 @@ export const GUIDES: Guide[] = [
         h: 'How the strip works',
         blocks: [
           {
-            p: 'A smooth, multi-scale warp nudges every pixel off its original position — invisible to the eye, but enough to desynchronise the watermark from the pixel grid it rides on — then a trace of noise and a gentle sharpen finish the job. Pulling the watermark off its grid breaks it up far better than a plain resize, which SynthID survives by design. The image is re-encoded at high quality with no metadata at all — EXIF, XMP, IPTC and C2PA are gone.',
+            p: 'SynthID lives in the image’s low-level noise, so {site} goes after that layer directly — no second AI model, nothing uploaded. It resamples the image, warps every pixel off the grid the watermark sits on, crushes the fine low-amplitude detail the watermark hides in while sparing real edges, and buries the rest under fresh grain before saving at a lower quality. It is far harsher than a plain resize, which SynthID survives by design, so the image comes out a touch softer and lightly grained. It is re-encoded with no metadata at all — EXIF, XMP, IPTC and C2PA are gone.',
           },
         ],
       },
@@ -266,7 +266,7 @@ export const GUIDES: Guide[] = [
         h: 'How {site} cleans it',
         blocks: [
           {
-            p: 'Videos are re-encoded at a visually transparent quality (CRF 18) with a faint blur, a matching sharpen and a trace of noise between frames; images are run through a smooth, invisible warp that nudges every pixel off the grid the watermark sits on, then noised, sharpened and saved again at high quality. Either way every metadata block — C2PA included — is dropped. The result looks and plays the same.',
+            p: 'Videos are re-encoded at a visually transparent quality (CRF 18) with a faint blur, a matching sharpen and a trace of noise between frames; images are worked harder — resampled, warped off the grid the watermark sits on, stripped of the fine detail it hides in and re-grained — so a photo comes out a touch softer and lightly grained. Either way every metadata block — C2PA included — is dropped. Video looks and plays the same.',
           },
         ],
       },
