@@ -172,194 +172,20 @@ async function inspectVideo(file) {
 // Stripping
 // ---------------------------------------------------------------------------
 
-// Strength of the SynthID disruption — kept in step with the browser path
-// (web/src/lib/strip/images.ts). Raise for a harsher strip at the cost of more
-// visible texture.
-const SYNTHID = { CORE_T: 12, SHARP: 1.0, LP_PASSES: 2, GRAIN: 6, VN_PEAK: 4 };
-
-// One separable 3-tap [1,2,1] low-pass of the colour channels; alpha copied.
-function blurPassRaw(src, dst, tmp, w, h, ch, colorCh) {
-  const n = w * h;
-  for (let c = 0; c < colorCh; c++) {
-    for (let y = 0; y < h; y++) {
-      const row = y * w;
-      for (let x = 0; x < w; x++) {
-        const i = row + x;
-        const l = x > 0 ? i - 1 : i;
-        const r = x < w - 1 ? i + 1 : i;
-        tmp[i] = (src[l * ch + c] + 2 * src[i * ch + c] + src[r * ch + c]) * 0.25;
-      }
-    }
-    for (let y = 0; y < h; y++) {
-      const up = (y > 0 ? y - 1 : y) * w;
-      const mid = y * w;
-      const dn = (y < h - 1 ? y + 1 : y) * w;
-      for (let x = 0; x < w; x++) dst[(mid + x) * ch + c] = (tmp[up + x] + 2 * tmp[mid + x] + tmp[dn + x]) * 0.25;
-    }
-  }
-  for (let c = colorCh; c < ch; c++) for (let i = 0; i < n; i++) dst[i * ch + c] = src[i * ch + c];
-}
-
-function lowPassRaw(src, w, h, ch, colorCh, passes) {
-  const tmp = new Float32Array(w * h);
-  const a = Buffer.allocUnsafe(src.length);
-  const b = passes > 1 ? Buffer.allocUnsafe(src.length) : a;
-  let inp = src;
-  let outp = a;
-  for (let p = 0; p < passes; p++) {
-    blurPassRaw(inp, outp, tmp, w, h, ch, colorCh);
-    inp = outp;
-    outp = outp === a ? b : a;
-  }
-  return inp;
-}
-
-// A smooth n-octave scalar field sampler built from random control grids.
-function scalarField(w, h, rnd, octs) {
-  const grids = octs.map(({ cell, amp }) => {
-    const gw = Math.floor((w - 1) / cell) + 2;
-    const gh = Math.floor((h - 1) / cell) + 2;
-    const v = new Float32Array(gw * gh);
-    for (let i = 0; i < v.length; i++) v[i] = (rnd() * 2 - 1) * amp;
-    return { cell, gw, v };
-  });
-  return (x, y) => {
-    let s = 0;
-    for (let k = 0; k < grids.length; k++) {
-      const g = grids[k];
-      const fx = x / g.cell;
-      const fy = y / g.cell;
-      const gx = fx | 0;
-      const gy = fy | 0;
-      const tx = fx - gx;
-      const ty = fy - gy;
-      const r0 = gy * g.gw + gx;
-      const r1 = r0 + g.gw;
-      s += g.v[r0] * (1 - tx) * (1 - ty) + g.v[r0 + 1] * tx * (1 - ty) + g.v[r1] * (1 - tx) * ty + g.v[r1 + 1] * tx * ty;
-    }
-    return s;
-  };
-}
-
-// Harsh disruption of a pixel-level watermark (SynthID and the like) on raw sRGB
-// pixels — the same three-pronged attack as the browser path. SynthID rides in
-// the image's low-level noise layer and survives gentle edits, so with no model
-// to repaint it we instead (1) desynchronise the pixel grid with a smooth
-// multi-scale warp, (2) crush the high-frequency amplitude where the watermark
-// lives with a low/high-pass split and a smooth amplitude gate, keeping real
-// edges, and (3) bury the low-frequency remnant no filter can remove under a
-// smooth value field plus per-pixel grain. The caller resamples first. Expects
-// 8-bit pixels (caller guards on depth); the picture ends up a touch softer and
-// lightly grained.
-async function disruptWatermark(img) {
+// Renders the pipeline to raw sRGB pixels, adds ±2 code values of uniform
+// noise to the colour channels (alpha left alone), and wraps it back into a
+// sharp instance for encoding. Expects 8-bit pixels (caller guards on depth).
+async function addImageNoise(img) {
   const { data, info } = await img.raw().toBuffer({ resolveWithObject: true });
-  const { width: w, height: h, channels: ch } = info;
-  // Even channel counts (gray+alpha, RGBA) carry alpha last; it's warped but
-  // never cored or noised. Odd counts are all colour.
-  const colorCh = ch % 2 === 0 ? ch - 1 : ch;
-  const warped = Buffer.allocUnsafe(data.length);
-  const out = Buffer.allocUnsafe(data.length);
-
-  // xorshift32 PRNG: deterministic within a call, fresh each run.
-  let seed = (Math.random() * 0x100000000) >>> 0 || 1;
-  const rnd = () => {
-    seed ^= seed << 13;
-    seed ^= seed >>> 17;
-    seed ^= seed << 5;
-    return (seed >>> 0) / 0x100000000;
-  };
-
-  // --- 1) Geometric desync: three octaves of smooth value noise form the
-  // displacement field (bilinearly interpolated random grids).
-  const diag = Math.hypot(w, h);
-  const peak = Math.min(9, Math.max(3, diag / 700));
-  const octaves = [
-    { cell: Math.max(24, diag / 14), amp: peak },
-    { cell: Math.max(14, diag / 45), amp: peak * 0.5 },
-    { cell: Math.max(9, diag / 130), amp: peak * 0.22 },
-  ].map(({ cell, amp }) => {
-    const gw = Math.floor((w - 1) / cell) + 2;
-    const gh = Math.floor((h - 1) / cell) + 2;
-    const vx = new Float32Array(gw * gh);
-    const vy = new Float32Array(gw * gh);
-    for (let i = 0; i < vx.length; i++) {
-      vx[i] = (rnd() * 2 - 1) * amp;
-      vy[i] = (rnd() * 2 - 1) * amp;
-    }
-    return { cell, gw, vx, vy };
-  });
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let dx = 0;
-      let dy = 0;
-      for (let k = 0; k < octaves.length; k++) {
-        const g = octaves[k];
-        const fx = x / g.cell;
-        const fy = y / g.cell;
-        const gx = fx | 0;
-        const gy = fy | 0;
-        const tx = fx - gx;
-        const ty = fy - gy;
-        const r0 = gy * g.gw + gx;
-        const r1 = r0 + g.gw;
-        const w00 = (1 - tx) * (1 - ty);
-        const w10 = tx * (1 - ty);
-        const w01 = (1 - tx) * ty;
-        const w11 = tx * ty;
-        dx += g.vx[r0] * w00 + g.vx[r0 + 1] * w10 + g.vx[r1] * w01 + g.vx[r1 + 1] * w11;
-        dy += g.vy[r0] * w00 + g.vy[r0 + 1] * w10 + g.vy[r1] * w01 + g.vy[r1 + 1] * w11;
-      }
-      let sx = x + dx;
-      let sy = y + dy;
-      sx = sx < 0 ? 0 : sx > w - 1 ? w - 1 : sx;
-      sy = sy < 0 ? 0 : sy > h - 1 ? h - 1 : sy;
-      const x0 = sx | 0;
-      const y0 = sy | 0;
-      const x1 = x0 + 1 < w ? x0 + 1 : x0;
-      const y1 = y0 + 1 < h ? y0 + 1 : y0;
-      const tx = sx - x0;
-      const ty = sy - y0;
-      const i00 = (y0 * w + x0) * ch;
-      const i10 = (y0 * w + x1) * ch;
-      const i01 = (y1 * w + x0) * ch;
-      const i11 = (y1 * w + x1) * ch;
-      const o = (y * w + x) * ch;
-      for (let c = 0; c < ch; c++) {
-        const top = data[i00 + c] * (1 - tx) + data[i10 + c] * tx;
-        const bot = data[i01 + c] * (1 - tx) + data[i11 + c] * tx;
-        warped[o + c] = Math.round(top * (1 - ty) + bot * ty);
-      }
+  const ch = info.channels;
+  for (let i = 0; i < data.length; i += ch) {
+    const n = ((Math.random() * 5) | 0) - 2;
+    for (let c = 0; c < ch && c < 3; c++) {
+      const v = data[i + c] + n;
+      data[i + c] = v < 0 ? 0 : v > 255 ? 255 : v;
     }
   }
-
-  // --- 2) low/high-pass split + amplitude coring, and 3) bury the low-frequency
-  // remnant under a smooth value field (vn) plus per-pixel grain (g).
-  const lp = lowPassRaw(warped, w, h, ch, colorCh, SYNTHID.LP_PASSES);
-  const vnoise = scalarField(w, h, rnd, [
-    { cell: Math.max(20, diag / 20), amp: SYNTHID.VN_PEAK },
-    { cell: Math.max(10, diag / 70), amp: SYNTHID.VN_PEAK * 0.5 },
-  ]);
-  const t2 = SYNTHID.CORE_T * SYNTHID.CORE_T;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const o = (y * w + x) * ch;
-      const vn = vnoise(x, y);
-      const g = ((rnd() * (2 * SYNTHID.GRAIN + 1)) | 0) - SYNTHID.GRAIN;
-      for (let c = 0; c < ch; c++) {
-        if (c >= colorCh) {
-          out[o + c] = warped[o + c]; // alpha passthrough
-          continue;
-        }
-        const base = lp[o + c];
-        const d = warped[o + c] - base;
-        const cored = (d * d * d) / (d * d + t2);
-        const v = Math.round(base + cored * SYNTHID.SHARP + vn + g);
-        out[o + c] = v < 0 ? 0 : v > 255 ? 255 : v;
-      }
-    }
-  }
-  return sharp(out, { raw: { width: w, height: h, channels: ch } });
+  return sharp(data, { raw: { width: info.width, height: info.height, channels: ch } });
 }
 
 async function stripImage(input, ext, quality, synthid = false) {
@@ -373,30 +199,27 @@ async function stripImage(input, ext, quality, synthid = false) {
   img = img.toColorspace('srgb');
 
   if (synthid) {
-    // Disrupt invisible pixel-level watermarks (SynthID, etc.). SynthID for
-    // images is built to survive a near-unity resize and a dusting of noise, so
-    // that isn't enough: first a real downscale→upscale resample (a genuine
-    // low-pass that drops the finest watermark detail), then a warp + amplitude
-    // coring + value-noise burial on the raw pixels (see disruptWatermark). The
-    // file is finally saved at a lower quality so the encoder's own quantisation
-    // scrambles the pattern further. The picture ends up a touch softer/grained.
+    // Disrupt invisible pixel-level watermarks (SynthID, etc.) with a light
+    // touch that still resamples every pixel: a near-unity resize-down→resize-up
+    // cycle (lanczos3, high-fidelity) that shifts the pixel grid enough to break
+    // the watermark lattice, a gentle sharpen that restores any softness the
+    // resample introduced, and a trace of additive noise (the still-image
+    // equivalent of the video filter's per-frame noise) that further scrambles
+    // the pattern. The result stays visually indistinguishable.
     const meta = await sharp(input, { animated, failOn: 'none' }).metadata();
-    if (meta.width && meta.height) {
-      const w = meta.width;
-      const h = meta.height;
+    const w = meta.width;
+    const h = meta.height;
+    if (w && h) {
+      const shrunkW = Math.max(1, Math.round(w * 0.99));
+      const shrunkH = Math.max(1, Math.round(h * 0.99));
       img = img
-        .resize(Math.max(1, Math.round(w * 0.85)), Math.max(1, Math.round(h * 0.85)), { kernel: 'lanczos3' })
+        .resize(shrunkW, shrunkH, { kernel: 'lanczos3' })
         .resize(w, h, { kernel: 'lanczos3' });
     }
-    if (!animated && meta.depth === 'uchar') {
-      img = await disruptWatermark(img);
-    } else {
-      // Animated frames and >8-bit depths can't go through the raw-pixel path;
-      // the resample above plus a sharpen is the best that's available here.
-      img = img.sharpen({ sigma: 0.5, m1: 0.3, m2: 0.2 });
-    }
-    // A lower encode quality adds DCT quantisation on top of the pixel work.
-    if (!animated) quality = Math.min(quality, 85);
+    img = img.sharpen({ sigma: 0.5, m1: 0.3, m2: 0.2 });
+    // Noise needs raw 8-bit pixels; animated frames and >8-bit depths are left
+    // to the resample + sharpen alone.
+    if (!animated && meta.depth === 'uchar') img = await addImageNoise(img);
   }
 
   let outExt = ext;
