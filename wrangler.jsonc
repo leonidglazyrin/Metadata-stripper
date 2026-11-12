@@ -57,5 +57,56 @@
     "SITE_URL": "https://metadata-stripper.synthidstripper.workers.dev",
     "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
     "CLOUDFLARE_D1_DATABASE_ID": "7c9bd4b8-ee67-4223-bf5f-3022f455dbd1"
+  },
+
+  // Branch previews (`npx wrangler preview`, which Workers Builds runs for
+  // every branch but main). Nothing above applies to a Preview except
+  // `migrations`, `assets`, `build` and the compatibility settings, so this
+  // block restates what a Preview needs, pointed at preview-only resources:
+  //   - its own D1 database (sharona-preview), never production accounts.
+  //     Shared by all Previews; `npm run db:preview:migrate` applies migrations/.
+  //   - its own Durable Object namespace, container app and instance, made
+  //     per Preview by Cloudflare because the class is declared here.
+  //   - a small container (basic, one instance) that sleeps after 3 minutes.
+  //   - NODE_ENV=development: dev sign-in and free test upgrades, so no
+  //     Google or Stripe secrets and no real billing. Production has no
+  //     NODE_ENV and keeps the real rules.
+  // The one secret, SESSION_SECRET, is set once with
+  // `npx wrangler preview base-config secret put SESSION_SECRET`.
+  // See docs/previews.md.
+  "previews": {
+    "vars": {
+      "NODE_ENV": "development",
+      // Empty: links and sign-in use the Preview's own URL.
+      "SITE_URL": "",
+      "CLOUDFLARE_ACCOUNT_ID": "2bea5f5913224c4187853654b06c748f",
+      "CLOUDFLARE_D1_DATABASE_ID": "b821ff32-4b1c-4548-975b-b15482f278f3",
+      // Only the container reads this (the Worker always keeps the paywall
+      // on and checks sign-in and plan): on a Preview the container doesn't
+      // count usage itself, so it needs no CLOUDFLARE_API_TOKEN.
+      "PAYWALL": "off",
+      "SLEEP_AFTER": "3m",
+      "MAX_UPLOAD_MB": "500",
+      "MAX_DOWNLOAD_MB": "500"
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "sharona-preview",
+        "database_id": "b821ff32-4b1c-4548-975b-b15482f278f3",
+        "migrations_dir": "migrations"
+      }
+    ],
+    "containers": [
+      {
+        "class_name": "SharonaServer",
+        "image": "./Dockerfile",
+        "instance_type": "basic",
+        "max_instances": 1
+      }
+    ],
+    "durable_objects": {
+      "bindings": [{ "name": "SERVER", "class_name": "SharonaServer" }]
+    }
   }
 }

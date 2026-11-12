@@ -68,9 +68,16 @@ const redirect = (location, status = 301) => new Response(null, { status, header
  */
 export function createApp({ env, forward, query, fetchImpl = fetch }) {
   const store = createStore({ query: query || d1Binding(env.DB) });
-  // Always production rules here (no dev sign-in or free dev billing), and
-  // the paywall is always on: nobody reaches the container without an account.
+  // Production rules here (no dev sign-in or free dev billing) unless
+  // NODE_ENV says otherwise, which only branch previews do (wrangler.jsonc
+  // "previews": dev sign-in and free test upgrades, on the preview database
+  // only). The paywall is always on: nobody reaches the container without an
+  // account.
+  // LOCAL_UNLIMITED (npm run dev:local) means nothing here, and the Worker
+  // never passes it on to the container (PASS in worker/index.js).
   const config = { ...loadConfig({ ...env, NODE_ENV: env.NODE_ENV || 'production' }), paywall: true };
+  if (env.LOCAL_UNLIMITED) console.error('[local] LOCAL_UNLIMITED is set on the Worker and is ignored: the paywall stays on');
+  const preview = !config.production;
   const accounts = createAccountsCore({ config, store, fetchImpl });
   const secret = internalSecret(env);
   const maxUpload = Number(env.MAX_UPLOAD_MB || 2048) * MB;
@@ -242,7 +249,11 @@ export function createApp({ env, forward, query, fetchImpl = fetch }) {
     }
     if (p === '/app') return redirect(`/app/${url.search}`);
     if (p.startsWith('/app/')) return page(url, 'app/index.html');
-    if (p === '/robots.txt') return new Response(site.robotsTxt(siteUrl(url)), { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    if (p === '/robots.txt') {
+      // Branch previews stay out of search results.
+      const body = preview ? 'User-agent: *\nDisallow: /\n' : site.robotsTxt(siteUrl(url));
+      return new Response(body, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
     if (p === '/sitemap.xml') {
       const xml = site.sitemapXml(siteUrl(url), await list(url, 'landing-langs.json', [{ code: 'en', path: '/' }]), await list(url, 'pages.json', []));
       return new Response(xml, { headers: { 'Content-Type': 'application/xml; charset=utf-8' } });
