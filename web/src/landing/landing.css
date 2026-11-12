@@ -119,7 +119,21 @@ h3 { font-size: 17px; font-weight: 750; letter-spacing: -0.015em; }
 .price-badge { padding: 3px 10px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; font-weight: 700; }
 .price .price-list { margin-bottom: 22px; }
 .price .cta { margin-top: auto; }
-.price-pack { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px 24px; margin-top: 16px; padding: 22px 26px; border-radius: 22px; border: 1px dashed var(--line-strong, var(--line)); background: #f8fafc; }
+.price-pack { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px 24px; margin-top: 22px; padding: 26px 26px 22px; border-radius: 22px; border: 1.5px solid var(--blue); background: var(--blue-soft); }
+.price-pack-badge { position: absolute; top: -12px; left: 22px; padding: 3px 12px; border-radius: 999px; background: var(--blue); color: #fff; font-size: 12.5px; font-weight: 750; letter-spacing: 0.02em; }
+.price-pack .cta { background: var(--blue); white-space: nowrap; }
+/* Monthly / yearly: radios (visually hidden) drive which price shows. */
+.bill-radio { position: absolute; opacity: 0; pointer-events: none; width: 1px; height: 1px; }
+.price-toggle { display: flex; width: fit-content; gap: 4px; margin-top: 20px; padding: 4px; border-radius: 999px; background: var(--chip); }
+.price-toggle label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 999px; cursor: pointer; font-weight: 650; font-size: 14px; color: var(--soft); }
+#bill-month:checked ~ .price-toggle label[for='bill-month'],
+#bill-year:checked ~ .price-toggle label[for='bill-year'] { background: var(--card, #fff); color: var(--ink); box-shadow: 0 1px 3px rgba(14, 26, 43, 0.12); }
+#bill-month:focus-visible ~ .price-toggle label[for='bill-month'],
+#bill-year:focus-visible ~ .price-toggle label[for='bill-year'] { outline: 2px solid var(--blue); outline-offset: 2px; }
+.price-save { padding: 1px 8px; border-radius: 999px; background: #e9f9ee; color: var(--green-ink); font-size: 12px; font-weight: 750; }
+.price-year { display: none; }
+#bill-year:checked ~ .price-plans .price-month { display: none; }
+#bill-year:checked ~ .price-plans .price-year { display: block; }
 .price-pack .price-tag { margin: 0; white-space: nowrap; }
 .price-pack .price-tag b { font-size: 36px; }
 .price-pack-text { color: var(--soft); font-size: 15px; margin-top: 6px; max-width: 52ch; }

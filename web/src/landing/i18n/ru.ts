@@ -100,7 +100,11 @@ export const ru: Translation = {
   },
   pricing: {
     perMonth: '/ месяц',
-    billing: 'Ежемесячная оплата через Stripe. Отмена в любой момент.',
+    perYear: '/ год',
+    monthly: 'Помесячно',
+    yearly: 'За год',
+    yearlySave: '2 месяца бесплатно',
+    billing: 'Оплата помесячно или за год через Stripe. Отмена в любой момент.',
     stripeLabel: 'Оплата через Stripe',
     cta: 'Открыть инструменты',
   },

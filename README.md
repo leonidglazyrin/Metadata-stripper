@@ -4,7 +4,7 @@ A web app for creators:
 
 - **Strip metadata** from photos and videos (EXIF, GPS, XMP, IPTC, ICC, C2PA, container tags), with optional SynthID watermark disruption.
 - **Download** videos (or just the audio) from **YouTube**, **X**, **Instagram** and **TikTok** links.
-- **Accounts and plans**: Google sign-in, 1 free on-device strip, 1 free server strip and 1 free download per account. Then **Basic at $10/month** (unlimited on-device stripping) or **Pro at $20/month** (everything, including faster server stripping and downloads) via Stripe, or a **$2 strip pack** of 10 more on-device strips that can be bought again and again. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
+- **Accounts and plans**: Google sign-in, 1 free on-device strip, 1 free server strip and 1 free download per account. Then **Basic at $10/month or $100/year** (unlimited on-device stripping) or **Pro at $20/month or $200/year** (everything, including faster server stripping and downloads) via Stripe, or a **$2 strip pack** of 10 on-device SynthID strips that can be bought again and again. Setup: [docs/accounts-and-billing.md](docs/accounts-and-billing.md).
 
 ## Pages
 

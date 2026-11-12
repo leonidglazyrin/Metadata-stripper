@@ -100,7 +100,11 @@ export const fr: Translation = {
   },
   pricing: {
     perMonth: '/ mois',
-    billing: 'Facturation mensuelle via Stripe. Résiliable à tout moment.',
+    perYear: '/ an',
+    monthly: 'Mensuel',
+    yearly: 'Annuel',
+    yearlySave: '2 mois offerts',
+    billing: 'Facturation mensuelle ou annuelle via Stripe. Résiliable à tout moment.',
     stripeLabel: 'Paiements par Stripe',
     cta: 'Ouvrir les outils',
   },

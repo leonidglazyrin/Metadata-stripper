@@ -138,6 +138,10 @@ export const en = {
   pricing: {
     title: ['Two plans.', 'Start free.'] as Pair,
     perMonth: '/ month',
+    perYear: '/ year',
+    monthly: 'Monthly',
+    yearly: 'Yearly',
+    yearlySave: '2 months free',
     free: 'Every account gets 1 free on-device strip, 1 free server strip and 1 free video download.',
     basic: {
       name: 'Basic',
@@ -159,11 +163,12 @@ export const en = {
     },
     pack: {
       name: 'Strip pack',
+      badge: 'Try it for $2',
       once: 'one-time',
-      text: '10 more on-device strips, no subscription. Buy it as many times as you like, the strips add up on your account.',
-      cta: 'Get a strip pack',
+      text: '10 SynthID strips for $2, on your device, with metadata removed too. No subscription: pay once, and buy again anytime, the strips add up.',
+      cta: 'Try it for $2',
     },
-    billing: 'Plans are billed monthly. Cancel or change plan anytime. Strip packs are a one-time payment.',
+    billing: 'Plans are billed monthly or yearly. Cancel or change plan anytime. Strip packs are a one-time payment.',
     stripeLabel: 'Secure payments by Stripe',
     cta: 'Open the tools',
   },

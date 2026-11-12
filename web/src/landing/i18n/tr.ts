@@ -100,7 +100,11 @@ export const tr: Translation = {
   },
   pricing: {
     perMonth: '/ ay',
-    billing: 'Stripe üzerinden aylık faturalandırılır. İstediğiniz zaman iptal edin.',
+    perYear: '/ yıl',
+    monthly: 'Aylık',
+    yearly: 'Yıllık',
+    yearlySave: '2 ay ücretsiz',
+    billing: 'Stripe üzerinden aylık veya yıllık faturalandırılır. İstediğiniz zaman iptal edin.',
     stripeLabel: 'Stripe ile ödeme',
     cta: 'Araçları aç',
   },

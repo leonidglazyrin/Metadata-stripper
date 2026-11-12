@@ -100,7 +100,11 @@ export const ja: Translation = {
   },
   pricing: {
     perMonth: '/ 月',
-    billing: 'Stripeで毎月請求。いつでも解約できます。',
+    perYear: '/ 年',
+    monthly: '月払い',
+    yearly: '年払い',
+    yearlySave: '2か月分無料',
+    billing: 'Stripeで月払いまたは年払い。いつでも解約できます。',
     stripeLabel: 'Stripeによる決済',
     cta: 'ツールを開く',
   },

@@ -431,6 +431,107 @@ test('two plans: Basic unlocks on-device stripping, switching to Pro goes throug
   assert.equal(row.price_id, 'price_10');
 });
 
+test('yearly prices: checkout by interval, both prices map to the same plan, switch to yearly in the portal', async (t) => {
+  const subs = new Map();
+  const checkouts = [];
+  const portals = [];
+  const fetchImpl = async (url, init = {}) => {
+    if (url === 'https://api.stripe.com/v1/checkout/sessions') {
+      checkouts.push(new URLSearchParams(init.body));
+      return Response.json({ id: 'cs_y', url: 'https://checkout.stripe.com/c/cs_y' });
+    }
+    if (url === 'https://api.stripe.com/v1/billing_portal/sessions') {
+      portals.push(new URLSearchParams(init.body));
+      return Response.json({ url: 'https://billing.stripe.com/p/confirm' });
+    }
+    const m = url.match(/\/v1\/subscriptions\/(.+)$/);
+    if (m) return Response.json(subs.get(m[1]));
+    throw new Error(`unexpected ${url}`);
+  };
+  const s = await start({
+    config: config({
+      stripeKey: 'sk_test_x', stripeWebhookSecret: 'whsec_t',
+      stripePriceBasic: 'price_10', stripePricePro: 'price_20', stripePriceBasicYearly: 'price_100', stripePriceProYearly: 'price_200',
+    }),
+    fetchImpl,
+  });
+  t.after(s.close);
+  const hook = (event) => {
+    const body = JSON.stringify(event);
+    return s.call('POST', '/api/billing/webhook', { raw: body, headers: { 'content-type': 'application/json', 'stripe-signature': signed('whsec_t', body) } });
+  };
+  await s.call('GET', '/api/auth/dev?email=year@example.com');
+  let me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.plans.map((p) => [p.id, p.label, p.yearly?.label]), [['basic', '$10', '$100'], ['pro', '$20', '$200']]);
+
+  // Yearly Basic checkout uses the yearly price; no interval still means monthly.
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', interval: 'year', next: '/app/' } });
+  assert.equal(checkouts[0].get('line_items[0][price]'), 'price_100');
+  assert.equal(checkouts[0].get('subscription_data[metadata][interval]'), 'year');
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro', next: '/app/' } });
+  assert.equal(checkouts[1].get('line_items[0][price]'), 'price_20');
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro', interval: 'nonsense', next: '/app/' } });
+  assert.equal(checkouts[2].get('line_items[0][price]'), 'price_20');
+  const userId = checkouts[0].get('client_reference_id');
+
+  // The webhook maps the yearly price to Basic.
+  const periodEnd = Math.floor(Date.now() / 1000) + 365 * 86400;
+  subs.set('sub_y', { id: 'sub_y', customer: 'cus_y', status: 'active', items: { data: [{ id: 'si_y', price: { id: 'price_100' }, current_period_end: periodEnd }] } });
+  await hook({ id: 'evt_y1', type: 'checkout.session.completed', data: { object: { mode: 'subscription', client_reference_id: userId, customer: 'cus_y', subscription: 'sub_y' } } });
+  me = await s.call('GET', '/api/me');
+  assert.equal(me.data.plan, 'basic');
+  assert.equal(me.data.subscription.interval, 'year');
+  assert.equal(me.data.usage.strip.limit, null);
+
+  // Same plan and interval: no-op. Same plan, other interval: the portal's confirm page with the monthly price.
+  assert.equal((await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', interval: 'year', next: '/app/' } })).data.url, 'http://app.test/app/');
+  const toMonthly = await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', interval: 'month', next: '/app/' } });
+  assert.equal(toMonthly.data.url, 'https://billing.stripe.com/p/confirm');
+  assert.equal(portals.at(-1).get('flow_data[subscription_update_confirm][items][0][price]'), 'price_10');
+  // Upgrading to yearly Pro uses the yearly Pro price.
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'pro', interval: 'year', next: '/app/' } });
+  assert.equal(portals.at(-1).get('flow_data[subscription_update_confirm][items][0][price]'), 'price_200');
+  assert.equal(checkouts.length, 3);
+
+  subs.set('sub_y', { ...subs.get('sub_y'), items: { data: [{ id: 'si_y', price: { id: 'price_200' }, current_period_end: periodEnd }] } });
+  await hook({ id: 'evt_y2', type: 'customer.subscription.updated', data: { object: { id: 'sub_y', customer: 'cus_y' } } });
+  me = await s.call('GET', '/api/me');
+  assert.equal(me.data.plan, 'pro');
+  assert.equal(me.data.subscription.interval, 'year');
+
+  for (const [price, tier] of [['price_10', 'basic'], ['price_100', 'basic'], ['price_20', 'pro'], ['price_200', 'pro']]) {
+    assert.equal(s.accounts.tierForPrice(price), tier);
+  }
+  assert.equal(s.accounts.intervalForPrice('price_200'), 'year');
+  assert.equal(s.accounts.intervalForPrice('price_20'), 'month');
+});
+
+test('yearly is hidden and refused when its price is not set', async (t) => {
+  const s = await start({ config: config({ stripeKey: 'sk_test_x', stripePriceBasic: 'price_10', stripePricePro: 'price_20', stripePriceProYearly: 'price_200' }), fetchImpl: async () => { throw new Error('no Stripe call expected'); } });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev?email=noyear@example.com');
+  const me = await s.call('GET', '/api/me');
+  assert.deepEqual(me.data.plans.map((p) => [p.id, p.yearly?.label ?? null]), [['basic', null], ['pro', '$200']]);
+  const r = await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', interval: 'year' } });
+  assert.equal(r.status, 503);
+  assert.match(r.data.error, /yearly/);
+  assert.equal(loadConfig({ STRIPE_PRICE_ID_BASIC_YEARLY: 'py' }).stripePriceBasicYearly, 'py');
+});
+
+test('dev billing: yearly plans', async (t) => {
+  const s = await start({ config: config() });
+  t.after(s.close);
+  await s.call('GET', '/api/auth/dev');
+  assert.ok((await s.call('GET', '/api/me')).data.plans.every((p) => p.yearly));
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', interval: 'year' } });
+  let me = (await s.call('GET', '/api/me')).data;
+  assert.equal(me.plan, 'basic');
+  assert.equal(me.subscription.interval, 'year');
+  await s.call('POST', '/api/billing/checkout', { body: { plan: 'basic', interval: 'month' } });
+  me = (await s.call('GET', '/api/me')).data;
+  assert.equal(me.subscription.interval, 'month');
+});
+
 test('price to plan mapping, and a plan without a price cannot be bought', async (t) => {
   const s = await start({ config: config({ stripeKey: 'sk_test_x', stripePricePro: 'price_20', production: true }), fetchImpl: async () => { throw new Error('no Stripe call expected'); } });
   t.after(s.close);
@@ -586,7 +687,7 @@ test('dev billing: a strip pack adds 10 on-device strips after the free one, and
   r = await s.call('POST', '/api/usage/strip');
   assert.equal(r.status, 402);
   assert.equal(r.data.pack, true);
-  assert.match(r.data.error, /get 10 more for \$2/);
+  assert.match(r.data.error, /try 10 on-device strips for \$2/);
 
   const buy = await s.call('POST', '/api/billing/pack', { body: { next: '/app/#strip' } });
   assert.equal(buy.data.url, 'http://app.test/app/?pack=1#strip');

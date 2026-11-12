@@ -7,6 +7,7 @@ import { apiUrl, RequestError, requestJson } from './request';
 /** strip = on-device strip, server_strip = strip on our server. */
 export type Kind = 'strip' | 'server_strip' | 'download';
 export type PlanId = 'basic' | 'pro';
+export type Interval = 'month' | 'year';
 
 export interface Plan {
   id: PlanId;
@@ -15,6 +16,8 @@ export interface Plan {
   interval: string;
   /** False when the server has no Stripe price for it. */
   available: boolean;
+  /** The yearly price; null (or missing on older servers) when it isn't sold yearly. */
+  yearly?: { label: string; interval: string; available: boolean } | null;
 }
 
 export interface StripPack {
@@ -30,10 +33,17 @@ export interface Account {
   user: { email: string | null; name: string | null; picture: string | null } | null;
   plan: 'free' | PlanId;
   usage: Record<Kind, { used: number; limit: number | null }> | null;
-  subscription: { status: string; renewsAt: number | null; cancelAtPeriodEnd: boolean; manageable: boolean } | null;
+  subscription: {
+    status: string;
+    renewsAt: number | null;
+    cancelAtPeriodEnd: boolean;
+    /** How the current plan is billed. */
+    interval?: Interval;
+    manageable: boolean;
+  } | null;
   /** On-device strips left from strip packs, and packs bought; null signed out. */
   credits: { strip: number; packs: number } | null;
-  /** The one-time strip pack: `strips` more on-device strips for `label`. */
+  /** The one-time strip pack: `strips` on-device strips for `label`. */
   pack: StripPack;
   /** Free uses every account starts with; null on Pro or with no paywall. */
   free: Record<Kind, number> | null;
@@ -98,9 +108,9 @@ export async function signOut() {
   await refreshAccount();
 }
 
-/** Subscribe to a plan, or switch an existing subscription to it. */
-export async function startCheckout(plan: PlanId) {
-  const { url } = await requestJson<{ url: string }>('POST', '/api/billing/checkout', { plan, next: here() });
+/** Subscribe to a plan, or switch an existing subscription to it (or to its other billing interval). */
+export async function startCheckout(plan: PlanId, interval: Interval = 'month') {
+  const { url } = await requestJson<{ url: string }>('POST', '/api/billing/checkout', { plan, interval, next: here() });
   location.href = url;
 }
 
@@ -135,7 +145,7 @@ export function gateError(e: unknown, kind: Kind): unknown {
   openPaywall({ reason: e.status === 401 ? 'auth' : 'upgrade', kind: k, plan, pack });
   void refreshAccount();
   if (e.status === 401) return new Error('Sign in to keep going');
-  return new Error(`Free ${KIND_WORD[k]} used, upgrade to ${plan === 'basic' ? 'Basic' : 'Pro'}${pack ? ' or get a strip pack' : ''}`);
+  return new Error(`Free ${KIND_WORD[k]} used, upgrade to ${plan === 'basic' ? 'Basic' : 'Pro'}${pack ? ` or try ${state.account?.pack?.label ?? '$2'} strips` : ''}`);
 }
 
 /** Free uses left, or null when unlimited (Pro, or no paywall). */
