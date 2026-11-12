@@ -271,22 +271,7 @@ One container instance (`standard-2`) serves all traffic, because a download job
 
 ## Branch previews
 
-Workers Builds runs `npx wrangler preview` for every branch except main, which gives the branch its own URL. The `previews` block in `wrangler.jsonc` decides what a Preview gets, and nothing in it is production:
-
-- **Database:** `sharona-preview`, a separate D1 database shared by all Previews. Test accounts made on a Preview never reach the real one, and the real accounts aren't visible there.
-- **Container:** each Preview gets its own Durable Object namespace, container app and instance (Cloudflare does this because the class is declared under `previews`). It's a small one (`basic`, one instance) and sleeps after 5 minutes.
-- **Sign-in and billing:** Google and Stripe aren't set, so sign-in and checkout answer "not set up". Pages and the landing page work; the tools behind sign-in need Google set up for the Preview URL first.
-
-One-time setup (already done for `sharona-preview` unless you start over):
-
-```bash
-npx wrangler d1 create sharona-preview          # then put its id in wrangler.jsonc (previews) and wrangler.preview-migrations.jsonc
-npm run db:preview:migrate                      # every file in migrations/, on the preview database
-npx wrangler preview base-config secret put SESSION_SECRET        # a new value, not production's
-npx wrangler preview base-config secret put CLOUDFLARE_API_TOKEN  # D1 · Edit token (lets the container count server strips)
-```
-
-When you add a migration, run `npm run db:preview:migrate` as well as the production one. Delete a finished Preview with `npx wrangler preview delete --name <branch>`.
+Every branch except main gets its own Preview on Cloudflare, with a separate `sharona-preview` database, a small container of its own, dev sign-in and free test upgrades. Setup, what differs from production, and cleanup: [docs/previews.md](previews.md).
 
 ## Dev mode
 

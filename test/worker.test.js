@@ -311,3 +311,59 @@ test('the container refuses requests that did not come through the Worker', asyn
   assert.equal((await fetch(`${base}/`)).status, 403);
   assert.equal((await fetch(`${base}/api/health`, { headers: { 'x-sharona-internal': 'stamp' } })).status, 200);
 });
+
+// wrangler.jsonc without its comments (strings may contain "//").
+function wranglerConfig() {
+  const src = require('fs').readFileSync(path.join(__dirname, '..', 'wrangler.jsonc'), 'utf8');
+  return JSON.parse(src.replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m) => (m[0] === '"' ? m : '')));
+}
+
+test('branch previews never touch production resources, and production is unchanged', () => {
+  const c = wranglerConfig();
+  const prodDb = c.d1_databases[0].database_id;
+  // Production: Google sign-in and Stripe rules, its own database and domain.
+  assert.equal(c.vars.NODE_ENV, undefined);
+  assert.equal(c.vars.SITE_URL, 'https://metadata-stripper.synthidstripper.workers.dev');
+  assert.equal(c.vars.CLOUDFLARE_D1_DATABASE_ID, prodDb);
+  assert.equal(c.containers[0].instance_type, 'standard-2');
+  // Previews: a different database everywhere it is named.
+  const p = c.previews;
+  assert.equal(p.d1_databases.length, 1);
+  assert.equal(p.d1_databases[0].binding, 'DB');
+  assert.notEqual(p.d1_databases[0].database_id, prodDb);
+  assert.notEqual(p.d1_databases[0].database_name, c.d1_databases[0].database_name);
+  assert.equal(p.vars.CLOUDFLARE_D1_DATABASE_ID, p.d1_databases[0].database_id);
+  assert.equal(p.vars.SITE_URL, '');
+  assert.equal(p.vars.NODE_ENV, 'development');
+  // Own Durable Object namespace and container app, kept small.
+  assert.deepEqual(p.durable_objects.bindings, c.durable_objects.bindings);
+  assert.equal(p.containers[0].class_name, 'SharonaServer');
+  assert.equal(p.containers[0].max_instances, 1);
+  // The migrations config points at the same preview database.
+  const src = require('fs').readFileSync(path.join(__dirname, '..', 'wrangler.preview-migrations.jsonc'), 'utf8');
+  const m = JSON.parse(src.replace(/"(?:\\.|[^"\\])*"|\/\/[^\n]*/g, (x) => (x[0] === '"' ? x : '')));
+  assert.equal(m.d1_databases[0].database_id, p.d1_databases[0].database_id);
+  assert.equal(m.d1_databases[0].database_name, p.d1_databases[0].database_name);
+});
+
+test('a branch preview: dev sign-in and test upgrade, its own URL, kept out of search', async () => {
+  const { vars } = wranglerConfig().previews;
+  const s = await setup({ ...vars, SESSION_SECRET: SECRET });
+  const me = await (await s.call('GET', '/api/me')).json();
+  assert.equal(me.signIn, 'dev');
+  assert.deepEqual(me.dev, { auth: true, billing: true });
+  // Links use the request's own origin (SITE_URL is empty).
+  assert.match(await (await s.call('GET', '/app/')).text(), /https:\/\/sharona\.test/);
+  assert.equal(await (await s.call('GET', '/robots.txt')).text(), 'User-agent: *\nDisallow: /\n');
+  // Sign in without Google, upgrade without Stripe, then a download goes through.
+  const signIn = await s.call('GET', '/api/auth/dev?email=tester@preview&next=/app/');
+  assert.equal(signIn.status, 302);
+  const as = { cookie: signIn.headers.get('set-cookie').split(';')[0] };
+  assert.equal((await (await s.call('GET', '/api/me', { as })).json()).signedIn, true);
+  const up = await s.call('POST', '/api/billing/checkout', { as, body: JSON.stringify({ plan: 'pro' }), headers: { 'content-type': 'application/json' } });
+  assert.equal(up.status, 200);
+  assert.equal((await (await s.call('GET', '/api/me', { as })).json()).plan, 'pro');
+  assert.equal((await s.startDl(as)).status, 200);
+  assert.equal(s.reached.length, 1);
+  assert.equal(s.reached[0].secret, s.secret);
+});

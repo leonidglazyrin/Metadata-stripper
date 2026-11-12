@@ -177,7 +177,9 @@ test('wrangler.jsonc: local mode is set nowhere, and previews never touch produc
   assert.equal(p.d1_databases[0].binding, 'DB');
   assert.notEqual(p.d1_databases[0].database_id, prodDb);
   assert.equal(p.vars.CLOUDFLARE_D1_DATABASE_ID, p.d1_databases[0].database_id);
-  assert.equal(p.vars.PAYWALL, undefined);
+  // PAYWALL=off only reaches the preview container (the Worker ignores it and
+  // still requires sign-in), so the container needs no D1 token there.
+  assert.equal(p.vars.PAYWALL, 'off');
   for (const k of Object.keys(p.vars)) assert.doesNotMatch(k, /STRIPE|GOOGLE|SECRET|TOKEN|LOCAL/);
   assert.notEqual(p.vars.SITE_URL, c.vars.SITE_URL);
   assert.deepEqual(p.durable_objects.bindings, c.durable_objects.bindings);
