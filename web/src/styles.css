@@ -560,27 +560,36 @@ button, input { font: inherit; color: inherit; }
 
 /* Signed out: sign-in and plans above the tool, the tool itself greyed out. */
 .gate { display: grid; gap: 18px; border: 1.5px solid var(--blue); }
-.gate-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px 24px; }
 .gate .lede { margin-top: 6px; font-size: 15.5px; }
-.gate-cta { display: grid; gap: 8px; min-width: 240px; }
-.tool-locked .tool-body { opacity: 0.45; filter: grayscale(0.4); user-select: none; }
-.tool-locked .drop-plus { visibility: hidden; }
-/* Over the greyed-out tool: any click or tap on it opens sign-in. */
-.tool-stage { position: relative; }
-.tool-unlock {
-  position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center;
-  padding: 56px 16px 0; border: 0; border-radius: 18px; background: none; cursor: pointer; font: inherit;
+/* Signed out: the tool area is this sign-in card, not a drop zone or link field. */
+.tool-signin {
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px;
+  padding: 36px 24px 28px; border-radius: 22px; border: 1.5px solid var(--blue); background: var(--blue-soft);
 }
-.tool-unlock-hint {
-  display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 999px;
-  background: var(--blue); color: #fff; font-weight: 700; font-size: 15px;
+.tool-signin-badge {
+  display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px;
+  background: var(--blue); color: #fff; box-shadow: 0 6px 18px rgba(26, 109, 255, 0.3);
+}
+.tool-signin-title { margin: 6px 0 0; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; color: var(--ink); }
+.tool-signin-text { margin: 0; max-width: 460px; font-size: 15.5px; color: var(--soft); }
+.signin-big {
+  display: inline-flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px;
+  min-width: 280px; padding: 6px 24px 6px 6px; border: 0; border-radius: 999px;
+  background: var(--blue); color: #fff; font: inherit; font-weight: 700; font-size: 16.5px; cursor: pointer;
   box-shadow: 0 6px 18px rgba(26, 109, 255, 0.3); transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
-.tool-unlock:hover .tool-unlock-hint, .tool-unlock:focus-visible .tool-unlock-hint { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(26, 109, 255, 0.4); }
+.signin-big-g { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 999px; background: #fff; }
+.signin-big:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(26, 109, 255, 0.4); }
+.signin-big:disabled { opacity: 0.6; cursor: default; transform: none; }
+.tool-signin-fine { margin: 2px 0 0; font-size: 13.5px; color: var(--soft); }
+.tool-signin-fine a { color: var(--blue); font-weight: 600; }
+/* Until the account check answers: the size of the sign-in card, empty. */
+.tool-pending { min-height: 300px; border-radius: 22px; background: #f8fafc; }
 
 @media (max-width: 560px) {
-  .gate-top { grid-template-columns: minmax(0, 1fr); }
-  .gate-cta { min-width: 0; }
+  .tool-signin { padding: 28px 16px 22px; }
+  .tool-signin-title { font-size: 20px; }
+  .signin-big { min-width: 0; width: 100%; }
   .acct-signin, .acct-upgrade { padding: 7px 12px; font-size: 13.5px; }
   .acct-avatar { width: 32px; height: 32px; }
   .acct-left { display: none; }

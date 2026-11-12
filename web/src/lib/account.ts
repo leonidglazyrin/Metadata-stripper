@@ -70,11 +70,13 @@ export interface Paywall {
 
 interface State {
   account: Account | null;
+  /** The first /api/me attempt has finished (answered or given up). */
+  loaded: boolean;
   paywall: Paywall | null;
   notice: string | null;
 }
 
-let state: State = { account: null, paywall: null, notice: null };
+let state: State = { account: null, loaded: false, paywall: null, notice: null };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<State>) => {
   state = { ...state, ...patch };
@@ -108,6 +110,7 @@ export async function refreshAccount() {
       await new Promise((ok) => setTimeout(ok, 500 * 2 ** i));
     }
   }
+  if (!state.loaded) set({ loaded: true });
   return state.account;
 }
 
