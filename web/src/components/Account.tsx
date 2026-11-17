@@ -17,6 +17,7 @@ import {
   type Plan,
   type PlanId,
 } from '../lib/account';
+import { load, save } from '../lib/storage';
 
 export function GoogleLogo({ size = 18 }: { size?: number }) {
   return (
@@ -476,6 +477,48 @@ export function SignInGate({ downloads }: { downloads?: boolean }) {
         </p>
       )}
     </section>
+  );
+}
+
+const BANNER_KEY = 'upgradeBannerHiddenUntil';
+const DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Under the top bar, for a signed-in account below Pro: one slim line on what
+ * the next plan adds. Never shown on Pro or signed out (signed out gets the
+ * sign-in card and plans instead). Closing it hides it for a day.
+ */
+export function UpgradeBanner({ downloads }: { downloads: boolean }) {
+  const { account: a } = useAccountState();
+  const [hidden, setHidden] = useState(() => load<number>(BANNER_KEY, 0) > Date.now());
+  if (hidden || !a?.paywall || !a.signedIn || a.plan === 'pro') return null;
+  const pro = planOf(a, 'pro');
+  const basic = planOf(a, 'basic');
+  const toBasic = a.plan === 'free' && !downloads;
+  const text =
+    a.plan === 'basic'
+      ? <><b>Pro</b> adds unlimited downloads from YouTube, X, Instagram and TikTok, and server stripping about 4x faster.</>
+      : toBasic
+        ? <><b>Basic</b> gives you unlimited on-device stripping for {basic.label}/month. <b>Pro</b> adds faster server strips and downloads.</>
+        : <><b>Pro</b>: unlimited downloads from YouTube, X, Instagram and TikTok, {pro.label}/month.</>;
+  const close = () => {
+    save(BANNER_KEY, Date.now() + DAY);
+    setHidden(true);
+  };
+  return (
+    <aside className="upsell" aria-label="Upgrade">
+      <span className="upsell-text">{text}</span>
+      <button
+        type="button"
+        className="upsell-cta"
+        onClick={() => openPaywall({ reason: 'upgrade', plan: toBasic ? 'basic' : 'pro' })}
+      >
+        {a.plan === 'basic' ? 'Upgrade to Pro' : 'See plans'}
+      </button>
+      <button type="button" className="upsell-x" aria-label="Hide for today" title="Hide for today" onClick={close}>
+        ×
+      </button>
+    </aside>
   );
 }
 

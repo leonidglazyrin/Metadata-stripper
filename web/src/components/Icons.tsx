@@ -109,6 +109,14 @@ const PhotoGlyph = () => (
   </g>
 );
 
+// Meli-melo: two crossing arrows, a shuffle.
+const MixGlyph = () => (
+  <g fill="none" stroke="#fff" strokeWidth="4.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 23h7c8 0 10 18 18 18h7M16 41h7c3 0 5-2.5 6.6-5.5M34.4 28.5C36 25.5 38 23 41 23h7" />
+    <path d="m43 17 6 6-6 6M43 35l6 6-6 6" />
+  </g>
+);
+
 const SparkGlyph = () => (
   <path d="M32 14c2 10 7 15 18 18-11 3-16 8-18 18-2-10-7-15-18-18 11-3 16-8 18-18z" fill="#fff" />
 );
@@ -121,6 +129,7 @@ export const TOOL_COLORS: Record<ToolId, [string, string]> = {
   x: ['#3a4250', '#0b0f17'],
   instagram: ['#ffb341', '#c026d3'],
   tiktok: ['#323a48', '#05070b'],
+  mix: ['#a78bfa', '#6d28d9'],
 };
 
 const GLYPHS: Record<ToolId, () => ReactNode> = {
@@ -129,6 +138,7 @@ const GLYPHS: Record<ToolId, () => ReactNode> = {
   x: XGlyph,
   instagram: CameraGlyph,
   tiktok: NoteGlyph,
+  mix: MixGlyph,
 };
 
 export function ToolIcon({ tool, size }: { tool: ToolId; size?: number }) {
