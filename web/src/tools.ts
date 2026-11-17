@@ -1,5 +1,8 @@
-export type ToolId = 'strip' | 'youtube' | 'x' | 'instagram' | 'tiktok';
-export type Platform = Exclude<ToolId, 'strip'>;
+export type ToolId = 'strip' | 'youtube' | 'x' | 'instagram' | 'tiktok' | 'mix';
+/** A site we download from. */
+export type Platform = Exclude<ToolId, 'strip' | 'mix'>;
+/** A downloader tab: one site, or the mix of all four. */
+export type DownloaderId = Exclude<ToolId, 'strip'>;
 
 export interface ToolInfo {
   id: ToolId;
@@ -46,6 +49,34 @@ export const TOOLS: ToolInfo[] = [
     blurb: 'Paste TikTok links, including vm. and vt. short links, and get the video back.',
     placeholder: 'Paste a TikTok link',
   },
+  {
+    id: 'mix',
+    chip: 'Meli-melo',
+    title: ['Any link.', 'One list.'],
+    blurb: 'Paste YouTube, X, Instagram and TikTok links in any mix and any number. Each one goes to the right downloader.',
+    placeholder: 'Paste any YouTube, X, Instagram or TikTok link',
+  },
 ];
 
 export const toolById = (id: string) => TOOLS.find((t) => t.id === id);
+
+// The same hosts the server accepts (server/platforms.js), so Meli-melo can
+// send each link to its own downloader. The server checks them again.
+const HOSTS: Record<Platform, RegExp> = {
+  youtube: /(^|\.)(youtube\.com|youtu\.be|youtube-nocookie\.com)$/i,
+  x: /(^|\.)(x\.com|twitter\.com|fxtwitter\.com|vxtwitter\.com|fixupx\.com)$/i,
+  instagram: /(^|\.)(instagram\.com|instagr\.am)$/i,
+  tiktok: /(^|\.)tiktok\.com$/i,
+};
+export const PLATFORM_LABEL: Record<Platform, string> = { youtube: 'YouTube', x: 'X', instagram: 'Instagram', tiktok: 'TikTok' };
+
+/** Which site a link is from, or null when it's none of the four. */
+export function platformOf(url: string): Platform | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return null;
+  }
+  return (Object.keys(HOSTS) as Platform[]).find((p) => HOSTS[p].test(host)) ?? null;
+}

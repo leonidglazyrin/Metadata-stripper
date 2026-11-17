@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
-import { useJobs, type Runner } from '../lib/jobs';
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useJobs, type Job, type Runner } from '../lib/jobs';
 import { apiUrl, formatSize, getBlob, RequestError, requestJson } from '../lib/request';
 import { gateError, preflight, refreshAccount, useAccountState } from '../lib/account';
 import { load, save, useStored } from '../lib/storage';
-import type { Platform, ToolInfo } from '../tools';
-import { IconClose, ToolIcon } from './Icons';
-import JobList from './JobList';
+import { platformOf, PLATFORM_LABEL, type DownloaderId, type Platform, type ToolInfo } from '../tools';
+import { IconClose } from './Icons';
+import DownloadList, { type Post } from './DownloadList';
 import { videoFrame } from '../lib/thumb';
 
-type Mode = 'video' | 'audio';
-interface Input {
+export type Mode = 'video' | 'audio';
+export interface Input {
   url: string;
   mode: Mode;
+  /** The site the link is from; null when it's none we support (the row only shows the error). */
+  platform: Platform | null;
   /** Server job id of a finished video of the same post: the audio is taken from it */
   from?: string;
 }
@@ -58,6 +60,7 @@ interface SavedRow {
   id: string;
   url: string;
   mode: Mode;
+  platform?: Platform | null;
   name: string;
   /** The server's job id, once it has one */
   serverId?: string;
@@ -90,10 +93,42 @@ const loadImage = (src: string) =>
   });
 
 const shortUrl = (u: string) => u.replace(/^https?:\/\/(www\.|m\.)?/, '');
+const NOT_SUPPORTED = 'Not a YouTube, X, Instagram or TikTok link';
+const ext = (mode: Mode) => (mode === 'audio' ? 'm4a' : 'mp4');
+
+/** Save a finished file. Spaced out, since browsers drop clicks that come too fast. */
+let nextSave = 0;
+function saveFile(result: { url: string; filename: string }) {
+  const at = Math.max(Date.now(), nextSave);
+  nextSave = at + 300;
+  setTimeout(() => {
+    const a = document.createElement('a');
+    a.href = result.url;
+    a.download = result.filename;
+    a.click();
+  }, at - Date.now());
+}
 
 export default function DownloadTool({ tool }: { tool: ToolInfo }) {
-  const platform = tool.id as Platform;
-  const [mode, setMode] = useStored<Mode>(`mode:${platform}`, 'video');
+  // One site's tab, or 'mix' (Meli-melo): any of the four, each link sent to
+  // its own site's downloader.
+  const tab = tool.id as DownloaderId;
+  const mixed = tab === 'mix';
+  /** The site a link goes to on this tab; null when it can't go anywhere. */
+  const routeOf = (url: string): Platform | null => {
+    const p = platformOf(url);
+    return mixed ? p : p && p !== tab ? p : (tab as Platform);
+  };
+  /** Why a link can't be fetched on this tab, or null when it can. Checked before anything is sent. */
+  const blocked = (platform: Platform | null) =>
+    !platform
+      ? NOT_SUPPORTED
+      : !mixed && platform !== tab
+        ? `That’s a ${PLATFORM_LABEL[platform]} link. Open the ${PLATFORM_LABEL[platform]} tab, or Meli-melo for a mix.`
+        : null;
+  // Switching this only changes what the page shows and what the next click
+  // fetches. It never starts anything on the server by itself.
+  const [mode, setMode] = useStored<Mode>(`mode:${tab}`, 'video');
   const [fields, setFields] = useState<string[]>(['']);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
   const focusNext = useRef<number | null>(null);
@@ -157,15 +192,20 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
   const { account } = useAccountState();
   const who = account ? (account.signedIn ? account.user?.email || 'account' : '') : null;
   const synced = Boolean(account?.paywall && account.signedIn);
-  const storeKey = who ? `downloads:${platform}:${who}` : `downloads:${platform}`;
+  const keyFor = (t: DownloaderId) => (who ? `downloads:${t}:${who}` : `downloads:${t}`);
+  const storeKey = keyFor(tab);
 
   const runner: Runner<Input> = async (job, update, signal) => {
+    const platform = job.input.platform;
+    const why = blocked(platform);
+    if (why || !platform) throw new Error(why ?? NOT_SUPPORTED);
     let id = serverIds.current.get(job.id);
     const resumed = Boolean(id);
     if (!id) {
       update({ message: 'Starting on the server…', progress: null });
       try {
-        id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, { ...job.input, rowId: job.id }, signal)).id;
+        const { url, mode, from } = job.input;
+        id = (await requestJson<{ id: string }>('POST', `/api/download/${platform}/jobs`, { url, mode, ...(from ? { from } : {}), rowId: job.id }, signal)).id;
       } catch (e) {
         throw gateError(e, 'download');
       }
@@ -232,7 +272,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         status: 'done',
         progress: 1,
         message: `${kind}${s.size ? ` · ${formatSize(s.size)}` : ''}${s.expiresAt ? ` · on the server until ${clock(s.expiresAt)}` : ''}`,
-        result: { url: apiUrl(`${base}/file`), filename: s.filename ?? `${platform}.${job.input.mode === 'audio' ? 'm4a' : 'mp4'}` },
+        result: { url: apiUrl(`${base}/file`), filename: s.filename ?? `${platform}.${ext(job.input.mode)}` },
       });
       return;
     }
@@ -248,7 +288,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       }
       throw e;
     }
-    const filename = res.filename ?? `${platform}.${job.input.mode === 'audio' ? 'm4a' : 'mp4'}`;
+    const filename = res.filename ?? `${platform}.${ext(job.input.mode)}`;
     update({
       status: 'done',
       progress: 1,
@@ -274,6 +314,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       id: j.id,
       url: j.input.url,
       mode: j.input.mode,
+      platform: j.input.platform,
       ...(j.input.from ? { from: j.input.from } : {}),
       name: j.name,
       serverId: serverIds.current.get(j.id),
@@ -299,12 +340,19 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     (async () => {
       const local = load<SavedRow[]>(storeKey, []);
       let saved: SavedRow[] = Array.isArray(local) ? local : [];
-      if (synced) {
+      // The server keeps rows per site. Meli-melo's rows are kept on the site
+      // they went to, and this browser remembers which ones were Meli-melo's
+      // so they show there and not twice. (On another device they show on
+      // their own site's tab.)
+      if (synced && !mixed) {
         try {
-          const h = await requestJson<{ enabled: boolean; rows: HistoryRow[] }>('GET', `/api/download/history/${platform}`);
+          const h = await requestJson<{ enabled: boolean; rows: HistoryRow[] }>('GET', `/api/download/history/${tab}`);
           if (h.enabled) {
-            const onServer = new Set(h.rows.map((r) => r.id));
-            const fromServer: SavedRow[] = h.rows.map((r) => ({
+            const mixRows = load<SavedRow[]>(keyFor('mix'), []);
+            const inMix = new Set(Array.isArray(mixRows) ? mixRows.map((r) => r.id) : []);
+            const rows = h.rows.filter((r) => !inMix.has(r.id));
+            const onServer = new Set(rows.map((r) => r.id));
+            const fromServer: SavedRow[] = rows.map((r) => ({
               id: r.id,
               url: r.url,
               mode: r.mode,
@@ -328,7 +376,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
         add(
           [...saved].reverse().map((r) => ({
             id: r.id,
-            input: { url: r.url, mode: r.mode, ...(r.from ? { from: r.from } : {}) },
+            input: { url: r.url, mode: r.mode, platform: r.platform !== undefined ? r.platform : routeOf(r.url), ...(r.from ? { from: r.from } : {}) },
             name: r.name,
             // Server job: poll it now. Failed row: just show it. Never started: queue it.
             immediate: Boolean(r.serverId),
@@ -344,7 +392,7 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
       clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [who, platform]);
+  }, [who, tab]);
 
   // Server links stop working when the server purges the file.
   useEffect(() => {
@@ -365,16 +413,27 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     const sid = serverIds.current.get(id);
     serverIds.current.delete(id);
     expiry.current.delete(id);
+    autoSave.current.delete(id);
     if (sid) void requestJson('DELETE', `/api/download/jobs/${sid}`).catch(() => {});
   };
-  const onRemove = (id: string) => {
-    dropOnServer(id);
-    if (synced) void requestJson('DELETE', `/api/download/history/${platform}/${id}`).catch(() => {});
-    remove(id);
+  const dropHistory = (j: Job<Input>) => {
+    if (synced && j.input.platform) void requestJson('DELETE', `/api/download/history/${j.input.platform}/${j.id}`).catch(() => {});
+  };
+  /** Remove a link: both its formats go. */
+  const onRemove = (url: string) => {
+    for (const j of jobsRef.current.filter((k) => k.input.url === url)) {
+      dropOnServer(j.id);
+      dropHistory(j);
+      remove(j.id);
+    }
   };
   const onClear = () => {
     for (const j of jobsRef.current) dropOnServer(j.id);
-    if (synced) void requestJson('DELETE', `/api/download/history/${platform}`).catch(() => {});
+    if (synced) {
+      // A site's tab clears that site's history; Meli-melo only its own rows.
+      if (mixed) jobsRef.current.forEach(dropHistory);
+      else void requestJson('DELETE', `/api/download/history/${tab}`).catch(() => {});
+    }
     clear();
   };
   const onRetry = async (id: string) => {
@@ -383,38 +442,125 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
     retry(id);
   };
 
-  // A finished row in the other format than the switch: offer that format of
-  // the same post. Audio from a video comes out of the file the server
-  // already has; anything else is a fresh download.
-  const canSwitch = (j: (typeof jobs)[number]) =>
-    j.status === 'done' &&
-    j.input.mode !== mode &&
-    !jobs.some((k) => k.input.url === j.input.url && k.input.mode === mode && k.status !== 'error');
-  const onSwitch = (id: string) => {
-    const j = jobsRef.current.find((k) => k.id === id);
-    if (!j) return;
-    const from = mode === 'audio' && j.input.mode === 'video' ? serverIds.current.get(j.id) : undefined;
-    add([
+  // One row per link. The row shows the link in the format picked above: a
+  // finished audio row stays hidden while Video is picked, and the other way
+  // round. A link not fetched in this format yet shows a "Get" button; only a
+  // click on it (or on Download all) asks the server for anything.
+  const posts = useMemo<Post[]>(() => {
+    const byUrl = new Map<string, Job<Input>[]>();
+    // Oldest first, so a link keeps its place when its other format is added.
+    for (const j of [...jobs].reverse()) {
+      const list = byUrl.get(j.input.url);
+      if (list) list.push(j);
+      else byUrl.set(j.input.url, [j]);
+    }
+    return [...byUrl.entries()].reverse().map(([url, list]) => {
+      const newest = [...list].reverse();
+      const other = newest.find((j) => j.input.mode !== mode);
+      const platform = newest[0].input.platform;
+      const no = Boolean(blocked(platform));
+      // A link that can't be fetched shows why, whichever format is picked.
+      const cur = newest.find((j) => j.input.mode === mode) ?? (no ? other : undefined);
+      return { url, platform, cur, other, blocked: no };
+    });
+  }, [jobs, mode]);
+
+  /** Rows to save to disk once they're ready (Download all). */
+  const autoSave = useRef(new Set<string>());
+  useEffect(() => {
+    for (const j of jobs) {
+      if (!autoSave.current.has(j.id)) continue;
+      if (j.status === 'done' && j.result) {
+        autoSave.current.delete(j.id);
+        saveFile(j.result);
+      } else if (j.status === 'error') autoSave.current.delete(j.id);
+    }
+  }, [jobs]);
+
+  /** Fetch a link in the picked format (or retry it if that failed). */
+  const fetchPost = (post: Post, save = false) => {
+    if (blocked(post.platform)) return;
+    if (post.cur) {
+      if (post.cur.status === 'error') {
+        expiry.current.delete(post.cur.id);
+        retry(post.cur.id);
+        if (save) autoSave.current.add(post.cur.id);
+      } else if (save && post.cur.status !== 'done') autoSave.current.add(post.cur.id);
+      return;
+    }
+    const src = post.other;
+    // Audio of a video the server already has comes out of that file.
+    const from = mode === 'audio' && src?.input.mode === 'video' && src.status === 'done' ? serverIds.current.get(src.id) : undefined;
+    const [id] = add([
       {
-        input: { url: j.input.url, mode, ...(from ? { from } : {}) },
-        name: j.name,
+        input: { url: post.url, mode, platform: post.platform, ...(from ? { from } : {}) },
+        name: src?.name ?? shortUrl(post.url),
         // Blob previews belong to their row and are revoked with it.
-        preview: j.preview && !j.preview.startsWith('blob:') ? j.preview : undefined,
+        preview: src?.preview && !src.preview.startsWith('blob:') ? src.preview : undefined,
       },
     ]);
+    if (save) autoSave.current.add(id);
+  };
+  const onFetch = async (url: string) => {
+    const post = posts.find((p) => p.url === url);
+    if (!post || !(await preflight('download'))) return;
+    fetchPost(post);
+  };
+
+  /** Every link in the picked format: saves the ready ones and fetches the rest, saving each as it lands. */
+  const onDownloadAll = async () => {
+    const toFetch = posts.filter((p) => !blocked(p.platform) && (!p.cur || p.cur.status === 'waiting' || p.cur.status === 'active'));
+    if (toFetch.some((p) => !p.cur) && !(await preflight('download'))) return;
+    for (const p of posts) if (p.cur?.status === 'done' && p.cur.result) saveFile(p.cur.result);
+    for (const p of toFetch) fetchPost(p, true);
   };
 
   const submit = async () => {
     if (!urls.length) return refs.current[0]?.focus();
     // Signed out or out of free downloads: say so before sending anything.
     if (!(await preflight('download'))) return;
-    add(urls.map((url) => ({ input: { url, mode }, name: shortUrl(url) })));
+    const fresh: string[] = [];
+    for (const url of urls) {
+      const post = posts.find((p) => p.url === url);
+      // Already in the list: fetch it in this format if it isn't yet.
+      if (post) fetchPost(post);
+      else fresh.push(url);
+    }
+    add(
+      fresh.map((url) => {
+        const platform = routeOf(url);
+        const why = blocked(platform);
+        return {
+          input: { url, mode, platform },
+          name: shortUrl(url),
+          // Not a link this tab can fetch: show why, send nothing.
+          ...(why ? { status: 'error' as const, message: why } : {}),
+        };
+      }),
+    );
     setFields(['']);
     focusNext.current = 0;
   };
 
+  const noun = mode === 'audio' ? 'audio' : urls.length > 1 ? 'videos' : 'video';
+
   return (
     <>
+      <div className="options format-row">
+        <div className="segmented format" role="radiogroup" aria-label="What to download">
+          {(['video', 'audio'] as const).map((m) => (
+            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}>
+              {m === 'video' ? <IconFilm /> : <IconNote />}
+              {m === 'video' ? 'Video' : 'Audio'}
+              <small>{m === 'video' ? 'MP4' : 'M4A'}</small>
+            </button>
+          ))}
+        </div>
+        <small className="options-note">
+          Public videos only. Switching format fetches nothing until you download.
+        </small>
+      </div>
+
       <form
         className="paste"
         autoComplete="off"
@@ -453,32 +599,35 @@ export default function DownloadTool({ tool }: { tool: ToolInfo }) {
           })}
         </div>
         <button className="go" type="submit" disabled={!urls.length}>
-          {urls.length > 1 ? `Download ${urls.length}` : 'Download'}
+          {urls.length > 1 ? `Download ${urls.length} ${noun}` : `Download ${noun}`}
         </button>
       </form>
 
-      <div className="options">
-        <div className="segmented" role="radiogroup" aria-label="What to save">
-          {(['video', 'audio'] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}>
-              {m === 'video' ? 'Video' : 'Audio only'}
-            </button>
-          ))}
-        </div>
-        <small className="options-note">Public videos only. Private videos aren’t available.</small>
-      </div>
-
-      <JobList
-        jobs={jobs}
-        icon={<ToolIcon tool={platform} size={26} />}
-        linkOf={(j) => (j.input as Input).url}
+      <DownloadList
+        posts={posts}
+        mode={mode}
+        tool={tab}
         onRemove={onRemove}
         onRetry={(id) => void onRetry(id)}
+        onFetch={(url) => void onFetch(url)}
+        onDownloadAll={() => void onDownloadAll()}
         onClear={onClear}
-        switchLabel={mode === 'audio' ? 'Get audio' : 'Get video'}
-        canSwitch={(j) => canSwitch(j as (typeof jobs)[number])}
-        onSwitch={onSwitch}
       />
     </>
   );
 }
+
+const IconFilm = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="5" width="18" height="14" rx="3" />
+    <path d="m10 9.5 4.5 2.5-4.5 2.5z" fill="currentColor" />
+  </svg>
+);
+
+const IconNote = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M9 18V6l11-2v12" />
+    <circle cx="6.5" cy="18" r="2.5" />
+    <circle cx="17.5" cy="16" r="2.5" />
+  </svg>
+);
