@@ -23,17 +23,22 @@ export default function App() {
     void initAccount();
   }, []);
 
-  // On a phone the tabs scroll sideways: keep the open one in view.
   const tabs = useRef<HTMLElement>(null);
+  // Phones: the tools fold into a burger menu under the top bar.
+  const [menu, setMenu] = useState(false);
+  const menuBox = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const bar = tabs.current;
-    const chip = document.getElementById(`chip-${active}`);
-    if (!bar || !chip || bar.scrollWidth <= bar.clientWidth) return;
-    const left = chip.offsetLeft; // .tabs is position: relative
-    if (left < bar.scrollLeft || left + chip.offsetWidth > bar.scrollLeft + bar.clientWidth) {
-      bar.scrollTo({ left: left - 12, behavior: 'smooth' });
-    }
-  }, [active]);
+    if (!menu) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !(e.target as Element).closest('.tool-menu, .burger-btn')) setMenu(false);
+    };
+    addEventListener('mousedown', close);
+    addEventListener('keydown', close);
+    return () => {
+      removeEventListener('mousedown', close);
+      removeEventListener('keydown', close);
+    };
+  }, [menu]);
 
   useEffect(() => {
     save('tool', active);
@@ -70,21 +75,59 @@ export default function App() {
               id={`chip-${t.id}`}
               type="button"
               role="tab"
-              className="chip"
+              className="tab"
               aria-selected={t.id === active}
               aria-controls={`panel-${t.id}`}
+              aria-label={t.chip}
+              data-label={t.chip}
               tabIndex={t.id === active ? 0 : -1}
               onClick={() => setActive(t.id)}
               onKeyDown={(e) => onChipKey(e, i)}
             >
-              <ToolIcon tool={t.id} size={22} />
-              {t.chip}
+              <ToolIcon tool={t.id} size={30} />
             </button>
           ))}
         </nav>
         <div className="topbar-acct">
           <AccountBar />
+          <button
+            type="button"
+            className="burger-btn"
+            aria-label={menu ? 'Close tools menu' : 'Open tools menu'}
+            aria-expanded={menu}
+            aria-controls="tool-menu"
+            onClick={() => setMenu(!menu)}
+          >
+            <ToolIcon tool={active} size={26} />
+            <span className={`burger${menu ? ' open' : ''}`} aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </button>
         </div>
+        {menu && (
+          <div id="tool-menu" className="tool-menu" ref={menuBox}>
+            {TOOLS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className="tool-menu-item"
+                aria-current={t.id === active ? 'page' : undefined}
+                onClick={() => {
+                  setActive(t.id);
+                  setMenu(false);
+                }}
+              >
+                <ToolIcon tool={t.id} size={30} />
+                {t.chip}
+              </button>
+            ))}
+            <a className="tool-menu-item tool-menu-home" href="/">
+              Home
+            </a>
+          </div>
+        )}
       </header>
       <AccountNotice />
       <UpgradeBanner downloads={active !== 'strip'} />
